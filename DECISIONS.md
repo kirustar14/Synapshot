@@ -254,3 +254,33 @@ Every call made without asking. Newest phase at the bottom.
   it is idempotent and safe to call repeatedly from a cron or by hand.
 - The clinic call says the update twice with a pause between, because a human writing it
   down needs it twice.
+
+## Phase 7: API
+
+- CORS is open to all origins with credentials off, which is what the Lovable frontend
+  needs and is safe only because every patient in this build is synthetic.
+- `GET /patients/{id}/checkins` returns check-ins with `gaze` as an empty list, per the
+  contract note, and `GET /checkins/{cid}` returns the full traces. Each trace is thinned
+  to at most 600 samples on the way into the database, not on the way out.
+- `Patient.last_call` is the full most recent Checkin object, including its gaze traces,
+  because the contract types it as `Checkin | null` rather than a summary.
+- `POST /checkins/{cid}/rescore` refuses with a 400 when the quality gate blocked the eye
+  tasks on that call. The gaze traces are still stored for those calls so the frontend can
+  show what was seen, but rescoring one would put back a number that was deliberately not
+  reported.
+- `rescore` only handles the tasks that can honestly be recomputed from stored gaze:
+  pursuit and fixation. Saccade and antisaccade need the per trial flash times, which are
+  not in the trace, so asking for those returns a 400 rather than a wrong number.
+- `POST /checkins/{cid}/unusable` deletes that week's observations and rebuilds the
+  forecast, so marking a call unusable actually removes it from the twin.
+- `POST /demo/trigger-call` starts the call on a background thread and returns
+  immediately. A call takes 14 minutes on the real rig and no HTTP client should hold a
+  connection open for that.
+- Gait and hearing from `POST /stretch/{token}` are appended to the latest check-in as
+  tier B features rather than getting a new contract field, which keeps the frontend
+  contract untouched.
+- `GET /cohort` seeds on demand when `cohort.json` is missing, so a fresh clone can serve
+  the cohort view without a separate step.
+- Two routes return a file or JSON depending on what exists on disk, so they are declared
+  with `response_model=None`. FastAPI cannot build a response model from a union of two
+  Response classes.
