@@ -73,7 +73,7 @@ full mock mode. Set `MOCK_X=0` to force a real path.
 | `MOCK_LLM` | on unless `ANTHROPIC_API_KEY` | Uses template lines instead of calling Claude. |
 | `MOCK_PHOTON` | on unless `PHOTON_API_KEY` | Writes iMessages to the database instead of sending them. |
 | `MOCK_TWILIO` | on unless all four Twilio keys | Logs the clinic call script instead of dialling. |
-| `OFFLINE` | `1` | Skips any template loader that would download an atlas. Set to `0` once to fetch the real Schaefer atlas and the MediaPipe model. |
+| `OFFLINE` | `0` | Uses the real Schaefer atlas, the real HCP connectivity and the real Allen gene map. `1` skips every loader that could touch the network and runs on the modelled template. |
 | `REACH` | `1` | Reach features on. |
 | `USE_SBI` | `0` | Swaps the emulator table inversion for an `sbi` neural posterior, if `sbi` is installed. |
 | `CLAUDE_MODEL` | `claude-sonnet-5` | Any current model id. |
@@ -136,6 +136,13 @@ Read this before showing anyone a number.
 - **The APOE prior is a hypothesis.** The literature on APOE e4 and TBI recovery is mixed.
   The prior mean is small, positive and easily covers zero. The BDNF term carries no
   direction at all, it only widens the variance. Nothing here is evidence about either.
+- **The model fits real FC at r = 0.205.** The brain template is real: Schaefer-100
+  centroids and labels from nilearn, HCP diffusion and resting state connectivity from the
+  ENIGMA toolbox, and an E:I map from Allen Human Brain Atlas gene expression. The model's
+  predicted functional connectivity correlates with the real HCP functional connectivity at
+  r = 0.205, with nothing tuned beyond the global coupling. Published whole brain fits
+  reach 0.3 to 0.5 with per subject tuning, so this is in the right direction and not yet
+  competitive. `make check` prints this number.
 - **The DMF constants are from memory.** The reduced Wong-Wang values should be checked
   against cubnm before anyone trusts a firing rate. Feedback inhibition had to be added to
   get a usable working point at all, and the target rate is 1.2 Hz rather than the 3 Hz
@@ -194,5 +201,6 @@ Numbers from the current build, all reproducible with `make seed` and `make test
 | Pursuit gain | worst error 0.0027 on synthetic gaze | within 0.05 |
 | Safety | no patient facing string contains a banned phrase | none |
 | Contract | every endpoint returns every named field | all |
-| `make seed` | 20 s from a clean checkout | under 10 minutes |
+| Model FC against real HCP FC | r = 0.205, untuned beyond G | a real benchmark, not a target |
+| `make seed` | 50 s from a clean checkout | under 10 minutes |
 | `make test` | 29 s, 76 tests | under 3 minutes |

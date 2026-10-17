@@ -52,9 +52,11 @@ class Cfg:
         )
     )
     reach: bool = field(default_factory=lambda: os.environ.get("REACH", "1") not in ("0", ""))
-    # Offline by default: template loaders that would download an atlas are skipped so a
-    # demo never blocks on the conference wifi. Set OFFLINE=0 to fetch the real atlases.
-    offline: bool = field(default_factory=lambda: os.environ.get("OFFLINE", "1") not in ("0", ""))
+    # Real atlases by default. The Schaefer parcellation is cached under ~/nilearn_data
+    # after the first fetch and the HCP connectivity ships inside enigmatoolbox, so this
+    # only touches the network once. Every loader falls back on failure, so OFFLINE=1
+    # (or no wifi) still gives a working demo on the modelled template.
+    offline: bool = field(default_factory=lambda: os.environ.get("OFFLINE", "0") not in ("0", ""))
     use_sbi: bool = field(default_factory=lambda: os.environ.get("USE_SBI", "0") not in ("0", ""))
 
     # The brief asks for a default of claude-sonnet-5-5, which is not a model that

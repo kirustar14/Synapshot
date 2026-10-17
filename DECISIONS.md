@@ -333,3 +333,38 @@ degrades rather than breaks.
 | Drift injection | `POST /api/demo/inject-drift` |
 | Clinic call | `comms/clinic_call.py` |
 | Midweek iMessage symptom check | `comms/photon.py`, `run_midweek` |
+
+## Real brain data, replacing the fallbacks
+
+The brief asked for cubnm, nilearn, ENIGMA and neuromaps with fallbacks. The fallbacks
+were what actually ran, because `OFFLINE` defaulted to 1. That is now inverted: the real
+sources are the default and the fallbacks are the safety net.
+
+- **Regions**: nilearn's Schaefer-100, real MNI centroids and real labels. Turning this on
+  exposed a latent off-by-one: nilearn returns 101 labels for 100 parcels, with
+  "Background" at index 0, so every region's name and network was shifted one place
+  against its centroid. That path had never run before. Labels are now filtered and the
+  count asserted.
+- **Connectivity**: real HCP diffusion and resting state matrices for Schaefer-100 from
+  the ENIGMA toolbox, which is a GitHub install rather than a PyPI one. The matrices are
+  only accepted when their own labels match the atlas labels region for region, because a
+  silently permuted connectome is worse than an honestly modelled one. A few
+  log-transformed SC entries are slightly negative and are clipped to zero.
+- **E:I map**: real Allen Human Brain Atlas expression, as the mean z of three excitatory
+  markers (GRIN1, GRIA1, SLC17A7) minus three inhibitory ones (GAD1, GABRA1, SLC32A1).
+  The expression tables are in the Desikan parcellation, so the map is projected to the
+  surface and back down to Schaefer-100 with the toolbox's own conversion. Seventeen
+  parcels come back without donor coverage and are filled from the nearest region that
+  has it. The resulting gradient is sensory-high and association-low.
+- **cubnm** is still not installed. It needs GSL and a compiler, and the ENIGMA matrices
+  cover the same need.
+- The model was tuned against the modelled template, so swapping in real connectivity was
+  re-verified: the working point is still stable (max Jacobian eigenvalue -0.00099), the
+  firing rate is still 1.26 Hz, mean FC is still monotone in G so `fit_G` still inverts,
+  all 76 tests still pass, and the cohort numbers are unchanged (coverage 0.780 at week 8,
+  contraction 0.366). `c_e4` moved inside its 90% interval.
+- **The honest benchmark this unlocks**: the model's predicted FC against the real HCP FC
+  is r = 0.205 at G = 1.8 with nothing else tuned. `make check` prints it. Published whole
+  brain fits reach 0.3 to 0.5 with per subject parameter tuning, so this is the right sign
+  and not competitive. Before, no number in the project compared the model to real data at
+  all.

@@ -126,6 +126,11 @@ def _try_nilearn() -> tuple[list[str] | None, list[str] | None, np.ndarray | Non
 
         atlas = nid.fetch_atlas_schaefer_2018(n_rois=REG, yeo_networks=7, resolution_mm=2)
         labels = [b.decode() if isinstance(b, bytes) else str(b) for b in atlas.labels]
+        # nilearn returns 101 labels for 100 parcels: index 0 is "Background". Leaving it
+        # in shifts every region's name and network by one against its centroid.
+        labels = [lab for lab in labels if "background" not in lab.lower()]
+        if len(labels) != REG:
+            return None, None, None
         img = image.load_img(atlas.maps)
         vol = np.asarray(img.get_fdata())
         cents = ndimage.center_of_mass(vol > 0, labels=vol.astype(int), index=np.arange(1, REG + 1))
@@ -137,28 +142,90 @@ def _try_nilearn() -> tuple[list[str] | None, list[str] | None, np.ndarray | Non
         return None, None, None
 
 
-def _try_maps(xyz: np.ndarray) -> tuple[np.ndarray | None, np.ndarray | None, str | None]:
-    """Gene expression and receptor maps from ENIGMA Toolbox or neuromaps, or Nones."""
+def _try_enigma_conn(names: list[str] | None) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Real HCP structural and functional connectivity for Schaefer-100, or two Nones.
+
+    The matrices are only accepted when their own labels match the atlas labels region
+    for region, because a silently permuted connectome is worse than a modelled one.
+    """
+    if cfg.offline:
+        return None, None
+    try:
+        from enigmatoolbox.datasets import load_fc, load_sc
+
+        sc, lab_sc, _, _ = load_sc("schaefer_100")
+        fc, lab_fc, _, _ = load_fc("schaefer_100")
+    except Exception:
+        return None, None
+    if sc.shape != (REG, REG) or fc.shape != (REG, REG):
+        return None, None
+    if names is not None:
+        want = [str(n) for n in names]
+        if [str(v) for v in lab_sc] != want or [str(v) for v in lab_fc] != want:
+            return None, None
+    sc = np.clip(np.asarray(sc, dtype=float), 0.0, None)   # a few log-transformed zeros go slightly negative
+    np.fill_diagonal(sc, 0.0)
+    return sc, np.asarray(fc, dtype=float)
+
+
+def _fill_nan(vals: np.ndarray, xyz: np.ndarray) -> np.ndarray:
+    """Replace missing region values with the nearest region that has one."""
+    out = np.array(vals, dtype=float)
+    bad = np.flatnonzero(~np.isfinite(out))
+    good = np.flatnonzero(np.isfinite(out))
+    if good.size == 0:
+        return np.zeros_like(out)
+    for i in bad:
+        d = np.linalg.norm(xyz[good] - xyz[i], axis=1)
+        out[i] = out[good[int(np.argmin(d))]]
+    return out
+
+
+def _try_maps(xyz: np.ndarray, names: list[str] | None) -> tuple[np.ndarray | None, np.ndarray | None, str | None]:
+    """Regional E:I map from Allen Human Brain Atlas gene expression, or Nones.
+
+    ei_raw = mean z of excitatory markers minus mean z of inhibitory markers
+    excitatory: GRIN1, GRIA1, SLC17A7 (NMDA, AMPA, vesicular glutamate transporter)
+    inhibitory: GAD1, GABRA1, SLC32A1 (GAD67, GABA-A alpha1, vesicular GABA transporter)
+    The expression tables are in the Desikan parcellation, so the map is projected to the
+    surface and back down to Schaefer-100 with the toolbox's own conversion.
+    """
     if cfg.offline:
         return None, None, None
     try:
         from enigmatoolbox.datasets import fetch_ahba
+        from enigmatoolbox.utils.parcellation import parcel_to_surface, surface_to_parcel
 
-        tab = fetch_ahba(csvfile=None)
-        cols = [c for c in tab.columns if "label" not in str(c).lower()]
-        sub = tab[cols].to_numpy(dtype=float)
-        if sub.shape[0] < REG:
+        tab = fetch_ahba()
+        exc, inh = ["GRIN1", "GRIA1", "SLC17A7"], ["GAD1", "GABRA1", "SLC32A1"]
+        if any(g not in tab.columns for g in exc + inh):
             return None, None, None
-        gene = np.nanmean(sub[:REG, :], axis=1)
-        gene = (gene - np.nanmin(gene)) / (np.nanmax(gene) - np.nanmin(gene) + 1e-9)
-        return 0.8 + 0.4 * gene, None, "enigmatoolbox_ahba"
-    except Exception:
-        pass
-    try:
-        from neuromaps import datasets as nmd
 
-        nmd.fetch_annotation(source="hesse2017", desc="methylreboxetine")
-        return None, None, None
+        def zed(arr) -> np.ndarray:
+            arr = np.asarray(arr, dtype=float)
+            return (arr - np.nanmean(arr)) / (np.nanstd(arr) + 1e-9)
+
+        import warnings
+
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            # Regions with no donor coverage are all-NaN slices, and _fill_nan deals
+            # with them a few lines down.
+            warnings.simplefilter("ignore", RuntimeWarning)
+            e = np.nanmean(np.stack([zed(tab[g].to_numpy()) for g in exc]), axis=0)
+            i = np.nanmean(np.stack([zed(tab[g].to_numpy()) for g in inh]), axis=0)
+        raw = zed(e) - zed(i)
+        got = surface_to_parcel(parcel_to_surface(raw, "aparc_fsa5"), "schaefer_100_fsa5")
+        got = np.asarray(got, dtype=float)
+        if got.size == REG + 1:
+            got = got[1:]            # index 0 is the medial wall, not a parcel
+        if got.size != REG:
+            return None, None, None
+        got = _fill_nan(got, xyz)
+        spread = got.std() or 1.0
+        # E:I enters the model as a multiplier on local excitation, centred on 1.
+        ei = 1.0 + 0.15 * (got - got.mean()) / spread
+        del names
+        return ei, None, "enigmatoolbox_ahba_ei"
     except Exception:
         return None, None, None
 
@@ -198,16 +265,21 @@ def templates() -> dict:
             pass
 
     source = {}
-    sc, fc, bold = _try_cubnm()
-    source["sc"] = "cubnm_schaefer100" if sc is not None else "distance_decay_fallback"
-    source["fc"] = "cubnm_schaefer100" if fc is not None else "synthetic_template"
-
     names, hemi, xyz = _try_nilearn()
     source["regions"] = "nilearn_schaefer100" if names is not None else "ellipsoid_fallback"
     if xyz is None:
         xyz = _ellipsoid_xyz()
     if names is None:
         names, hemi = _names_fallback()
+
+    sc, fc, bold = _try_cubnm()
+    src_conn = "cubnm_schaefer100" if sc is not None else None
+    if sc is None:
+        # Real HCP diffusion and resting state matrices, label checked against the atlas.
+        sc, fc = _try_enigma_conn(names)
+        src_conn = "enigma_hcp_schaefer100" if sc is not None else None
+    source["sc"] = src_conn or "distance_decay_fallback"
+    source["fc"] = src_conn or "synthetic_template"
 
     if sc is None:
         sc = _distance_decay(xyz, net_ids(names))
@@ -219,7 +291,7 @@ def templates() -> dict:
     else:
         source["bold"] = source["sc"]
 
-    gene, receptor, msrc = _try_maps(xyz)
+    gene, receptor, msrc = _try_maps(xyz, names)
     if gene is None:
         gene = _smooth_map(xyz, SEED + 2, 0.8, 1.2)
         msrc = "synthetic_template"

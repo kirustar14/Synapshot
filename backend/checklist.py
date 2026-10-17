@@ -163,12 +163,34 @@ def package_check() -> list[dict]:
 
 
 def source_check() -> list[dict]:
-    """Where the template actually came from."""
-    from .data.templates import templates
+    """Where the brain template actually came from, and how well the model fits it."""
+    import numpy as np
 
-    src = templates()["source"]
-    real = [k for k, v in src.items() if "fallback" not in v and v not in ("synthetic_template", "none")]
-    return [line(GREEN if real else MOCK, "template sources", json.dumps(src))]
+    from .data.templates import templates
+    from .twin import dmf, priors
+
+    tpl = templates()
+    src = tpl["source"]
+    want = {
+        "regions": ("nilearn_schaefer100", "real Schaefer-100 MNI centroids and labels"),
+        "sc": ("enigma_hcp_schaefer100", "real HCP diffusion connectivity"),
+        "fc": ("enigma_hcp_schaefer100", "real HCP resting state connectivity"),
+        "maps": ("enigmatoolbox_ahba_ei", "real Allen gene expression E:I map"),
+    }
+    out = []
+    for key, (real, why) in want.items():
+        got = src.get(key, "none")
+        out.append(line(GREEN if got == real else MOCK, f"{key}: {got}",
+                        why if got == real else "modelled fallback, set OFFLINE=0 to fetch the real one"))
+
+    # The one number that says whether the model resembles a real brain at all.
+    if src.get("fc") == want["fc"][0]:
+        fc_mod = dmf.fc_lin(tpl["sc"], priors.HYPER["mu_G"], ei=tpl["gene"])
+        r = dmf.fc_corr(fc_mod, tpl["fc"]) if np.isfinite(fc_mod).all() else 0.0
+        out.append(line(GREEN if r > 0.15 else RED, "model FC against real HCP FC",
+                        f"r = {r:.3f} at G = {priors.HYPER['mu_G']}, untuned beyond G. "
+                        "Published whole brain fits reach 0.3 to 0.5 with per subject tuning"))
+    return out
 
 
 def models_check() -> list[dict]:
