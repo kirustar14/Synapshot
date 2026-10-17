@@ -4,8 +4,9 @@ For each step it speaks the line, sends the stimulus command, collects the frame
 audio for that task, calls the feature function, stores what came back, and moves on.
 It handles "can you repeat that" and pauses, and it stops dead on a red flag.
 
-The rig passes in a `hub` object with speak, show, flash and collect. The mock rig and
-the real rig implement the same four methods, so this file does not know which it is on.
+The rig passes in a `hub` with speak, show, flash_block, collect, listen, wait, session
+and quality_ok. The mock rig and the real rig implement the same eight, so this file does
+not know which one it is driving.
 """
 
 import time
@@ -67,7 +68,7 @@ def run(hub, pid: str, week: int) -> dict:
     symptoms = {}
     for key in script.SYMPTOMS:
         said = collect_answer(hub, say, heard, script.symptom_line(key), name, step)
-        symptoms[key] = score_of(said)
+        symptoms[key] = score_of(said) or 0.0
 
     # Memory encoding.
     step = script.step_of("memory_encode")
@@ -101,7 +102,7 @@ def run(hub, pid: str, week: int) -> dict:
             hub.collect("saccade", 20.0)
             for key in ("headache", "dizziness", "blurred_vision"):
                 said = collect_answer(hub, say, heard, script.symptom_line(key), name, step)
-                rerate[key] = score_of(said)
+                rerate[key] = score_of(said) or 0.0
             jump = sum(rerate.values()) - sum(symptoms.values())
             if safety.short_version(rerate, jump) and not short:
                 short = True
@@ -176,7 +177,7 @@ def collect_answer(hub, say, heard, prompt: str, name: str, step: dict, wait: fl
     say(prompt)
     repeats = 0
     while True:
-        said = str(hub.listen(wait) or "")
+        said = str(hub.listen(wait, prompt) or "")
         heard(said)
         if not said.strip():
             if repeats >= MAX_REPEATS:

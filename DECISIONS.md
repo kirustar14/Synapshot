@@ -210,3 +210,30 @@ Every call made without asking. Newest phase at the bottom.
   and quality_ok. The mock rig and the real rig implement the same methods, so the dialog
   does not know which one it is driving.
 - Red flags stop the call before any measurement is taken. No partial data is stored.
+
+## Phase 5: stimulus page and rig
+
+- The stimulus page draws everything in 1080x1920 logical coordinates and scales the canvas
+  to the window, so a gaze position in normalized units means the same thing in the capture
+  as it does on the page. OBS has to be set to a portrait canvas or the page is letterboxed
+  and the patient sees black bars where the targets should be.
+- Clock mapping: the server sends `time.monotonic_ns()` once when the page connects and the
+  page keeps the offset, so every event the page reports (`shown`, `flashed`) is already on
+  the rig's clock. No conversion happens later.
+- The one frame flash is a white overlay turned on inside one animation frame and off on the
+  next, with the frame time reported back after it is painted. Painting and reporting in the
+  same frame would report a time before the pixel was on screen.
+- `rig_hub.py` holds the websocket registries plus both hubs. The call loop is sync and the
+  sockets are async, so outbound messages are scheduled onto the stored event loop with
+  `run_coroutine_threadsafe` and inbound ones land in a deque the call loop polls.
+- The mock hub and the live hub implement the same eight methods, and `hub_for` falls back
+  from live to mock if the live hub cannot even be constructed. `dialog.run` never knows
+  which one it has.
+- `hub.listen` takes the prompt as well as the timeout, so the mock can answer the question
+  that was actually asked rather than returning a fixed string.
+- `run_call.py` treats seven preflight checks as blocking and falls back to the mock session
+  after three failed live attempts, so a demo never dies on a missing permission.
+- The picture description scene is drawn with canvas primitives rather than loaded, because
+  the brief rules out external assets and a Browser Source cannot see local files.
+- The accessibility preflight check times out rather than failing when macOS is showing the
+  permission dialog, and says so, because that is what actually happens the first time.
