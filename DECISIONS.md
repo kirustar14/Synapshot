@@ -148,3 +148,40 @@ Every call made without asking. Newest phase at the bottom.
   for now. Phase 3 and phase 5 route it through the real feature pipeline instead.
 - Seeding 50 cohort patients, 12 weeks of EnKF each, the NumPyro population fit and six
   demo patients takes 8 s, against the 10 minute budget.
+
+## Phase 3: measurement pipeline
+
+- A session is a plain dict (frames, stim log, calib dots, flash times, trials, audio,
+  answers), so a mock session and a real capture are the same object downstream. The
+  generator lives in `features/synth.py`, which is one file more than the brief lists.
+  It builds a session from target observable values, so the pipeline has to measure them
+  back out and the mock loop is a real test of the pipeline rather than a bypass of it.
+- Timestamp convention: test flash times are in session seconds, because the flash block
+  runs over the whole session luminance series, while per trial t_f values are in seconds
+  from the start of their own task window, because that is what the gaze traces use.
+- The calibration fit uses every settled frame on every dot, about 180 rows, not one
+  median per dot. Nine rows against ten polynomial terms is underdetermined: it fits
+  every dot exactly, reports a calibration error of zero and returns an overfit map that
+  inflated pursuit gain to 1.9. With all frames the reported error is about 1.9 degrees
+  on a good channel and about 3 degrees on a poor one, which is what it should look like.
+- A failed quality gate removes the eye measures from the feature list and from the
+  observables, rather than reporting a number measured through a dark or badly calibrated
+  channel. The low quality demo patient therefore has three observables, not six.
+- Measured against sessions built from known values, over six seeds: pursuit gain bias
+  -0.03 with sd 0.03, antisaccade error bias 0.0 with sd 9.8 points, symptom total exact,
+  saccade latency bias -17 ms with sd 9.6 ms.
+- That -17 ms latency bias is frame quantization: at 30 fps one frame is 33 ms and the
+  speed estimate is centred, so onset is found about half a frame early. It is constant
+  week to week, so the AR(1) discrepancy term absorbs it and it does not look like drift.
+- `antisaccade_err` SEM in data/sem.json is 10, not 6. Twenty trials of a binomial at a
+  20 percent error rate carry about 10 points of noise on their own, so a 6 would make
+  the filter over confident about a measure that cannot be that precise.
+- The word list in `memory.py` is ours, not a licensed one. The animal list in
+  `fluency.py` is a built in 150 word list plus fuzzy matching.
+- A poor channel also fails the flash test, which is what gives the demo a patient where
+  `flash_ok` is false and every tier B measure is dropped.
+- `features/face.py` downloads the MediaPipe model once when OFFLINE=0 and otherwise runs
+  without it, in which case every frame comes back with face False and the quality gate
+  reports the failure instead of the import blowing up.
+- Pupil light reflex is `face.pupil_light_reflex`, which raises NotImplementedError with
+  the message "roadmap" and does nothing else.

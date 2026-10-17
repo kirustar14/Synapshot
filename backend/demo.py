@@ -4,7 +4,7 @@ import numpy as np
 
 from . import alerts, db
 from .data import synthetic as syn
-from .features import sem as semmod
+from .features import pipeline, sem as semmod, synth
 from .twin import build, enkf, forecast as fcast
 
 # Six demo patients, each one a state the dashboard needs to be able to show.
@@ -49,61 +49,10 @@ def set_truth(pid: str, truth: dict) -> None:
     db.patch("patients", pid, {"truth": db.enc({str(k): v for k, v in truth.items()})})
 
 
-def channel_of(week: int, poor: bool = False) -> dict:
-    """Call channel quality. The low quality demo patient gets a bad one every week."""
-    rng = np.random.default_rng(1000 + week)
-    if poor:
-        return {"fps": 14.0 + float(rng.normal(0, 1)), "calib_err_deg": 3.8 + float(abs(rng.normal(0, 0.4))),
-                "face_share": 0.55 + float(rng.normal(0, 0.03)), "flash_ok": False}
-    return {"fps": 29.0 + float(rng.normal(0, 0.6)), "calib_err_deg": 1.1 + float(abs(rng.normal(0, 0.3))),
-            "face_share": 0.93 + float(abs(rng.normal(0, 0.02))), "flash_ok": True}
-
-
-def features_of(values: dict, prev: dict | None) -> list[dict]:
-    """Feature list in the contract shape from this week's observable values."""
-    out = []
-    for o in fcast.OBS:
-        key = o["key"]
-        if key not in values:
-            continue
-        was = None if prev is None else prev.get(key)
-        out.append({
-            "name": key, "tier": o["tier"], "value": float(values[key]),
-            "prev": None if was is None else float(was),
-            "mdc": semmod.mdc(key), "unit": o["unit"],
-            "changed": semmod.changed(key, float(values[key]), was),
-        })
-    return out
-
-
-def gaze_of(week: int, gain: float) -> list[dict]:
-    """Synthetic gaze traces for the two pursuit tasks, at the patient's own gain.
-
-    target x(t) = 0.35 sin(2 pi f t) + 0.5 , gaze = gain * target + noise
-    """
-    rng = np.random.default_rng(500 + week)
-    t = np.arange(0.0, 20.0, 1.0 / 30.0)
-    out = []
-    for task, freq in (("pursuit_h", 0.4), ("pursuit_v", 0.3)):
-        tx = 0.35 * np.sin(2 * np.pi * freq * t) + 0.5
-        ty = np.full_like(t, 0.5)
-        if task == "pursuit_v":
-            tx, ty = ty, tx
-        gx = 0.5 + gain * (tx - 0.5) + rng.normal(0, 0.012, t.size)
-        gy = 0.5 + gain * (ty - 0.5) + rng.normal(0, 0.012, t.size)
-        out.append({
-            "task": task,
-            "t": [round(float(v), 4) for v in t],
-            "x": [round(float(v), 4) for v in gx], "y": [round(float(v), 4) for v in gy],
-            "tx": [round(float(v), 4) for v in tx], "ty": [round(float(v), 4) for v in ty],
-        })
-    return out
-
-
 def transcript_of(name: str, week: int, values: dict) -> list[dict]:
-    """A short plausible transcript for a mock call."""
+    """A short plausible transcript for a mock call. Phase 4 replaces this with the agent."""
     first = name.split()[0]
-    sym = int(round(values.get("symptom_total", 0) / 8))
+    sym = int(round(float(values.get("symptom_total", 0)) / 8))
     return [
         {"who": "agent", "text": f"Hi {first}, this is your week {week} check-in. Before we start, is anything new or worse since last time?", "t": 2.0},
         {"who": "patient", "text": "About the same. Headaches maybe a bit less this week.", "t": 9.0},
@@ -115,45 +64,22 @@ def transcript_of(name: str, week: int, values: dict) -> list[dict]:
     ]
 
 
-def add_checkin(pid: str, week: int, values: dict, channel: dict, unusable: bool = False) -> str:
-    """Build and store a check-in record for one week from the observable values."""
+def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = False) -> str:
+    """Store a check-in record from what the pipeline measured."""
     row = db.patient(pid)
-    prev_rows = db.observations(pid)
-    prev = None
-    for item in prev_rows:
-        if int(item["week"]) < week:
-            prev = item["values"]
     cid = db.new_id("chk")
-    steps = ["consent", "safety", "symptoms", "memory_encode", "eye_a", "eye_b",
-             "numbers", "speech", "picture", "fluency", "recall", "wrap"]
-    gain = float(values.get("pursuit_gain", 0.8))
     db.put("checkins", {
         "id": cid, "patient_id": pid, "week": int(week), "date": db.now(),
-        "duration_s": 14 * 60.0, "steps": db.enc(steps), "channel": db.enc(channel),
-        "features": db.enc(features_of(values, prev)), "gaze": db.enc(gaze_of(week, gain)),
-        "traces": db.enc(traces_of(week)), "transcript": db.enc(transcript_of(str(row["name"]), week, values)),
+        "duration_s": float(sess.get("seconds", 840.0)), "steps": db.enc(got["steps"]),
+        "channel": db.enc(got["channel"]), "features": db.enc(got["features"]),
+        "gaze": db.enc(got["gaze"]), "traces": db.enc(got["traces"]),
+        "transcript": db.enc(transcript_of(str(row["name"]), week, got["values"])),
         "unusable": int(unusable),
     })
-    for o in fcast.OBS:
-        if o["key"] in values:
-            db.add_observation(pid, week, o["key"], float(values[o["key"]]), semmod.sem(o["key"]))
+    for key, val in pipeline.observables(got["values"]).items():
+        db.add_observation(pid, week, key, float(val), semmod.sem(key))
     db.patch("patients", pid, {"last_call": db.now(), "week": int(week)})
     return cid
-
-
-def traces_of(week: int) -> dict:
-    """Exploratory blink, smile and brow traces for the picture description task."""
-    rng = np.random.default_rng(900 + week)
-    t = np.arange(0.0, 30.0, 0.1)
-    blink = (np.sin(2 * np.pi * 0.25 * t) > 0.985).astype(float)
-    smile = np.clip(0.18 + 0.12 * np.sin(2 * np.pi * 0.05 * t) + rng.normal(0, 0.02, t.size), 0, 1)
-    brow = np.clip(0.10 + 0.08 * np.sin(2 * np.pi * 0.03 * t + 1.0) + rng.normal(0, 0.02, t.size), 0, 1)
-    return {"blink": pack_trace(t, blink), "smile": pack_trace(t, smile), "brow": pack_trace(t, brow)}
-
-
-def pack_trace(t: np.ndarray, v: np.ndarray) -> dict:
-    """One trace rounded down to a size the frontend can hold."""
-    return {"t": [round(float(x), 2) for x in t], "v": [round(float(x), 4) for x in v]}
 
 
 def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
@@ -180,12 +106,22 @@ def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
 
 
 def run_week(pid: str, week: int, poor: bool = False) -> dict:
-    """One mock call at a given week: checkin, assimilation, alerts."""
+    """One mock call at a given week, measured through the real feature pipeline.
+
+    The session is built to carry this week's true values, then the pipeline has to
+    measure them back out of frames, a stimulus log and spoken answers. What the filter
+    assimilates is what the pipeline measured, not the truth it was built from.
+    """
+    row = db.patient(pid)
     truth = truth_of(pid)
     values = dict(truth.get(week, {}))
-    channel = channel_of(week, poor)
-    add_checkin(pid, week, values, channel)
-    return assimilate(pid, week, values, channel)
+    sess = synth.session(values, seed=int(row["seed"] or 0) * 100 + week, poor=poor)
+    hist = db.observations(pid)
+    prev = next((h["values"] for h in reversed(hist) if int(h["week"]) < week), None)
+    base = next((h["values"] for h in hist if int(h["week"]) == 0), None)
+    got = pipeline.run(sess, prev=prev, age=int(row["age"] or 30), sex=str(row["sex"]), baseline=base)
+    add_checkin(pid, week, got, sess)
+    return assimilate(pid, week, pipeline.observables(got["values"]), got["channel"])
 
 
 def advance_week(pid: str) -> dict:

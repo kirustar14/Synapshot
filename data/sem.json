@@ -1,10 +1,10 @@
 {
-  "note": "Standard error of measurement per metric. Placeholders until test retest data exists. MDC = 1.96 * sqrt(2) * SEM.",
+  "note": "Standard error of measurement per metric. Placeholders until test retest data exists. MDC = 1.96 * sqrt(2) * SEM. antisaccade_err is 10 because 20 trials of a binomial at a 20 percent error rate carry about that much noise on their own.",
   "source": "placeholder",
   "sem": {
     "pursuit_gain": 0.04,
     "pursuit_rms": 0.6,
-    "antisaccade_err": 6.0,
+    "antisaccade_err": 10.0,
     "antisaccade_latency": 25.0,
     "saccade_latency": 15.0,
     "speech_rate": 0.25,
