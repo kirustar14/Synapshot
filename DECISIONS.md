@@ -309,3 +309,27 @@ Every call made without asking. Newest phase at the bottom.
   class is for. Everything else in the codebase is a plain function.
 - `make check` prints the done checklist: 24 passed, 0 failed, 9 running on a fallback,
   with each fallback saying what it would take to make it real.
+
+## Reach features
+
+All twelve are built and on by default. `REACH=0` is wired rather than decorative: the
+counterfactual slider, scenario compare, tract attribution, drift injection and the gait
+and hearing stretch endpoints return 404, and the antisaccade block and the expression
+traces are not measured. The forecast, the twin, the cohort and every core route are
+unaffected, and the filter already handles a missing observable, so turning reach off
+degrades rather than breaks.
+
+| Reach feature | Where |
+|---|---|
+| Counterfactual slider | `POST /api/patients/{id}/counterfactual`, `twin/counterfactual.py` |
+| Tract attribution | `GET /api/patients/{id}/attribution`, `twin/attribution.py` |
+| Saccade latency, tier B | `features/saccade.py`, dropped when `flash_ok` is false |
+| Antisaccade and fixation | `features/antisaccade.py`, `features/fixation.py` |
+| Blink and expression traces | `features/blink.py`, on every Checkin as `traces` |
+| Gait and hearing stretch | `POST /api/stretch/{token}` |
+| 50 patient cohort curve | `GET /api/cohort`, `twin/population.py` |
+| Scenario compare, helmet A against B | `POST /api/patients/{id}/scenarios` |
+| Template only patient path | the sixth demo patient, `build_twin(template_only=True)` |
+| Drift injection | `POST /api/demo/inject-drift` |
+| Clinic call | `comms/clinic_call.py` |
+| Midweek iMessage symptom check | `comms/photon.py`, `run_midweek` |

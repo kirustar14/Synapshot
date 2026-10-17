@@ -12,6 +12,7 @@ A session is a plain dict so the mock rig and a real capture are the same thing 
 
 import numpy as np
 
+from ..config import cfg
 from . import antisaccade, blink, fixation, flash, gaze as gz, fluency, memory, pursuit, quality, sem as semmod, speech
 
 # Everything that can come out of a session, with its tier and unit.
@@ -111,6 +112,8 @@ def eye_values(session: dict, beta, flash_ok: bool) -> tuple[dict, list[dict]]:
             if got["saccade_latency"] is not None:
                 vals["saccade_latency"] = got["saccade_latency"]
         elif win["kind"] == "antisaccade":
+            if not cfg.reach:
+                continue
             shown = (session.get("trials") or {}).get("antisaccade") or []
             got = antisaccade.trials(tr, shown, [j.get("t_f") for j in shown])
             if got["antisaccade_err"] is not None:
@@ -160,8 +163,8 @@ def run(session: dict, prev: dict | None = None, age: int = 30, sex: str = "M", 
                       np.array([f.get("ear", 0.3) for f in frames if f.get("face")], dtype=float))
     vals["blink_rate"] = bl["blink_rate"]
     vals["blink_dur"] = bl["blink_dur"]
-    smile = blink.expression(frames, "mouthSmileLeft")
-    brow = blink.expression(frames, "browInnerUp")
+    smile = blink.expression(frames, "mouthSmileLeft") if cfg.reach else {"t": [], "v": []}
+    brow = blink.expression(frames, "browInnerUp") if cfg.reach else {"t": [], "v": []}
     if smile["v"]:
         vals["smile_mean"] = float(np.mean(smile["v"]))
     if brow["v"]:

@@ -42,6 +42,12 @@ if STIM_DIR.exists():
     app.mount("/stimulus", StaticFiles(directory=str(STIM_DIR), html=True), name="stimulus")
 
 
+def reach_only(name: str) -> None:
+    """Reach features are on by default. With REACH=0 they are not served at all."""
+    if not cfg.reach:
+        raise HTTPException(404, f"{name} is a reach feature and REACH is off")
+
+
 def need(pid: str):
     """A patient row or a 404."""
     row = db.patient(pid)
@@ -190,6 +196,7 @@ def get_twin(pid: str) -> dict:
 @app.post("/api/patients/{pid}/scenarios", response_model=models.ScenarioResult)
 def post_scenarios(pid: str, body: models.ScenarioBody) -> dict:
     """Two what-if impacts side by side."""
+    reach_only("scenario compare")
     need(pid)
     a = counterfactual.scenario(pid, body.a.helmet, body.a.angle_deg)
     b = counterfactual.scenario(pid, body.b.helmet, body.b.angle_deg)
@@ -209,6 +216,7 @@ def post_scenarios(pid: str, body: models.ScenarioBody) -> dict:
 @app.post("/api/patients/{pid}/counterfactual", response_model=models.Forecast)
 def post_counterfactual(pid: str, body: models.CounterfactualBody) -> dict:
     """Forecast with the recovery rate scaled and the residual shifted."""
+    reach_only("the counterfactual slider")
     need(pid)
     return counterfactual.forecast(pid, body.k_mult, body.p_add)
 
@@ -216,6 +224,7 @@ def post_counterfactual(pid: str, body: models.CounterfactualBody) -> dict:
 @app.get("/api/patients/{pid}/attribution", response_model=list[models.Attribution])
 def get_attribution(pid: str) -> list[dict]:
     """Top tracts per signal. Always labelled a hypothesis."""
+    reach_only("tract attribution")
     need(pid)
     return attribution.attribution(pid)
 
@@ -452,6 +461,7 @@ def demo_advance(body: models.DemoBody) -> dict:
 @app.post("/api/demo/inject-drift")
 def demo_drift(body: models.DemoBody) -> dict:
     """Push next week's truth outside the band."""
+    reach_only("drift injection")
     pid = body.patient_id or ""
     need(pid)
     got = demo.inject_drift(pid, body.size)
@@ -518,6 +528,7 @@ def post_consent(token: str, body: models.ConsentBody) -> dict:
 @app.post("/api/stretch/{token}")
 def post_stretch(token: str, body: models.StretchBody) -> dict:
     """Gait and hearing results from the texted web page. Both exploratory."""
+    reach_only("the gait and hearing stretch")
     row = db.consent(token)
     if row is None:
         raise HTTPException(404, "unknown link")
