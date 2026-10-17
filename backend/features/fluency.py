@@ -3,7 +3,10 @@
 from . import memory
 
 SECONDS = 60.0
-CUT = 86
+# 80, not 86. Speech recognition spells spoken animal names wrong ("elefant"), and a
+# stricter cut throws away answers the patient actually gave. Checked against the whole
+# list: no non-animal in testing matched any entry at 80.
+CUT = 80
 ANIMALS = [
     "dog", "cat", "horse", "cow", "pig", "sheep", "goat", "chicken", "duck", "goose",
     "lion", "tiger", "leopard", "cheetah", "bear", "wolf", "fox", "deer", "moose", "elk",

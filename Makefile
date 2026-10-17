@@ -1,6 +1,6 @@
 PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: dev seed test rig preflight install clean
+.PHONY: dev seed test rig preflight check install clean
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -19,6 +19,9 @@ rig:
 
 preflight:
 	$(PY) rig/preflight.py
+
+check:
+	$(PY) -m backend.checklist
 
 clean:
 	rm -rf data/unnamed.db data/cache data/cohort.json data/synthetic

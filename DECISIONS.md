@@ -284,3 +284,28 @@ Every call made without asking. Newest phase at the bottom.
 - Two routes return a file or JSON depending on what exists on disk, so they are declared
   with `response_model=None`. FastAPI cannot build a response model from a union of two
   Response classes.
+
+## Phase 8: tests and docs
+
+- 76 tests in 29 s, against the 3 minute budget. `tests/conftest.py` forces every mock
+  switch on before `backend.config` is imported, because the config resolves each switch
+  once at import time and the test modules import it transitively.
+- The test database is separate (`data/test_unnamed.db`) but the cache directory is
+  shared on purpose: the template bundle and the emulator table are expensive to build and
+  identical for every caller.
+- The contract field sets in `tests/test_api.py` are transcribed from the TypeScript by
+  hand rather than derived from the pydantic models. Deriving them would let the test and
+  the code drift together, which is exactly the failure the test exists to catch.
+- `test_rescore_and_unusable` found a real bug: two forecasts written inside the same
+  second tied on `order by week desc, time desc`, so a stale forecast could be served
+  after a rebuild. Every "latest row" query now breaks the tie on `rowid desc`.
+- The fluency fuzzy match cut is 80, not 86. At 86 the recognizer spelling "elefant" was
+  thrown away. Checked at 80 against twenty common non-animal words: no false positives.
+- The c_e4 interval check prints a warning rather than failing, exactly as the brief asks.
+  With 50 patients and a prior centred on 0.15 it sits outside its own 90% interval some
+  of the time, and the current cohort seed is one of those times.
+- Two classes exist outside the pydantic models and the config dataclass: `MockHub` and
+  `LiveHub`. They hold state across eight methods and are interchangeable, which is what a
+  class is for. Everything else in the codebase is a plain function.
+- `make check` prints the done checklist: 24 passed, 0 failed, 9 running on a fallback,
+  with each fallback saying what it would take to make it real.

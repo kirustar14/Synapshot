@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -18,7 +19,16 @@ from .data import upload
 from .features import sem as semmod
 from .twin import attribution, build, counterfactual, forecast as fcast, population
 
-app = FastAPI(title="UNNAMED", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Open the database and hand the event loop to the rig bridge."""
+    db.conn()
+    rig_hub.set_loop(asyncio.get_running_loop())
+    yield
+
+
+app = FastAPI(title="UNNAMED", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,13 +40,6 @@ app.add_middleware(
 STIM_DIR = ROOT / "stimulus"
 if STIM_DIR.exists():
     app.mount("/stimulus", StaticFiles(directory=str(STIM_DIR), html=True), name="stimulus")
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    """Open the database and hand the event loop to the rig bridge."""
-    db.conn()
-    rig_hub.set_loop(asyncio.get_running_loop())
 
 
 def need(pid: str):

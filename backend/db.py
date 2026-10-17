@@ -192,13 +192,17 @@ def message(pid: str, direction: str, body: str) -> str:
 
 
 def latest_forecast(pid: str):
-    """Most recent stored forecast row or None."""
-    return one("select * from forecasts where patient_id=? order by week desc, time desc limit 1", (pid,))
+    """Most recent stored forecast row or None.
+
+    rowid breaks the tie: `time` is second granularity, and a rescore followed by a
+    rebuild inside the same second would otherwise serve whichever row sqlite felt like.
+    """
+    return one("select * from forecasts where patient_id=? order by week desc, time desc, rowid desc limit 1", (pid,))
 
 
 def latest_params(pid: str):
     """Most recent stored parameter row or None."""
-    return one("select * from parameters where patient_id=? order by week desc, time desc limit 1", (pid,))
+    return one("select * from parameters where patient_id=? order by week desc, time desc, rowid desc limit 1", (pid,))
 
 
 def consent(token: str):
@@ -218,7 +222,7 @@ def uploads(pid: str) -> list[sqlite3.Row]:
 
 def twin_inputs(pid: str):
     """Stored twin input bundle or None."""
-    return one("select * from twin_inputs where patient_id=? order by time desc limit 1", (pid,))
+    return one("select * from twin_inputs where patient_id=? order by time desc, rowid desc limit 1", (pid,))
 
 
 def wipe() -> None:
