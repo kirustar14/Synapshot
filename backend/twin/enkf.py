@@ -27,6 +27,7 @@ def init(rng: np.random.Generator, geno: dict, zbio: float, sex: str, d0: float,
         "sd_prior_logk": float(ens[:, 0].std()),
         "coverage": [],      # one entry per updated week, computed before the update
         "resid": [],         # standardized residuals per week, per observable
+        "drift_hist": [],    # drift z per week, what the drift alert rule reads
         "contraction": {"k": 0.0},
         "drift_z": 0.0,
         "weeks": [],
@@ -135,6 +136,7 @@ def step(state: dict, week: int, values: dict, flash_ok: bool = True, seed: int 
     sd_post = float(state["ens"][:, 0].std())
     state["contraction"] = {"k": float(1.0 - sd_post / max(state["sd_prior_logk"], 1e-9))}
     state["drift_z"] = drift(state)
+    state["drift_hist"].append({"week": int(week), "z": state["drift_z"]})
     return {
         "week": int(week),
         "cov": cov,

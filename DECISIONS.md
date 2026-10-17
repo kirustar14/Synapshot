@@ -127,3 +127,24 @@ Every call made without asking. Newest phase at the bottom.
   64000 numbers per patient and nothing can draw it.
 - `build_twin` uses the prior median strain threshold, not the patient's true eps, because
   the twin does not get to know the truth.
+
+## Phase 2: database, alerts, demo
+
+- `comms/photon.py` and `comms/clinic_call.py` are written here rather than in phase 6,
+  because `alerts.py` cannot raise an alert without them and a half wired alert module
+  would not be runnable.
+- Alert routing: red_flag and drift ring the clinic, red_flag, low_quality and missed_call
+  text the patient. A low_quality or drift alert is not repeated within one week of the
+  last one of the same kind, otherwise the drifting demo patient generates an alert every
+  single week and the list becomes useless.
+- The drifting demo patient has three worsening weeks, not two. Drift z at week w averages
+  the residuals of weeks w-1 and w, so two bumped weeks only push one week's drift z over
+  the threshold and the rule needs two consecutive ones.
+- Drift injection adds 3 SEM times the size, signed by each observable's load. Three SEM
+  is roughly the edge of the 80% band, so size 1.0 lands just outside it.
+- `demo.advance_week` can run past week 12: the truth table is extended from the patient's
+  true parameters on demand.
+- The mock check-in record (features, gaze, traces, transcript) is synthesized in `demo.py`
+  for now. Phase 3 and phase 5 route it through the real feature pipeline instead.
+- Seeding 50 cohort patients, 12 weeks of EnKF each, the NumPyro population fit and six
+  demo patients takes 8 s, against the 10 minute budget.
