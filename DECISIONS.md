@@ -237,3 +237,20 @@ Every call made without asking. Newest phase at the bottom.
   the brief rules out external assets and a Browser Source cannot see local files.
 - The accessibility preflight check times out rather than failing when macOS is showing the
   permission dialog, and says so, because that is what actually happens the first time.
+
+## Phase 6: comms
+
+- The Photon SDK is discovered by introspection, not by a hard coded import: four module
+  names, four class names, five send method names and four call signatures are tried, and
+  `photon.docs()` reports what was actually found. The hackpack version is whatever is
+  installed on the day and a wrong method name would mean no texts at all.
+- Transport order is SDK, then a plain HTTP POST to `PHOTON_BASE_URL`, then mock. Every
+  message is written to the messages table in all three cases, so the phone mock in the
+  frontend shows the same thing the patient would have received.
+- An incoming reply of exactly STOP withdraws consent on all four axes, logs the event and
+  confirms by text. Any other reply has the first 0 to 10 number pulled out of it and
+  stored as a midweek symptom score.
+- The midweek sweep is due based on the last outbound message rather than a scheduler, so
+  it is idempotent and safe to call repeatedly from a cron or by hand.
+- The clinic call says the update twice with a pause between, because a human writing it
+  down needs it twice.
