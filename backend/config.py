@@ -57,8 +57,10 @@ class Cfg:
     offline: bool = field(default_factory=lambda: os.environ.get("OFFLINE", "1") not in ("0", ""))
     use_sbi: bool = field(default_factory=lambda: os.environ.get("USE_SBI", "0") not in ("0", ""))
 
+    # The brief asks for a default of claude-sonnet-5-5, which is not a model that
+    # exists and would 404. The nearest real one is claude-sonnet-5. See DECISIONS.md.
     claude_model: str = field(
-        default_factory=lambda: os.environ.get("CLAUDE_MODEL") or "claude-sonnet-5-5"
+        default_factory=lambda: os.environ.get("CLAUDE_MODEL") or "claude-sonnet-5"
     )
     anthropic_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     photon_key: str = field(default_factory=lambda: os.environ.get("PHOTON_API_KEY", ""))

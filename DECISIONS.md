@@ -185,3 +185,28 @@ Every call made without asking. Newest phase at the bottom.
   reports the failure instead of the import blowing up.
 - Pupil light reflex is `face.pupil_light_reflex`, which raises NotImplementedError with
   the message "roadmap" and does nothing else.
+
+## Phase 4: agent and call script
+
+- `CLAUDE_MODEL` defaults to `claude-sonnet-5`, not the `claude-sonnet-5-5` in the brief.
+  That string is not a model that exists and every call would 404. The real ids are
+  `claude-sonnet-5` and `claude-opus-5`; switching is one line in `.env`.
+- LLM calls use a 6 s hard timeout, no retries, thinking disabled and effort low. This is
+  phrasing, not reasoning, and a patient is waiting on the phone. A retry would double the
+  wait, so the template line is the better fallback. Timeouts, rate limits, connection
+  errors and `stop_reason: refusal` all fall back to the template.
+- The patient summary is model-phrased but the safety sentence is appended verbatim
+  afterwards. Asked to rephrase the whole message, the model produced a warm, correct
+  summary and silently dropped "if anything feels worse, contact your clinician" , which is
+  the only part that matters when something is going wrong.
+- Every patient facing line passes through `safety.clean`, which replaces any line
+  containing diagnos, cleared to, return to play or medication dose with a redirect to the
+  clinician. That is enforced in code as well as in the system prompt, so a bad completion
+  cannot reach a patient.
+- The short version rule fires on headache or fatigue at 8 or more, or a symptom total rise
+  of 10 or more during eye block A, and drops eye block B, number naming and fluency. The
+  script is also pruned when the flash test fails or the quality gate blocks the eye tasks.
+- `dialog.run` takes a `hub` with speak, show, flash_block, collect, listen, wait, session
+  and quality_ok. The mock rig and the real rig implement the same methods, so the dialog
+  does not know which one it is driving.
+- Red flags stop the call before any measurement is taken. No partial data is stored.
