@@ -1,0 +1,32 @@
+{
+  "note": "Standard error of measurement per metric. Placeholders until test retest data exists. MDC = 1.96 * sqrt(2) * SEM.",
+  "source": "placeholder",
+  "sem": {
+    "pursuit_gain": 0.04,
+    "pursuit_rms": 0.6,
+    "antisaccade_err": 6.0,
+    "antisaccade_latency": 25.0,
+    "saccade_latency": 15.0,
+    "speech_rate": 0.25,
+    "recall_delayed": 1.2,
+    "recall_immediate": 1.4,
+    "symptom_total": 4.0,
+    "bcea": 0.35,
+    "intrusions": 1.1,
+    "blink_rate": 2.5,
+    "blink_dur": 20.0,
+    "jitter": 0.15,
+    "shimmer": 0.9,
+    "hnr": 1.4,
+    "cpp": 0.9,
+    "ah_duration": 1.8,
+    "ptk_rate": 0.45,
+    "passage_rate": 0.3,
+    "fluency_animals": 2.2,
+    "rapid_naming": 1.6,
+    "npc_cm": 1.5,
+    "calib_err_deg": 0.5,
+    "smile_mean": 0.05,
+    "brow_mean": 0.05
+  }
+}

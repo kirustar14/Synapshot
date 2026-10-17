@@ -1,0 +1,35 @@
+# Required. The backend, the twin, the tests and mock mode all run with just these.
+fastapi
+uvicorn[standard]
+pydantic>=2
+numpy
+scipy
+nibabel
+rapidfuzz
+python-multipart
+websockets
+httpx
+pytest
+
+# Recommended. Population layer falls back to a Laplace approximation without it.
+numpyro
+
+# Optional. Every one of these is wrapped in a try block with a fallback.
+# Templates and brain maps
+# nilearn
+# cubnm              # needs GSL and a compiler, usually fails on a laptop, see DECISIONS.md
+# enigmatoolbox
+# neuromaps
+# Measurement
+# mediapipe
+# opencv-python-headless
+# faster-whisper
+# praat-parselmouth
+# librosa
+# Rig
+# mss
+# sounddevice
+# Comms and LLM
+# anthropic
+# twilio
+# sbi                # optional upgrade for twin/surrogate.py behind USE_SBI=1

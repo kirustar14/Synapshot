@@ -1,0 +1,471 @@
+"""Pydantic models that mirror the API contract exactly. Field names are frozen."""
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+Flag = Literal["red_flag", "missed_call", "low_quality", "drift"]
+Kind = Literal["t1", "dwi", "fmri", "vcf", "labs", "injury"]
+Group = Literal["eyes", "speech", "memory", "symptoms"]
+Tier = Literal["A", "B"]
+
+
+class PatientRow(BaseModel):
+    """One row of the clinician patient list."""
+
+    id: str
+    name: str
+    week: int
+    drift_z: float
+    last_call: str | None
+    flags: list[Flag]
+    synthetic: bool
+
+
+class InputFile(BaseModel):
+    """One uploaded or synthetic input file and what it changes in the twin."""
+
+    kind: Kind
+    file: str
+    synthetic: bool
+    status: Literal["ok", "warn", "error", "missing"]
+    sets: str
+    note: str | None = None
+
+
+class Alert(BaseModel):
+    """A clinician facing alert."""
+
+    id: str
+    patient_id: str
+    type: Flag
+    trigger: str
+    time: str
+    called: bool
+    acked: bool
+
+
+class Injury(BaseModel):
+    """How the head was hit."""
+
+    mechanism: str
+    helmet: str
+    angle_deg: float
+    location: str
+    date: str
+    loc: bool
+
+
+class Alleles(BaseModel):
+    """The three genotype calls kept from the VCF."""
+
+    apoe_e4: Literal[0, 1, 2]
+    bdnf_met: bool
+    comt: Literal["Val/Val", "Val/Met", "Met/Met"]
+
+
+class Biomarkers(BaseModel):
+    """Blood marker z scores."""
+
+    gfap_z: float
+    uchl1_z: float
+
+
+class Contraction(BaseModel):
+    """Posterior contraction per parameter."""
+
+    k: float
+
+
+class Params(BaseModel):
+    """Current point estimates of the twin parameters."""
+
+    G: float
+    k: float
+    p: float
+    eps: float
+
+
+class Feature(BaseModel):
+    """One measured feature from one call."""
+
+    name: str
+    tier: Tier
+    value: float
+    prev: float | None
+    mdc: float
+    unit: str
+    changed: bool
+
+
+class Channel(BaseModel):
+    """Call quality of the video and audio channel."""
+
+    fps: float
+    calib_err_deg: float
+    face_share: float
+    flash_ok: bool
+
+
+class GazeTrace(BaseModel):
+    """Gaze and target over one eye task."""
+
+    task: str
+    t: list[float]
+    x: list[float]
+    y: list[float]
+    tx: list[float]
+    ty: list[float]
+
+
+class Trace(BaseModel):
+    """One time series trace."""
+
+    t: list[float]
+    v: list[float]
+
+
+class Traces(BaseModel):
+    """Exploratory blink and expression traces."""
+
+    blink: Trace
+    smile: Trace
+    brow: Trace
+
+
+class Line(BaseModel):
+    """One line of the call transcript."""
+
+    who: Literal["agent", "patient"]
+    text: str
+    t: float
+
+
+class Checkin(BaseModel):
+    """One weekly call."""
+
+    id: str
+    patient_id: str
+    week: int
+    date: str
+    duration_s: float
+    steps: list[str]
+    channel: Channel
+    features: list[Feature]
+    gaze: list[GazeTrace]
+    traces: Traces | None = None
+    transcript: list[Line]
+    unusable: bool
+
+
+class Patient(BaseModel):
+    """Everything the frontend shows about one patient."""
+
+    id: str
+    name: str
+    age: int
+    sex: Literal["F", "M"]
+    week: int
+    injury: Injury
+    inputs: list[InputFile]
+    alleles: Alleles
+    biomarkers: Biomarkers
+    fc_fit: float | None
+    coverage: float
+    contraction: Contraction
+    params: Params
+    alerts: list[Alert]
+    last_call: Checkin | None
+    twin_built: bool
+    template_only: bool
+    low_fidelity: bool
+
+
+class ObsPoint(BaseModel):
+    """One observed value on a signal."""
+
+    week: int
+    value: float
+    sem: float
+
+
+class Signal(BaseModel):
+    """One forecast signal with its band and its observations."""
+
+    key: str
+    label: str
+    unit: str
+    group: Group
+    tier: Tier
+    mean: list[float]
+    lo: list[float]
+    hi: list[float]
+    obs: list[ObsPoint]
+
+
+class CoveragePoint(BaseModel):
+    """One-step-ahead band coverage at one week."""
+
+    week: int
+    cov: float
+
+
+class Forecast(BaseModel):
+    """Twelve week forecast across every signal."""
+
+    weeks: list[int]
+    signals: list[Signal]
+    coverage: list[CoveragePoint]
+
+
+class Region(BaseModel):
+    """One brain region in the twin view."""
+
+    id: int
+    name: str
+    hemi: Literal["L", "R"]
+    x: float
+    y: float
+    z: float
+    ei: float
+    template_ei: float
+    damage: list[float]
+    activity: list[float]
+
+
+class Edge(BaseModel):
+    """One tract in the twin view."""
+
+    a: int
+    b: int
+    damage: list[float]
+    template_w: float
+    personal_w: float
+
+
+class TopTract(BaseModel):
+    """A tract worth naming in the summary."""
+
+    name: str
+    damage_w0: float
+    damage_now: float
+
+
+class Twin(BaseModel):
+    """The whole brain twin over weeks."""
+
+    weeks: list[int]
+    regions: list[Region]
+    edges: list[Edge]
+    top_tracts: list[TopTract]
+
+
+class Scenario(BaseModel):
+    """A what-if impact configuration."""
+
+    helmet: str
+    angle_deg: float
+
+
+class DiffRow(BaseModel):
+    """One parameter difference between two scenarios."""
+
+    param: str
+    a: str
+    b: str
+
+
+class ScenarioResult(BaseModel):
+    """Two scenario forecasts side by side."""
+
+    a: Forecast
+    b: Forecast
+    diff: list[DiffRow]
+
+
+class Message(BaseModel):
+    """One iMessage in or out."""
+
+    dir: Literal["out", "in"]
+    body: str
+    time: str
+
+
+class Check(BaseModel):
+    """One preflight check."""
+
+    name: str
+    ok: bool
+    detail: str
+
+
+class Effect(BaseModel):
+    """One population level effect, truth against estimate."""
+
+    name: str
+    true: float
+    est: float
+    lo: float
+    hi: float
+
+
+class Cohort(BaseModel):
+    """Population layer results across the synthetic cohort."""
+
+    weeks: list[int]
+    coverage: list[CoveragePoint]
+    k_true: list[float]
+    k_est: list[float]
+    effects: list[Effect]
+    size: int
+
+
+class TractScore(BaseModel):
+    """One tract and its attribution score."""
+
+    name: str
+    score: float
+
+
+class Attribution(BaseModel):
+    """Which tracts drive one signal. Always a hypothesis."""
+
+    signal: str
+    tracts: list[TractScore]
+    note: str
+
+
+class Quality(BaseModel):
+    """Live quality flags on the rig stream."""
+
+    face: bool
+    dist: bool
+    light: bool
+    fps: float
+
+
+class RigLine(BaseModel):
+    """The line being spoken right now."""
+
+    who: Literal["agent", "patient"]
+    text: str
+
+
+class Point(BaseModel):
+    """A normalized screen point."""
+
+    x: float
+    y: float
+
+
+class RigEvent(BaseModel):
+    """One frame of the live rig stream."""
+
+    type: Literal["frame"] = "frame"
+    gaze: Point
+    target: Point
+    quality: Quality
+    pursuit_gain: float | None
+    step: str
+    line: RigLine | None
+    frame: str | None = None
+
+
+class NewPatient(BaseModel):
+    """Body of POST /api/patients."""
+
+    name: str
+    age: int
+    sex: Literal["F", "M"]
+    synthetic: bool = True
+
+
+class ScenarioBody(BaseModel):
+    """Body of POST /api/patients/{id}/scenarios."""
+
+    a: Scenario
+    b: Scenario
+
+
+class CounterfactualBody(BaseModel):
+    """Body of POST /api/patients/{id}/counterfactual."""
+
+    k_mult: float = 1.0
+    p_add: float = 0.0
+
+
+class NoteBody(BaseModel):
+    """Body of POST /api/patients/{id}/note."""
+
+    text: str
+
+
+class RescoreBody(BaseModel):
+    """Body of POST /api/checkins/{cid}/rescore."""
+
+    task: str
+
+
+class ConsentBody(BaseModel):
+    """Body of POST /api/consent/{token}."""
+
+    calls: bool = False
+    ai: bool = False
+    recording: bool = False
+    genetic: bool = False
+
+
+class ConsentText(BaseModel):
+    """What the consent page shows."""
+
+    patient_name: str
+    text: list[str]
+
+
+class Gait(BaseModel):
+    """Gait numbers from the texted web page."""
+
+    cadence: float
+    variability: float
+    steps: int
+
+
+class Hearing(BaseModel):
+    """Hearing thresholds from the texted web page."""
+
+    thresholds: dict[str, float]
+
+
+class StretchBody(BaseModel):
+    """Body of POST /api/stretch/{token}."""
+
+    gait: Gait | None = None
+    hearing: Hearing | None = None
+
+
+class DemoBody(BaseModel):
+    """Body of the demo endpoints."""
+
+    patient_id: str | None = None
+    size: float = 1.0
+
+
+class UploadBody(BaseModel):
+    """JSON body of the synthetic upload shortcut."""
+
+    synthetic: bool = True
+
+
+class TwinInputs(BaseModel):
+    """Response of GET /api/patients/{id}/twin-inputs."""
+
+    inputs: list[InputFile]
+    fc_fit: float | None
+    low_fidelity: bool
+
+
+class Health(BaseModel):
+    """Response of GET /api/health."""
+
+    ok: bool = True
+    mode: Literal["mock", "live"] = Field(default="mock")

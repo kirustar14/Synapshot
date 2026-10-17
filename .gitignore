@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+/data/cache/
+/data/synthetic/
+/data/uploads/
+/data/unnamed.db
+/data/cohort.json
+.DS_Store
+.env
