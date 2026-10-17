@@ -41,6 +41,12 @@ STIM_DIR = ROOT / "stimulus"
 if STIM_DIR.exists():
     app.mount("/stimulus", StaticFiles(directory=str(STIM_DIR), html=True), name="stimulus")
 
+# A dummy test harness, not the product. The clinician frontend is built separately
+# against the contract; this exists so the backend can be seen without curl.
+UI_DIR = ROOT / "frontend"
+if UI_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
+
 
 def reach_only(name: str) -> None:
     """Reach features are on by default. With REACH=0 they are not served at all."""
@@ -620,6 +626,7 @@ def root():
         "mode": cfg.mode(),
         "api": "/api/health",
         "docs": "/docs",
+        "ui": "/ui/",
         "stimulus": "/stimulus/",
         "websockets": ["/ws/rig", "/ws/stimulus"],
     })

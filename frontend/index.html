@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UNNAMED test harness</title>
+<style>
+/* Dark only, on purpose: this is a dev harness that sits next to the stimulus page.
+   Every colour below is the validated dark step from the project palette. */
+:root {
+  --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232321;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+  --s1:#3987e5; --s2:#d95926;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --seq-100:#cde2fb; --seq-250:#86b6ef; --seq-400:#3987e5; --seq-550:#1c5cab; --seq-600:#184f95;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--plane); color:var(--ink);
+  font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+a { color:var(--s1); }
+h1 { font-size:15px; margin:0; font-weight:650; letter-spacing:.2px; }
+h2 { font-size:13px; margin:0 0 10px; font-weight:600; color:var(--ink-2);
+  text-transform:uppercase; letter-spacing:.6px; }
+h3 { font-size:13px; margin:0 0 2px; font-weight:600; }
+
+/* chrome */
+header { display:flex; align-items:center; gap:14px; padding:12px 18px;
+  border-bottom:1px solid var(--border); background:var(--surface); flex-wrap:wrap; }
+.badge { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--border);
+  color:var(--ink-2); font-variant-numeric:tabular-nums; }
+.badge.live { color:var(--good); border-color:var(--good); }
+.badge.mock { color:var(--warn); border-color:var(--warn); }
+.spacer { flex:1; }
+button { font:inherit; font-size:12px; padding:5px 11px; border-radius:7px; cursor:pointer;
+  background:var(--surface-2); color:var(--ink); border:1px solid var(--border); }
+button:hover { border-color:var(--muted); }
+button:disabled { opacity:.45; cursor:default; }
+button.go { background:var(--s1); border-color:var(--s1); color:#fff; }
+
+/* kpi row */
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px;
+  background:var(--border); border-bottom:1px solid var(--border); }
+.kpi { background:var(--surface); padding:11px 16px; }
+.kpi .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+.kpi .v { font-size:26px; font-weight:600; line-height:1.15; margin-top:1px; }
+.kpi .s { font-size:11px; color:var(--ink-2); }
+
+/* layout */
+main { display:grid; grid-template-columns:300px 1fr; gap:0; align-items:start; }
+aside { border-right:1px solid var(--border); min-height:calc(100vh - 118px); padding:14px; }
+section.body { padding:16px 18px 40px; min-width:0; }
+
+/* patient list */
+.plist { display:flex; flex-direction:column; gap:1px; }
+.prow { text-align:left; padding:9px 11px; border-radius:8px; border:1px solid transparent;
+  background:transparent; cursor:pointer; display:block; width:100%; }
+.prow:hover { background:var(--surface); }
+.prow[aria-current="true"] { background:var(--surface); border-color:var(--s1); }
+.prow .nm { font-weight:600; font-size:13px; }
+.prow .mt { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.flags { display:flex; gap:4px; margin-top:4px; flex-wrap:wrap; }
+.flag { font-size:10px; padding:1px 6px; border-radius:4px; border:1px solid; }
+.flag.drift { color:var(--critical); border-color:var(--critical); }
+.flag.red_flag { color:var(--critical); border-color:var(--critical); }
+.flag.low_quality { color:var(--warn); border-color:var(--warn); }
+.flag.missed_call { color:var(--serious); border-color:var(--serious); }
+
+/* tabs */
+.tabs { display:flex; gap:2px; margin-bottom:16px; border-bottom:1px solid var(--border);
+  flex-wrap:wrap; }
+.tab { background:transparent; border:none; border-bottom:2px solid transparent;
+  border-radius:0; padding:7px 12px; color:var(--muted); font-size:13px; }
+.tab[aria-selected="true"] { color:var(--ink); border-bottom-color:var(--s1); }
+
+/* cards */
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:12px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:12px 14px 10px; min-width:0; }
+.card .hd { display:flex; align-items:baseline; gap:8px; margin-bottom:6px; }
+.card .un { font-size:11px; color:var(--muted); }
+.card .tier { font-size:10px; color:var(--muted); border:1px solid var(--border);
+  padding:0 5px; border-radius:4px; margin-left:auto; }
+
+/* charts */
+figure { margin:0; position:relative; }
+svg { display:block; width:100%; overflow:visible; }
+.tip { position:absolute; pointer-events:none; opacity:0; transition:opacity .08s;
+  background:var(--surface-2); border:1px solid var(--border); border-radius:7px;
+  padding:6px 9px; font-size:11px; white-space:nowrap; z-index:5;
+  font-variant-numeric:tabular-nums; box-shadow:0 4px 14px rgba(0,0,0,.5); }
+.tip.on { opacity:1; }
+.tip b { font-weight:600; }
+.legend { display:flex; gap:12px; font-size:11px; color:var(--ink-2); margin:6px 0 0;
+  flex-wrap:wrap; align-items:center; }
+.swatch { width:10px; height:10px; border-radius:2px; display:inline-block;
+  margin-right:5px; vertical-align:-1px; }
+.ramp { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+.ramp i { width:70px; height:8px; border-radius:2px; display:inline-block;
+  background:linear-gradient(90deg,var(--seq-100),var(--seq-400),var(--seq-600)); }
+
+/* tables */
+table { width:100%; border-collapse:collapse; font-size:12px; }
+th { text-align:left; font-weight:600; color:var(--muted); font-size:11px;
+  text-transform:uppercase; letter-spacing:.5px; padding:5px 8px 5px 0;
+  border-bottom:1px solid var(--axis); white-space:nowrap; }
+td { padding:5px 8px 5px 0; border-bottom:1px solid var(--grid);
+  font-variant-numeric:tabular-nums; }
+td.name { font-variant-numeric:normal; }
+.tv { font-size:11px; color:var(--muted); background:transparent; border:none;
+  padding:4px 0 0; cursor:pointer; text-decoration:underline; }
+.hide { display:none; }
+.stat { display:inline-flex; align-items:center; gap:4px; font-size:11px; }
+.stat.ok { color:var(--good); } .stat.changed { color:var(--warn); }
+.stat.bad { color:var(--critical); }
+
+/* misc */
+.row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.note { font-size:12px; color:var(--muted); margin:0 0 12px; max-width:68ch; }
+.chat { display:flex; flex-direction:column; gap:7px; max-width:620px; }
+.msg { padding:8px 11px; border-radius:12px; font-size:13px; max-width:82%; }
+.msg.out { background:var(--s1); color:#fff; align-self:flex-start; border-bottom-left-radius:4px; }
+.msg.in { background:var(--surface-2); align-self:flex-end; border-bottom-right-radius:4px; }
+.msg .t { font-size:10px; opacity:.7; display:block; margin-top:3px; }
+.script { font-size:12px; max-height:340px; overflow:auto; }
+.script div { padding:3px 0; border-bottom:1px solid var(--grid); }
+.script .who { color:var(--muted); display:inline-block; width:62px; }
+.log { font:11px/1.6 ui-monospace,monospace; max-height:220px; overflow:auto;
+  color:var(--ink-2); }
+.alert { border:1px solid var(--border); border-left:3px solid var(--muted);
+  border-radius:8px; padding:10px 12px; margin-bottom:8px; background:var(--surface); }
+.alert.drift, .alert.red_flag { border-left-color:var(--critical); }
+.alert.low_quality { border-left-color:var(--warn); }
+.alert .mt { font-size:11px; color:var(--muted); margin-top:3px; }
+.empty { color:var(--muted); font-size:13px; padding:18px 0; }
+input[type=range] { accent-color:var(--s1); }
+@media (max-width:860px) { main { grid-template-columns:1fr; } aside { border-right:none;
+  border-bottom:1px solid var(--border); min-height:0; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>UNNAMED</h1>
+  <span class="badge" id="mode">connecting</span>
+  <span class="badge" id="ws">ws idle</span>
+  <div class="spacer"></div>
+  <button id="b-reset">Reset demo</button>
+  <button id="b-week">Advance week</button>
+  <button id="b-drift">Inject drift</button>
+  <button class="go" id="b-call">Trigger call</button>
+  <button id="b-refresh">Refresh</button>
+</header>
+
+<div class="kpis" id="kpis"></div>
+
+<main>
+  <aside>
+    <h2>Patients</h2>
+    <div class="plist" id="plist"></div>
+    <p class="note" style="margin-top:14px">Every patient here is synthetic.</p>
+  </aside>
+
+  <section class="body">
+    <div class="tabs" id="tabs"></div>
+    <div id="view"></div>
+  </section>
+</main>
+
+<script>
+const API = "";                      // same origin as the backend
+const S = { patients:[], pid:null, tab:"forecast", cache:{}, week:0, rig:[] };
+const TABS = [
+  ["forecast","Forecast"], ["twin","Twin"], ["checkins","Check-ins"],
+  ["alerts","Alerts"], ["messages","Messages"], ["cohort","Cohort"],
+  ["rig","Rig"], ["inputs","Inputs"],
+];
+
+/* ---------------------------------------------------------------- data */
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  if (!r.ok) throw new Error(path + " -> " + r.status + " " + (await r.text()).slice(0,200));
+  return r.json();
+}
+const post = (path, body) => api(path, {
+  method:"POST", headers:{"Content-Type":"application/json"},
+  body: body === undefined ? null : JSON.stringify(body),
+});
+const fmt = (v, d=2) => v === null || v === undefined || Number.isNaN(v) ? "—"
+  : (typeof v === "number" ? v.toFixed(d) : String(v));
+
+/* ---------------------------------------------------------------- svg helpers */
+function el(tag, attrs={}, kids=[]) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k,v] of Object.entries(attrs)) if (v !== null) n.setAttribute(k, v);
+  for (const k of [].concat(kids)) n.appendChild(typeof k === "string"
+    ? document.createTextNode(k) : k);
+  return n;
+}
+function scale(d0, d1, r0, r1) {
+  const span = (d1 - d0) || 1;
+  return v => r0 + ((v - d0) / span) * (r1 - r0);
+}
+function niceTicks(lo, hi, want=4) {
+  const span = (hi - lo) || 1;
+  const raw = span / want;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1,2,2.5,5,10].map(m => m*mag).find(s => s >= raw) || mag*10;
+  const out = [];
+  for (let v = Math.ceil(lo/step)*step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+/* axes: solid hairlines, one shade off the surface, never dashed */
+function axes(g, { x, y, xt, yt, w, h, m, fmtY }) {
+  for (const t of yt) {
+    const py = y(t);
+    g.appendChild(el("line", { x1:m.l, x2:w-m.r, y1:py, y2:py, stroke:"var(--grid)", "stroke-width":1 }));
+    g.appendChild(el("text", { x:m.l-7, y:py+3.5, "text-anchor":"end",
+      fill:"var(--muted)", "font-size":10, style:"font-variant-numeric:tabular-nums" },
+      (fmtY || (v=>v))(t)));
+  }
+  g.appendChild(el("line", { x1:m.l, x2:w-m.r, y1:h-m.b, y2:h-m.b,
+    stroke:"var(--axis)", "stroke-width":1 }));
+  for (const t of xt) {
+    g.appendChild(el("text", { x:x(t), y:h-m.b+14, "text-anchor":"middle",
+      fill:"var(--muted)", "font-size":10, style:"font-variant-numeric:tabular-nums" }, String(t)));
+  }
+}
+
+/* One signal: uncertainty band + mean line + observations.
+   Single series, so no legend box; the card title names it. */
+function bandChart(sig, weeks) {
+  const w = 360, h = 186, m = { l:44, r:10, t:10, b:26 };
+  const all = sig.lo.concat(sig.hi, sig.obs.map(o => o.value));
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const pad = ((hi - lo) || 1) * 0.12; lo -= pad; hi += pad;
+  const x = scale(weeks[0], weeks[weeks.length-1], m.l, w - m.r);
+  const y = scale(lo, hi, h - m.b, m.t);
+  const g = el("g");
+  const svg = el("svg", { viewBox:`0 0 ${w} ${h}`, role:"img",
+    "aria-label":`${sig.label} forecast, weeks ${weeks[0]} to ${weeks[weeks.length-1]}` });
+
+  axes(g, { x, y, xt:weeks.filter((_,i)=>i%2===0), yt:niceTicks(lo,hi,4), w, h, m,
+    fmtY: v => Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2) });
+
+  const up = weeks.map((wk,i) => `${x(wk)},${y(sig.hi[i])}`);
+  const dn = weeks.map((wk,i) => `${x(wk)},${y(sig.lo[i])}`).reverse();
+  g.appendChild(el("path", { d:`M${up.join("L")}L${dn.join("L")}Z`,
+    fill:"var(--s1)", "fill-opacity":.17 }));
+  g.appendChild(el("path", { fill:"none", stroke:"var(--s1)", "stroke-width":2,
+    "stroke-linejoin":"round",
+    d:"M" + weeks.map((wk,i) => `${x(wk)},${y(sig.mean[i])}`).join("L") }));
+
+  for (const o of sig.obs) {
+    g.appendChild(el("circle", { cx:x(o.week), cy:y(o.value), r:4.5,
+      fill:"var(--ink)", stroke:"var(--surface)", "stroke-width":2 }));
+  }
+  const hair = el("line", { y1:m.t, y2:h-m.b, stroke:"var(--muted)", "stroke-width":1,
+    opacity:0 });
+  g.appendChild(hair);
+  svg.appendChild(g);
+
+  const fig = document.createElement("figure");
+  const tip = document.createElement("div");
+  tip.className = "tip";
+  fig.append(svg, tip);
+
+  /* crosshair + tooltip: an HTML chart is interactive by default */
+  svg.addEventListener("pointermove", ev => {
+    const box = svg.getBoundingClientRect();
+    const px = (ev.clientX - box.left) / box.width * w;
+    let i = 0, best = Infinity;
+    weeks.forEach((wk,j) => { const d = Math.abs(x(wk) - px); if (d < best) { best = d; i = j; } });
+    hair.setAttribute("x1", x(weeks[i])); hair.setAttribute("x2", x(weeks[i]));
+    hair.setAttribute("opacity", .5);
+    const ob = sig.obs.find(o => o.week === weeks[i]);
+    tip.innerHTML = `<b>week ${weeks[i]}</b><br>forecast ${fmt(sig.mean[i])} `
+      + `<span style="color:var(--muted)">[${fmt(sig.lo[i])}, ${fmt(sig.hi[i])}]</span>`
+      + (ob ? `<br>measured <b>${fmt(ob.value)}</b> ±${fmt(ob.sem)}` : "");
+    tip.classList.add("on");
+    const left = (x(weeks[i]) / w) * box.width;
+    tip.style.left = Math.min(Math.max(left - 60, 0), box.width - 150) + "px";
+    tip.style.top = "6px";
+  });
+  svg.addEventListener("pointerleave", () => {
+    tip.classList.remove("on"); hair.setAttribute("opacity", 0);
+  });
+  return fig;
+}
+
+/* Cohort coverage: single series, with the calibrated target zone as neutral context. */
+function coverageChart(points) {
+  const w = 420, h = 200, m = { l:44, r:10, t:10, b:26 };
+  const weeks = points.map(p => p.week);
+  const x = scale(Math.min(...weeks), Math.max(...weeks), m.l, w-m.r);
+  const y = scale(0.4, 1.0, h-m.b, m.t);
+  const svg = el("svg", { viewBox:`0 0 ${w} ${h}`, role:"img",
+    "aria-label":"one step ahead band coverage by week across the cohort" });
+  const g = el("g");
+  g.appendChild(el("rect", { x:m.l, y:y(0.9), width:w-m.l-m.r, height:y(0.65)-y(0.9),
+    fill:"var(--ink)", "fill-opacity":.055 }));
+  axes(g, { x, y, xt:weeks.filter((_,i)=>i%2===0), yt:[0.4,0.6,0.8,1.0], w, h, m,
+    fmtY: v => v.toFixed(1) });
+  g.appendChild(el("path", { fill:"none", stroke:"var(--s1)", "stroke-width":2,
+    "stroke-linejoin":"round",
+    d:"M" + points.map(p => `${x(p.week)},${y(p.cov)}`).join("L") }));
+  for (const p of points) g.appendChild(el("circle", { cx:x(p.week), cy:y(p.cov), r:3.5,
+    fill:"var(--s1)", stroke:"var(--surface)", "stroke-width":2 }));
+  g.appendChild(el("text", { x:w-m.r, y:y(0.775), "text-anchor":"end",
+    fill:"var(--muted)", "font-size":10 }, "calibrated band 0.65 to 0.9"));
+  svg.appendChild(g);
+  return svg;
+}
+
+/* True against estimated recovery rate. One series, so a y=x reference hairline. */
+function kScatter(kt, ke) {
+  const w = 420, h = 200, m = { l:44, r:10, t:10, b:30 };
+  const all = kt.concat(ke);
+  const lo = 0, hi = Math.max(...all) * 1.08;
+  const x = scale(lo, hi, m.l, w-m.r), y = scale(lo, hi, h-m.b, m.t);
+  const svg = el("svg", { viewBox:`0 0 ${w} ${h}`, role:"img",
+    "aria-label":"true against estimated weekly recovery rate, one dot per patient" });
+  const g = el("g");
+  const ticks = niceTicks(lo, hi, 4);
+  axes(g, { x, y, xt:ticks, yt:ticks, w, h, m, fmtY: v => v.toFixed(2) });
+  g.appendChild(el("line", { x1:x(lo), y1:y(lo), x2:x(hi), y2:y(hi),
+    stroke:"var(--axis)", "stroke-width":1 }));
+  g.appendChild(el("text", { x:x(hi)-4, y:y(hi)+12, "text-anchor":"end",
+    fill:"var(--muted)", "font-size":10 }, "perfect recovery"));
+  kt.forEach((t,i) => g.appendChild(el("circle", { cx:x(t), cy:y(ke[i]), r:4,
+    fill:"var(--s1)", "fill-opacity":.75, stroke:"var(--surface)", "stroke-width":1.5 })));
+  g.appendChild(el("text", { x:(m.l+w-m.r)/2, y:h-2, "text-anchor":"middle",
+    fill:"var(--muted)", "font-size":10 }, "true k (per week)"));
+  svg.appendChild(g);
+  return svg;
+}
+
+/* Effects: estimate with its 90% interval against the value the generator used.
+   Two series, so a legend is present and both are direct-labelled. */
+function effectsChart(effects) {
+  const rowH = 34, w = 420, m = { l:62, r:16, t:8, b:26 };
+  const h = m.t + m.b + effects.length * rowH;
+  const vals = effects.flatMap(e => [e.lo, e.hi, e.true, e.est]);
+  const lo = Math.min(...vals) - .06, hi = Math.max(...vals) + .06;
+  const x = scale(lo, hi, m.l, w-m.r);
+  const svg = el("svg", { viewBox:`0 0 ${w} ${h}`, role:"img",
+    "aria-label":"population effect estimates with 90 percent intervals against the truth" });
+  const g = el("g");
+  for (const t of niceTicks(lo, hi, 4)) {
+    g.appendChild(el("line", { x1:x(t), x2:x(t), y1:m.t, y2:h-m.b,
+      stroke:"var(--grid)", "stroke-width":1 }));
+    g.appendChild(el("text", { x:x(t), y:h-m.b+14, "text-anchor":"middle",
+      fill:"var(--muted)", "font-size":10 }, t.toFixed(1)));
+  }
+  g.appendChild(el("line", { x1:x(0), x2:x(0), y1:m.t, y2:h-m.b,
+    stroke:"var(--axis)", "stroke-width":1 }));
+  effects.forEach((e,i) => {
+    const cy = m.t + i*rowH + rowH/2;
+    g.appendChild(el("text", { x:m.l-10, y:cy+4, "text-anchor":"end", fill:"var(--ink-2)",
+      "font-size":11 }, e.name));
+    g.appendChild(el("line", { x1:x(e.lo), x2:x(e.hi), y1:cy, y2:cy,
+      stroke:"var(--s1)", "stroke-width":2, "stroke-linecap":"round" }));
+    g.appendChild(el("circle", { cx:x(e.est), cy, r:5, fill:"var(--s1)",
+      stroke:"var(--surface)", "stroke-width":2 }));
+    g.appendChild(el("path", { d:`M${x(e.true)},${cy-6}L${x(e.true)+5.5},${cy}L${x(e.true)},${cy+6}L${x(e.true)-5.5},${cy}Z`,
+      fill:"var(--s2)", stroke:"var(--surface)", "stroke-width":2 }));
+  });
+  svg.appendChild(g);
+  return svg;
+}
+
+/* Twin: regions in a sagittal projection, damage on a single-hue sequential ramp. */
+function regionMap(regions, wk) {
+  const w = 420, h = 240, m = 14;
+  const ys = regions.map(r => r.y), zs = regions.map(r => r.z);
+  const x = scale(Math.min(...ys), Math.max(...ys), m, w-m);
+  const y = scale(Math.min(...zs), Math.max(...zs), h-m, m);
+  const dmg = regions.map(r => r.damage[wk] ?? 0);
+  const top = Math.max(...dmg, 0.001);
+  const ramp = ["var(--seq-100)","var(--seq-250)","var(--seq-400)","var(--seq-550)","var(--seq-600)"];
+  const svg = el("svg", { viewBox:`0 0 ${w} ${h}`, role:"img",
+    "aria-label":`100 regions, damage at week ${wk}, darker is more damaged` });
+  const g = el("g");
+  regions.forEach((r,i) => {
+    const frac = dmg[i] / top;
+    const c = ramp[Math.min(ramp.length-1, Math.floor(frac * ramp.length))];
+    const dot = el("circle", { cx:x(r.y), cy:y(r.z), r:5.5, fill:c,
+      stroke:"var(--surface)", "stroke-width":1.5 });
+    dot.appendChild(el("title", {}, `${r.name} (${r.hemi})  damage ${dmg[i].toFixed(3)}`));
+    g.appendChild(dot);
+  });
+  svg.appendChild(g);
+  return svg;
+}
+
+function tableView(cols, rows) {
+  const t = document.createElement("table");
+  t.innerHTML = "<thead><tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr></thead>";
+  const tb = document.createElement("tbody");
+  for (const r of rows) {
+    tb.innerHTML += "<tr>" + r.map((v,i) =>
+      `<td class="${i===0?"name":""}">${v}</td>`).join("") + "</tr>";
+  }
+  t.appendChild(tb);
+  return t;
+}
+/* every chart ships a table-view twin */
+function withTable(fig, cols, rows, label="table view") {
+  const box = document.createElement("div");
+  const tbl = tableView(cols, rows);
+  tbl.classList.add("hide");
+  const btn = document.createElement("button");
+  btn.className = "tv"; btn.textContent = label;
+  btn.onclick = () => {
+    const on = tbl.classList.toggle("hide");
+    btn.textContent = on ? label : "hide table";
+    fig.classList.toggle("hide", !on);
+  };
+  box.append(fig, btn, tbl);
+  return box;
+}
+
+/* ---------------------------------------------------------------- views */
+function kpis(health, cohort) {
+  const open = (S.alerts || []).filter(a => !a.acked).length;
+  const c8 = cohort && (cohort.coverage.find(c => c.week === 8) || {}).cov;
+  const sel = S.patients.find(p => p.id === S.pid);
+  const items = [
+    ["Patients", S.patients.length, "all synthetic"],
+    ["Open alerts", open, open ? "needs a clinician" : "nothing outstanding"],
+    ["Coverage at week 8", c8 === undefined ? "—" : c8.toFixed(3), "target 0.65 to 0.9"],
+    ["Cohort size", cohort ? cohort.size : "—", "population layer"],
+    ["Selected", sel ? `wk ${sel.week}` : "—", sel ? sel.name : "pick a patient"],
+    ["Mode", health.mode, health.mode === "mock" ? "no keys needed" : "live keys set"],
+  ];
+  document.getElementById("kpis").innerHTML = items.map(([k,v,s]) =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`
+  ).join("");
+}
+
+function patientList() {
+  const box = document.getElementById("plist");
+  box.innerHTML = "";
+  for (const p of S.patients) {
+    const b = document.createElement("button");
+    b.className = "prow";
+    b.setAttribute("aria-current", String(p.id === S.pid));
+    b.innerHTML = `<div class="nm">${p.name}</div>
+      <div class="mt">week ${p.week} · drift z ${p.drift_z >= 0 ? "+" : ""}${p.drift_z.toFixed(2)}</div>
+      <div class="flags">${p.flags.map(f =>
+        `<span class="flag ${f}">${f.replace("_"," ")}</span>`).join("")}</div>`;
+    b.onclick = () => { S.pid = p.id; S.cache = {}; render(); };
+    box.appendChild(b);
+  }
+}
+
+async function viewForecast(host) {
+  const f = await cached("forecast", `/api/patients/${S.pid}/forecast`);
+  host.innerHTML = `<p class="note">Each panel is one measured signal. The band is the
+    middle 80% of 200 possible futures plus measurement noise; the dots are what was
+    actually measured on each call. Hover for the numbers.</p>`;
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  for (const sig of f.signals) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<div class="hd"><h3>${sig.label}</h3>
+      <span class="un">${sig.unit}</span><span class="tier">tier ${sig.tier}</span></div>`;
+    const rows = f.weeks.map((wk,i) => {
+      const o = sig.obs.find(x => x.week === wk);
+      return [`wk ${wk}`, fmt(sig.mean[i]), fmt(sig.lo[i]), fmt(sig.hi[i]),
+        o ? fmt(o.value) : "—"];
+    });
+    card.appendChild(withTable(bandChart(sig, f.weeks),
+      ["week","forecast","low","high","measured"], rows));
+    grid.appendChild(card);
+  }
+  host.appendChild(grid);
+}
+
+async function viewTwin(host) {
+  const t = await cached("twin", `/api/patients/${S.pid}/twin`);
+  const wk = Math.min(S.week, t.weeks.length-1);
+  host.innerHTML = `<p class="note">The twin is 100 regions and the tracts between them.
+    Darker is more damaged. Drag the slider to watch the damage heal across the
+    forecast.</p>`;
+  const row = document.createElement("div");
+  row.className = "grid";
+
+  const c1 = document.createElement("div");
+  c1.className = "card";
+  c1.innerHTML = `<div class="hd"><h3>Region damage, week ${t.weeks[wk]}</h3>
+    <span class="tier">sagittal view</span></div>`;
+  c1.appendChild(regionMap(t.regions, wk));
+  const ramp = document.createElement("div");
+  ramp.className = "ramp";
+  ramp.innerHTML = `<span>less</span><i></i><span>more damaged</span>`;
+  c1.appendChild(ramp);
+  const sl = document.createElement("input");
+  sl.type = "range"; sl.min = 0; sl.max = t.weeks.length-1; sl.value = wk;
+  sl.style.width = "100%"; sl.style.marginTop = "8px";
+  sl.oninput = () => { S.week = +sl.value; render(); };
+  c1.appendChild(sl);
+  row.appendChild(c1);
+
+  const c2 = document.createElement("div");
+  c2.className = "card";
+  c2.innerHTML = `<div class="hd"><h3>Worst tracts</h3>
+    <span class="un">at injury, and now</span></div>`;
+  c2.appendChild(tableView(["tract","at week 0","at week 12"],
+    t.top_tracts.map(x => [x.name, fmt(x.damage_w0,3), fmt(x.damage_now,3)])));
+  const edgeRows = t.edges.slice(0,12).map(e =>
+    [`${e.a} to ${e.b}`, fmt(e.template_w,3), fmt(e.personal_w,3), fmt(e.damage[wk],3)]);
+  c2.innerHTML += `<h3 style="margin-top:14px">Edges, first 12 of ${t.edges.length}</h3>`;
+  c2.appendChild(tableView(["edge","template weight","personal weight","damage"], edgeRows));
+  row.appendChild(c2);
+  host.appendChild(row);
+}
+
+async function viewCheckins(host) {
+  const list = await cached("checkins", `/api/patients/${S.pid}/checkins`);
+  if (!list.length) { host.innerHTML = `<p class="empty">No calls yet.</p>`; return; }
+  const last = list[list.length-1];
+  const full = await api(`/api/checkins/${last.id}`);
+  host.innerHTML = `<p class="note">${list.length} calls. Showing the most recent,
+    week ${last.week}. A feature is flagged only when it moved further than its own
+    measurement noise allows.</p>`;
+
+  const ch = full.channel;
+  const gate = ch.face_share >= 0.7 && ch.calib_err_deg <= 3;
+  const kp = document.createElement("div");
+  kp.className = "kpis";
+  kp.style.border = "1px solid var(--border)";
+  kp.style.borderRadius = "10px";
+  kp.style.overflow = "hidden";
+  kp.style.marginBottom = "12px";
+  kp.innerHTML = [
+    ["Frame rate", ch.fps.toFixed(0), "per second"],
+    ["Calibration error", ch.calib_err_deg.toFixed(2), "degrees, gate is 3"],
+    ["Face visible", (ch.face_share*100).toFixed(0) + "%", "gate is 70%"],
+    ["Flash test", ch.flash_ok ? "passed" : "failed",
+      ch.flash_ok ? "timing is usable" : "tier B dropped"],
+    ["Quality gate", gate ? "passed" : "blocked",
+      gate ? "eye tasks reported" : "eye tasks not reported"],
+  ].map(([k,v,s]) => `<div class="kpi"><div class="k">${k}</div>
+    <div class="v" style="font-size:20px">${v}</div><div class="s">${s}</div></div>`).join("");
+  host.appendChild(kp);
+
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  const c1 = document.createElement("div");
+  c1.className = "card";
+  c1.innerHTML = `<div class="hd"><h3>Features measured</h3>
+    <span class="un">${full.features.length} this call</span></div>`;
+  c1.appendChild(tableView(["feature","tier","value","last week","needs to move","moved?"],
+    full.features.map(f => [f.name.replace(/_/g," "), f.tier, fmt(f.value,2),
+      f.prev === null ? "—" : fmt(f.prev,2), fmt(f.mdc,2),
+      f.changed ? `<span class="stat changed">▲ beyond noise</span>`
+                : `<span class="stat ok">within noise</span>`])));
+  grid.appendChild(c1);
+
+  const c2 = document.createElement("div");
+  c2.className = "card";
+  c2.innerHTML = `<div class="hd"><h3>Transcript</h3>
+    <span class="un">${full.transcript.length} lines</span></div>`;
+  const sc = document.createElement("div");
+  sc.className = "script";
+  sc.innerHTML = full.transcript.map(l =>
+    `<div><span class="who">${l.who}</span>${l.text}</div>`).join("");
+  c2.appendChild(sc);
+  grid.appendChild(c2);
+  host.appendChild(grid);
+
+  host.insertAdjacentHTML("beforeend", `<h2 style="margin-top:20px">All calls</h2>`);
+  host.appendChild(tableView(["week","date","length","features","flash","usable"],
+    list.map(c => [`wk ${c.week}`, c.date.replace("T"," "),
+      (c.duration_s/60).toFixed(1) + " min", c.features.length,
+      c.channel.flash_ok ? "ok" : "failed",
+      c.unusable ? `<span class="stat bad">marked unusable</span>` : "yes"])));
+}
+
+async function viewAlerts(host) {
+  const list = await api(`/api/alerts?patient_id=${S.pid}`);
+  host.innerHTML = `<p class="note">Alerts are produced by rules over the filter's
+    residuals and the call quality, not by fixtures.</p>`;
+  if (!list.length) { host.insertAdjacentHTML("beforeend", `<p class="empty">No alerts.</p>`); return; }
+  for (const a of list) {
+    const d = document.createElement("div");
+    d.className = "alert " + a.type;
+    d.innerHTML = `<h3>${a.type.replace("_"," ")}</h3>
+      <div>${a.trigger}</div>
+      <div class="mt">${a.time.replace("T"," ")} ·
+        clinic ${a.called ? "called" : "not called"} ·
+        ${a.acked ? "acknowledged" : "unacknowledged"}</div>`;
+    const row = document.createElement("div");
+    row.className = "row"; row.style.marginTop = "8px";
+    if (!a.acked) {
+      const b = document.createElement("button");
+      b.textContent = "Acknowledge";
+      b.onclick = async () => { await post(`/api/alerts/${a.id}/ack`); render(); };
+      row.appendChild(b);
+    }
+    const c = document.createElement("button");
+    c.textContent = "Ring the clinic";
+    c.onclick = async () => { await post(`/api/alerts/${a.id}/call`); render(); };
+    row.appendChild(c);
+    d.appendChild(row);
+    host.appendChild(d);
+  }
+}
+
+async function viewMessages(host) {
+  const list = await api(`/api/patients/${S.pid}/messages`);
+  host.innerHTML = `<p class="note">The iMessage thread. In mock mode nothing is sent,
+    it is written to the database so this view can show it.</p>`;
+  const box = document.createElement("div");
+  box.className = "chat";
+  box.innerHTML = list.map(m => `<div class="msg ${m.dir}">${m.body}
+    <span class="t">${m.dir === "out" ? "assistant" : "patient"} · ${m.time.replace("T"," ")}</span></div>`).join("")
+    || `<p class="empty">No messages.</p>`;
+  host.appendChild(box);
+}
+
+async function viewCohort(host) {
+  const c = await cached("cohort", "/api/cohort");
+  host.innerHTML = `<p class="note">${c.size} synthetic patients, each run through twelve
+    weeks of the filter. This is how the twin scores itself.</p>`;
+  const grid = document.createElement("div");
+  grid.className = "grid";
+
+  const a = document.createElement("div");
+  a.className = "card";
+  a.innerHTML = `<div class="hd"><h3>Band coverage by week</h3>
+    <span class="un">share of measurements inside the 80% band</span></div>`;
+  a.appendChild(withTable(coverageChart(c.coverage), ["week","coverage"],
+    c.coverage.map(p => [`wk ${p.week}`, p.cov.toFixed(3)])));
+  grid.appendChild(a);
+
+  const b = document.createElement("div");
+  b.className = "card";
+  b.innerHTML = `<div class="hd"><h3>Recovery rate recovered</h3>
+    <span class="un">true against estimated k</span></div>`;
+  b.appendChild(withTable(kScatter(c.k_true, c.k_est), ["patient","true k","estimated k"],
+    c.k_true.map((t,i) => [i+1, t.toFixed(3), c.k_est[i].toFixed(3)])));
+  grid.appendChild(b);
+
+  const d = document.createElement("div");
+  d.className = "card";
+  d.innerHTML = `<div class="hd"><h3>Genotype and biomarker effects</h3>
+    <span class="un">estimate with its 90% interval</span></div>`;
+  d.appendChild(withTable(effectsChart(c.effects),
+    ["effect","truth","estimate","low","high","truth inside?"],
+    c.effects.map(e => [e.name, e.true.toFixed(3), e.est.toFixed(3), e.lo.toFixed(3),
+      e.hi.toFixed(3), (e.lo <= e.true && e.true <= e.hi)
+        ? `<span class="stat ok">yes</span>`
+        : `<span class="stat changed">▲ outside</span>`])));
+  const lg = document.createElement("div");
+  lg.className = "legend";
+  lg.innerHTML = `<span><i class="swatch" style="background:var(--s1)"></i>estimate and 90% interval</span>
+    <span><i class="swatch" style="background:var(--s2);border-radius:50%"></i>value the generator used</span>`;
+  d.appendChild(lg);
+  grid.appendChild(d);
+  host.appendChild(grid);
+}
+
+async function viewInputs(host) {
+  const t = await api(`/api/patients/${S.pid}/twin-inputs`);
+  const p = await cached("patient", `/api/patients/${S.pid}`);
+  host.innerHTML = `<p class="note">What the twin was built from. A missing modality is not
+    an error, the twin falls back to the group template and says so.</p>`;
+  const kp = document.createElement("div");
+  kp.className = "kpis";
+  kp.style.cssText = "border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px";
+  kp.innerHTML = [
+    ["FC fit", t.fc_fit === null ? "—" : t.fc_fit.toFixed(3), t.fc_fit === null ? "no imaging" : "model against data"],
+    ["Fidelity", t.low_fidelity ? "low" : "normal", t.low_fidelity ? "bands widened 1.3x" : "bands unmodified"],
+    ["Template only", p.template_only ? "yes" : "no", p.template_only ? "group wiring" : "personal wiring"],
+    ["Coupling G", p.params.G.toFixed(3), "fit to this brain"],
+    ["Recovery k", p.params.k.toFixed(3), "per week"],
+    ["Residual p", p.params.p.toFixed(3), "never heals"],
+  ].map(([k,v,s]) => `<div class="kpi"><div class="k">${k}</div>
+    <div class="v" style="font-size:20px">${v}</div><div class="s">${s}</div></div>`).join("");
+  host.appendChild(kp);
+
+  host.appendChild(tableView(["file","kind","status","what it sets","note"],
+    t.inputs.map(i => [i.file || "not uploaded", i.kind,
+      i.status === "ok" ? `<span class="stat ok">ok</span>`
+        : i.status === "missing" ? `<span class="stat changed">missing</span>`
+        : `<span class="stat bad">${i.status}</span>`,
+      i.sets, i.note || ""])));
+
+  const row = document.createElement("div");
+  row.className = "row"; row.style.marginTop = "14px";
+  const u = document.createElement("button");
+  u.textContent = "Attach the synthetic input set";
+  u.onclick = async () => { await post(`/api/patients/${S.pid}/uploads`, {synthetic:true});
+    S.cache = {}; render(); };
+  const r = document.createElement("button");
+  r.className = "go"; r.textContent = "Rebuild the twin";
+  r.onclick = async () => { await post(`/api/patients/${S.pid}/build-twin`);
+    S.cache = {}; render(); };
+  row.append(u, r);
+  host.appendChild(row);
+
+  host.insertAdjacentHTML("beforeend", `<h2 style="margin-top:22px">Genetics and bloods</h2>`);
+  host.appendChild(tableView(["marker","value"], [
+    ["APOE e4 copies", p.alleles.apoe_e4],
+    ["BDNF Met carrier", p.alleles.bdnf_met ? "yes" : "no"],
+    ["COMT", p.alleles.comt],
+    ["GFAP (z)", p.biomarkers.gfap_z.toFixed(2)],
+    ["UCH-L1 (z)", p.biomarkers.uchl1_z.toFixed(2)],
+    ["Injury", `${p.injury.mechanism}, helmet ${p.injury.helmet}, ${p.injury.angle_deg}°, ${p.injury.location}`],
+    ["Loss of consciousness", p.injury.loc ? "yes" : "no"],
+  ]));
+}
+
+function viewRig(host) {
+  host.innerHTML = `<p class="note">The live rig stream. Open the
+    <a href="/stimulus/" target="_blank">stimulus page</a> in another tab, then press
+    Trigger call above and watch both. The hollow ring is the target, the filled dot is
+    where the patient is looking.</p>`;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<div class="hd"><h3>Gaze against target</h3>
+    <span class="un" id="rig-step">waiting</span></div>`;
+  const w = 300, h = 420;
+  const svg = el("svg", { viewBox:`0 0 ${w} ${h}`, style:"max-width:300px;margin:auto",
+    role:"img", "aria-label":"live gaze position against the stimulus target" });
+  svg.appendChild(el("rect", { x:0, y:0, width:w, height:h, rx:12,
+    fill:"var(--plane)", stroke:"var(--axis)" }));
+  const tgt = el("circle", { cx:w/2, cy:h/2, r:11, fill:"none",
+    stroke:"var(--s2)", "stroke-width":2.5 });
+  const gz = el("circle", { cx:w/2, cy:h/2, r:7, fill:"var(--s1)",
+    stroke:"var(--surface)", "stroke-width":2 });
+  svg.append(tgt, gz);
+  card.appendChild(svg);
+  const lg = document.createElement("div");
+  lg.className = "legend";
+  lg.innerHTML = `<span><i class="swatch" style="background:var(--s1);border-radius:50%"></i>gaze</span>
+    <span><i class="swatch" style="background:transparent;border:2px solid var(--s2);border-radius:50%"></i>target</span>`;
+  card.appendChild(lg);
+  host.appendChild(card);
+
+  const log = document.createElement("div");
+  log.className = "card";
+  log.style.marginTop = "12px";
+  log.innerHTML = `<div class="hd"><h3>Event log</h3></div><div class="log" id="rig-log"></div>`;
+  host.appendChild(log);
+
+  S.rigDraw = ev => {
+    tgt.setAttribute("cx", ev.target.x * w); tgt.setAttribute("cy", ev.target.y * h);
+    gz.setAttribute("cx", ev.gaze.x * w);    gz.setAttribute("cy", ev.gaze.y * h);
+    const q = ev.quality;
+    document.getElementById("rig-step").textContent =
+      `${ev.step} · ${q.fps.toFixed(0)} fps` + (ev.pursuit_gain !== null
+        ? ` · gain ${ev.pursuit_gain.toFixed(2)}` : "");
+    if (ev.line) {
+      const l = document.getElementById("rig-log");
+      l.insertAdjacentHTML("afterbegin",
+        `<div><span style="color:var(--muted)">${ev.line.who}</span> ${ev.line.text}</div>`);
+      while (l.children.length > 60) l.lastChild.remove();
+    }
+  };
+}
+
+/* ---------------------------------------------------------------- shell */
+async function cached(key, path) {
+  if (!S.cache[key]) S.cache[key] = await api(path);
+  return S.cache[key];
+}
+
+function tabs() {
+  const box = document.getElementById("tabs");
+  box.innerHTML = "";
+  for (const [id,label] of TABS) {
+    const b = document.createElement("button");
+    b.className = "tab"; b.textContent = label;
+    b.setAttribute("aria-selected", String(S.tab === id));
+    b.onclick = () => { S.tab = id; render(); };
+    box.appendChild(b);
+  }
+}
+
+const VIEWS = { forecast:viewForecast, twin:viewTwin, checkins:viewCheckins,
+  alerts:viewAlerts, messages:viewMessages, cohort:viewCohort, rig:viewRig,
+  inputs:viewInputs };
+
+async function render() {
+  tabs(); patientList();
+  const host = document.getElementById("view");
+  if (!S.pid && S.tab !== "cohort" && S.tab !== "rig") {
+    host.innerHTML = `<p class="empty">Pick a patient on the left.</p>`;
+    return;
+  }
+  host.innerHTML = `<p class="empty">loading…</p>`;
+  try {
+    const box = document.createElement("div");
+    await VIEWS[S.tab](box);
+    host.innerHTML = ""; host.appendChild(box);
+  } catch (err) {
+    host.innerHTML = `<p class="empty" style="color:var(--critical)">${err.message}</p>`;
+  }
+}
+
+async function boot() {
+  const health = await api("/api/health");
+  document.getElementById("mode").textContent = "mode: " + health.mode;
+  document.getElementById("mode").className = "badge " + health.mode;
+  S.patients = await api("/api/patients");
+  S.alerts = await api("/api/alerts");
+  if (!S.pid && S.patients.length) S.pid = S.patients[0].id;
+  let cohort = null;
+  try { cohort = await api("/api/cohort"); } catch (e) { void e; }
+  kpis(health, cohort);
+  await render();
+}
+
+/* demo controls */
+const busy = async (btn, fn) => {
+  const all = [...document.querySelectorAll("header button")];
+  all.forEach(b => b.disabled = true);
+  const was = btn.textContent; btn.textContent = "working…";
+  try { await fn(); } catch (err) { alert(err.message); }
+  btn.textContent = was;
+  all.forEach(b => b.disabled = false);
+  S.cache = {}; await boot();
+};
+document.getElementById("b-reset").onclick = ev =>
+  busy(ev.target, () => post("/api/demo/reset"));
+document.getElementById("b-week").onclick = ev =>
+  busy(ev.target, () => post("/api/demo/advance-week", { patient_id:S.pid }));
+document.getElementById("b-drift").onclick = ev =>
+  busy(ev.target, () => post("/api/demo/inject-drift", { patient_id:S.pid, size:1.5 }));
+document.getElementById("b-call").onclick = ev =>
+  busy(ev.target, async () => {
+    await post("/api/demo/trigger-call", { patient_id:S.pid });
+    await new Promise(r => setTimeout(r, 26000));   // the mock call takes about 25 s
+  });
+document.getElementById("b-refresh").onclick = ev => busy(ev.target, async () => {});
+
+/* the rig websocket, always connected so the Rig tab is live when you open it */
+function connectRig() {
+  const proto = location.protocol === "https:" ? "wss://" : "ws://";
+  const ws = new WebSocket(proto + location.host + "/ws/rig");
+  const badge = document.getElementById("ws");
+  ws.onopen = () => { badge.textContent = "ws live"; badge.className = "badge live"; };
+  ws.onclose = () => {
+    badge.textContent = "ws closed"; badge.className = "badge";
+    setTimeout(connectRig, 1500);
+  };
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "frame" && S.rigDraw) S.rigDraw(msg);
+  };
+}
+
+connectRig();
+boot();
+</script>
+</body>
+</html>
