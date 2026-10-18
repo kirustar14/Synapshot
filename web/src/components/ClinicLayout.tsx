@@ -187,13 +187,6 @@ function Rail({
             )}
           </button>
         ) : null}
-        {!collapsed && (
-          <p className="px-2.5 pb-1 pt-3 text-[10px] leading-[15px] text-[#8b8375]">
-            Research prototype · synthetic records.
-            <br />
-            Forecasts are experimental, not diagnostic.
-          </p>
-        )}
       </div>
     </div>
   );
