@@ -239,39 +239,47 @@ export function CenterBrain({ patient }: { patient: Patient }) {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <div className="flex flex-wrap gap-1">
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => viewer.setPreset(p.id)}
-              className="rounded-full border border-border px-2 py-0.5 font-bold hover:bg-muted"
+      {/* Two dropdowns instead of seventeen chips. Same views, same lobes, one line. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label className="flex items-center gap-2">
+          <span className="eyebrow text-muted-foreground">View</span>
+          <span className="relative inline-flex items-center">
+            <select
+              value=""
+              onChange={(e) => e.target.value && viewer.setPreset(e.target.value as (typeof PRESETS)[number]["id"])}
+              aria-label="Move the camera to a preset view"
+              className="appearance-none rounded-full border border-foreground/25 bg-card py-1 pl-3 pr-7 text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-ring"
             >
-              {p.label}
-            </button>
-          ))}
-          <span className="mx-1 w-px self-stretch bg-border" aria-hidden />
-          {LOBES.map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-pressed={lobe === name}
-              onClick={() => setLobe(lobe === name ? null : name)}
-              className={cn(
-                "rounded-full border px-2 py-0.5 font-bold",
-                lobe === name ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-muted",
-              )}
+              <option value="">Rotate freely</option>
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3 w-3 text-muted-foreground" aria-hidden />
+          </span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <span className="eyebrow text-muted-foreground">Lobe</span>
+          <span className="relative inline-flex items-center">
+            <select
+              value={lobe ?? ""}
+              onChange={(e) => setLobe(e.target.value || null)}
+              aria-label="Show one lobe only"
+              className="appearance-none rounded-full border border-foreground/25 bg-card py-1 pl-3 pr-7 text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-ring"
             >
-              {name}
-            </button>
-          ))}
-        </div>
-        <p>
-          {week <= patient.week
-            ? `Week ${week} is measured. The band around it is the filter's posterior.`
-            : `Week ${week} is a forecast. Nothing has been measured there.`}
-        </p>
+              <option value="">All lobes</option>
+              {LOBES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3 w-3 text-muted-foreground" aria-hidden />
+          </span>
+        </label>
       </div>
 
       {/* The vessel caption is shown, not hidden in a tooltip. A rendered vessel beside

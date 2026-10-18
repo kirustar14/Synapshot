@@ -3,18 +3,8 @@
 // demo and every extra control on it is a thing somebody has to decide not to click.
 
 import { ArrowRight, Plus } from "lucide-react";
-import { Suspense, lazy } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-
-// three, drei and postprocessing are the biggest thing in the bundle. Lazy, so the first
-// paint is text and the canvas arrives behind it.
-const BrainViewer = lazy(() => import("@/components/brain/BrainViewer"));
-
-/** What fills the frame while the viewer chunk loads. Same colours, so nothing jumps. */
-function Placeholder() {
-  return <div className="h-full w-full rounded-full bg-muted/40" />;
-}
 
 export default function Home() {
   return (
@@ -24,22 +14,10 @@ export default function Home() {
         SYNAPSHOT &middot; DEMO MODE &middot; SYNTHETIC PATIENT
       </div>
 
-      {/* The brain sits behind the words rather than beside them, so a narrow screen does
-          not have to choose between them. No vessels here: the hero is a portrait, not a
-          diagram, and a rendered vessel next to a rendered brain reads as an angiogram. */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div className="mt-[14vh] h-[min(74vh,660px)] w-[min(74vw,660px)] opacity-100">
-          <Suspense fallback={<Placeholder />}>
-            <BrainViewer patientId="" spin bare compact height={720} />
-          </Suspense>
-        </div>
-      </div>
-
-      {/* A soft ground shadow instead of a dark box. */}
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-[14%] mx-auto h-10 w-[min(46vw,420px)] rounded-[50%] bg-foreground/[0.07] blur-2xl"
-        aria-hidden
-      />
+      {/* The brain used to sit behind the words here. It is gone: the headline is the
+          thing to read on this screen, and a rendered cortex behind it was competing
+          with it for the one thing a landing page has to do. The brain is the whole
+          point of the workspace, which is one click away. */}
 
       <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 text-center">
         <h1 className="display text-6xl sm:text-8xl">

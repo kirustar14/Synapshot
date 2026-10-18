@@ -1566,3 +1566,17 @@ fold titles in all four tabs. Gutters went from 4 to 7 and the page padding from
 which is most of what makes the reference feel calm.
 
 Nothing moved or was removed. Same rows, same numbers, same flags, same links.
+
+## 1d: the patient page, properly this time
+
+The clinic list matched the reference and the patient page did not. What was still wrong
+was structural rather than typographic: both rails were bordered cards, the brain sat in
+a grey stage box with its own border, the overlay controls were a dark cyan hologram
+console, and there were seventeen chips under the brain.
+
+Flat columns with a hairline on the inner edge. The canvas is transparent everywhere now,
+not just on the hero, so the brain sits on the page. The overlay is ink and mono. The
+seven preset views and six lobes are two dropdowns, View and Lobe.
+
+The brain is gone from the home page. The headline is the thing to read there and a
+rendered cortex behind it was competing with it.
