@@ -263,12 +263,37 @@
 }
 
 /* Chat style system and status messages. */
+/* Chat style, from the inspiration: a soft grey bubble with a tiny mono name above it,
+   never a bordered card. Used by the call modal, the build log and the call page. */
 @utility bubble {
-  background: var(--color-muted);
-  border-radius: 1rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 12px;
+  background: color-mix(in oklab, var(--color-muted) 70%, var(--color-background));
+  border-radius: 1.1rem;
+  padding: 0.6rem 0.9rem;
+  font-size: 13px;
   line-height: 1.5;
+  max-width: 46ch;
+}
+
+@utility bubble-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+  display: block;
+  margin-bottom: 0.3rem;
+}
+
+/* The stepper from the inspiration: a dot, a mono uppercase label, the live one in ink
+   and the rest in grey. */
+@utility step-row {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 /* The thin mono strip across the top of the app. */

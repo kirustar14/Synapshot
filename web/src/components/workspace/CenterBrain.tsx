@@ -8,11 +8,11 @@
 // slider here and a separate date picker in a tab means two sources of truth about which
 // week you are looking at, and they will disagree.
 
-import { Crosshair, Search, X } from "lucide-react";
+import { ChevronDown, Crosshair, Search, X } from "lucide-react";
 import { Suspense, lazy, useMemo, useState } from "react";
 import { useBaseline, useLatestUpdate, useTwin, useVessels } from "@/api/client";
 import type { Patient } from "@/api/types";
-import { LAYERS, REGIONS, rampGradient, regionLabel, useViewer, type LayerId } from "@/components/brain";
+import { LAYERS, LAYER_BY_ID, REGIONS, rampGradient, regionLabel, useViewer, type LayerId } from "@/components/brain";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -68,48 +68,48 @@ export function CenterBrain({ patient }: { patient: Patient }) {
 
   return (
     <section className="order-1 flex min-w-0 flex-col gap-3 lg:order-2 lg:min-h-0">
-      {/* Layer chips. One row, every layer named, with the ramp beside the name so the
-          colour on the brain and the word in the chip are the same thing. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {LAYERS.map((def) => (
-          <button
-            key={def.id}
-            type="button"
-            aria-pressed={layer === def.id}
-            onClick={() => viewer.setLayer(def.id)}
-            title={def.meaning}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-              layer === def.id
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-background hover:bg-muted",
-            )}
-          >
+      {/* One row of controls, all of it mono and quiet: what you are looking at, which
+          brain, and the overlays. It used to be ten coloured pills and a vessel toggle
+          wrapped across two lines, which is a lot of decisions to put above the thing
+          they are about. The choices are the same, they are just inside a dropdown now. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label className="flex items-center gap-2">
+          <span className="eyebrow text-muted-foreground">Showing</span>
+          <span className="relative inline-flex items-center">
             <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ background: rampGradient(def.stops) }}
+              className="pointer-events-none absolute left-2.5 h-2.5 w-2.5 rounded-full"
+              style={{ background: rampGradient(LAYER_BY_ID[layer].stops) }}
               aria-hidden
             />
-            {def.label}
-          </button>
-        ))}
+            <select
+              value={layer}
+              onChange={(e) => viewer.setLayer(e.target.value as LayerId)}
+              aria-label="What the brain is showing"
+              title={LAYER_BY_ID[layer].meaning}
+              className="appearance-none rounded-full border border-foreground/25 bg-card py-1 pl-7 pr-7 text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              {LAYERS.map((def) => (
+                <option key={def.id} value={def.id}>
+                  {def.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3 w-3 text-muted-foreground" aria-hidden />
+          </span>
+        </label>
 
         {vessels.data && (
-          <button
-            type="button"
-            aria-pressed={viewer.vessels}
-            onClick={() => viewer.setFlag({ vessels: !viewer.vessels })}
-            title={vessels.data.caption}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold",
-              viewer.vessels
-                ? "border-blue-400 bg-blue-500/15 text-blue-700 dark:text-blue-300"
-                : "border-border bg-background hover:bg-muted",
-            )}
-          >
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-500" aria-hidden />
-            Vessels
-          </button>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={viewer.vessels}
+              onChange={() => viewer.setFlag({ vessels: !viewer.vessels })}
+              className="h-3.5 w-3.5 accent-foreground"
+            />
+            <span className="eyebrow text-muted-foreground" title={vessels.data.caption}>
+              Vessels
+            </span>
+          </label>
         )}
       </div>
 

@@ -286,12 +286,15 @@ export function CallModal({
                 are posted in whole chunks and read back once the call lands. What is
                 worth knowing is which of the four things is happening. */}
             {!done && (
-              <p className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-2 text-xs">
-                {stage !== "Waiting for the patient" && (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                )}
-                {stage}
-              </p>
+              <div>
+                <span className="bubble-name">Check-in</span>
+                <p className="bubble flex items-center gap-2">
+                  {stage !== "Waiting for the patient" && (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                  )}
+                  {stage}
+                </p>
+              </div>
             )}
 
             {done && (

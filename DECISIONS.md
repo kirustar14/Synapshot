@@ -1535,3 +1535,18 @@ the brain, where it carries meaning; a page of teal buttons spends it on navigat
 
 The Home hero canvas is transparent now (`alpha: bare`). It was an opaque buffer, so the
 brain sat in a grey box on the off-white page.
+
+## 1b: matched to the reference screenshots
+
+I had not opened them. Doing so changed the pass: the reference is a centred narrow column
+on a very large off-white field, mono uppercase for every label and button, serif display
+with one italic word, exactly one bordered card with a hard offset shadow, and soft grey
+chat bubbles with a tiny mono name above them. Not a dense dashboard.
+
+- Buttons are mono uppercase and letterspaced, which is the most recognisable part of it.
+- The masthead is serif wordmark plus a mono descriptor, the way a masthead reads.
+- The ten layer pills above the brain are one `SHOWING [ Damage ]` dropdown, and the
+  vessel toggle is a quiet mono checkbox beside it. Same choices, one decision instead of
+  eleven sitting above the thing they describe.
+- The build log is a stepper: mono uppercase step name, ink while live and grey otherwise,
+  with the detail underneath as a chat bubble.

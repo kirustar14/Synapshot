@@ -92,10 +92,18 @@ function StepLine({ id, step, last }: { id: string; step: StepState; last: boole
         {step.state === "failed" && <AlertTriangle className="h-3.5 w-3.5" aria-hidden />}
       </span>
       <div className="min-w-0 flex-1">
-        <p className={cn("text-sm font-bold", step.state === "waiting" && "text-muted-foreground")}>
+        {/* Mono uppercase, ink while it is the live step and grey otherwise, the way the
+            stepper in the reference reads. The detail is a chat bubble under it. */}
+        <p
+          className={cn(
+            "step-row",
+            step.state === "waiting" ? "text-muted-foreground" : "text-foreground",
+            step.state === "running" && "font-medium",
+          )}
+        >
           {STEP_LABEL[id] ?? id}
         </p>
-        {step.detail && <p className="mt-0.5 text-xs text-muted-foreground">{step.detail}</p>}
+        {step.detail && <p className="bubble mt-1.5">{step.detail}</p>}
         {step.items && (
           <ul className="mt-2 space-y-0.5">
             {step.items.map((item) => (
