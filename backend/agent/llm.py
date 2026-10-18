@@ -1,4 +1,4 @@
-"""Anthropic SDK wrapper for natural phrasing, off-script answers and summaries.
+"""Gemini wrapper for natural phrasing, off-script answers and summaries.
 
 Every call has a hard timeout and falls back to the template line, so a slow or failing
 API never stalls a call that is happening in real time with a patient on the phone.
@@ -10,7 +10,6 @@ from . import safety
 
 TIMEOUT_S = 6.0      # hard ceiling, a patient is waiting on the other end of the call
 MAX_TOKENS = 512     # one or two spoken sentences, deliberately short
-RETRIES = 0          # a retry would double the wait, the template is the better fallback
 
 SYSTEM = """You are the voice of UNNAMED, a weekly check-in assistant for someone recovering
 from a concussion. You are on a video call with them right now.
@@ -30,21 +29,41 @@ How you speak: one or two short sentences, warm and plain, no lists, no jargon, 
 You are reading this aloud, so write it the way it should sound."""
 
 
+def model_name() -> str:
+    """The Gemini model id that will be called."""
+    return cfg.gemini_model
+
+
 def live() -> bool:
     """True when a real model call should be attempted."""
-    return bool(not cfg.mock_llm and cfg.anthropic_key)
+    return bool(not cfg.mock_llm and cfg.gemini_key)
 
 
-def client():
-    """Anthropic client with the hard timeout applied, or None."""
-    if not live():
-        return None
+def _gemini(prompt: str, system: str, max_tokens: int) -> dict:
+    """One Gemini completion over REST. Returns {'text', 'model'} or {'error'}."""
+    import httpx
+
+    gen = {"maxOutputTokens": max_tokens, "temperature": 0.4}
+    if "flash" in cfg.gemini_model:
+        gen["thinkingConfig"] = {"thinkingBudget": 0}   # phrasing, not reasoning
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": gen,
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.gemini_model}:generateContent"
     try:
-        import anthropic
-
-        return anthropic.Anthropic(api_key=cfg.anthropic_key, timeout=TIMEOUT_S, max_retries=RETRIES)
-    except Exception:
-        return None
+        resp = httpx.post(url, json=body, headers={"x-goog-api-key": cfg.gemini_key}, timeout=TIMEOUT_S)
+    except (httpx.TimeoutException, httpx.TransportError):
+        return {}
+    if resp.status_code != 200:
+        return {} if resp.status_code == 429 else {"error": f"{resp.status_code} gemini"}
+    data = resp.json()
+    cand = (data.get("candidates") or [{}])[0]
+    if data.get("promptFeedback", {}).get("blockReason") or cand.get("finishReason") in ("SAFETY", "PROHIBITED_CONTENT"):
+        return {"error": "refusal"}
+    text = " ".join(p.get("text", "") for p in cand.get("content", {}).get("parts", [])).strip()
+    return {"text": text, "model": data.get("modelVersion") or cfg.gemini_model}
 
 
 def ask(prompt: str, fallback: str, system: str = SYSTEM, max_tokens: int = MAX_TOKENS) -> dict:
@@ -54,38 +73,18 @@ def ask(prompt: str, fallback: str, system: str = SYSTEM, max_tokens: int = MAX_
     budget is a few seconds of a live phone call.
     """
     out = {"text": safety.clean(fallback), "how": "template", "model": None}
-    cli = client()
-    if cli is None:
+    if not live():
         return out
-
-    import anthropic
-
     try:
-        resp = cli.messages.create(
-            model=cfg.claude_model,
-            max_tokens=max_tokens,
-            system=system,
-            thinking={"type": "disabled"},
-            output_config={"effort": "low"},
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except (anthropic.APITimeoutError, anthropic.RateLimitError, anthropic.APIConnectionError):
-        return out
-    except anthropic.APIStatusError as exc:
-        out["error"] = f"{exc.status_code} {exc.type}"
-        return out
+        got = _gemini(prompt, system, max_tokens)
     except Exception as exc:
         out["error"] = str(exc)[:200]
         return out
-
-    # A refusal comes back as a normal 200 with an empty or partial content list.
-    if resp.stop_reason == "refusal":
-        out["error"] = "refusal"
+    if got.get("error"):
+        out["error"] = got["error"]
+    if not got.get("text"):
         return out
-    text = " ".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
-    if not text:
-        return out
-    return {"text": safety.clean(text), "how": "model", "model": resp.model}
+    return {"text": safety.clean(got["text"]), "how": "model", "model": got.get("model")}
 
 
 def say_step(step: dict, name: str, week: int) -> str:
@@ -139,15 +138,4 @@ def summarize(kind: str, facts: dict, fallback: str) -> str:
 
 def status() -> dict:
     """What mode the LLM is in, for the preflight and the health endpoint."""
-    try:
-        import anthropic  # noqa: F401
-
-        installed = True
-    except Exception:
-        installed = False
-    return {
-        "live": live(),
-        "sdk_installed": installed,
-        "model": cfg.claude_model,
-        "timeout_s": TIMEOUT_S,
-    }
+    return {"live": live(), "provider": "gemini", "model": model_name(), "timeout_s": TIMEOUT_S}

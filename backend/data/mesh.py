@@ -1,7 +1,7 @@
-"""fsaverage5 cortical surface with Schaefer-100 labels per vertex. Built by `make mesh`.
+"""fsaverage6 cortical surface with Schaefer-100 labels per vertex. Built by `make mesh`.
 
-The viewer needs a real cortex, not spheres on an ellipsoid, so this loads the fsaverage5
-pial and inflated surfaces (10242 vertices a hemisphere, 20484 in total) and puts a
+The viewer needs a real cortex, not spheres on an ellipsoid, so this loads the fsaverage6
+pial and inflated surfaces (40962 vertices a hemisphere, 81924 in total) and puts a
 Schaefer-100 region index on every vertex.
 
 Labels come from the CBIG annotation files first, which are the parcellation's own
@@ -22,18 +22,18 @@ import numpy as np
 from ..config import ROOT, cfg
 from .templates import NETS, templates
 
-HEMI_VERTS = 10242
+HEMI_VERTS = 40962
 REG = 100
 ROUND = 2            # millimetre positions to 2 decimals, which halves the JSON
 TIMEOUT_S = 60
 
-# The CBIG release of the parcellation, FreeSurfer 5.3 fsaverage5 labels. The path was
+# The CBIG release of the parcellation, FreeSurfer 5.3 fsaverage6 labels. The path was
 # written from memory and then verified: both files download and their 100 region names
 # match templates()["names"] in order, so vertex label j-1 is region j-1 of the connectome.
 CBIG_URL = (
     "https://raw.githubusercontent.com/ThomasYeoLab/CBIG/master/stable_projects/"
     "brain_parcellation/Schaefer2018_LocalGlobal/Parcellations/FreeSurfer5.3/"
-    "fsaverage5/label/{hemi}.Schaefer2018_100Parcels_7Networks_order.annot"
+    "fsaverage6/label/{hemi}.Schaefer2018_100Parcels_7Networks_order.annot"
 )
 
 # Plain English area per Schaefer name token. Approximate by design: these are network
@@ -110,14 +110,14 @@ def network_of(name: str) -> str:
 # ---------------------------------------------------------------- surfaces
 
 def _surfaces() -> dict | None:
-    """fsaverage5 pial and inflated for both hemispheres, or None."""
+    """fsaverage6 pial and inflated for both hemispheres, or None."""
     if cfg.offline:
         return None
     try:
         from nilearn import datasets as nid
         from nilearn import surface
 
-        fs = nid.fetch_surf_fsaverage("fsaverage5")
+        fs = nid.fetch_surf_fsaverage("fsaverage6")
         out = {}
         for key in ("pial_left", "pial_right", "infl_left", "infl_right"):
             got = surface.load_surf_mesh(fs[key])
@@ -156,7 +156,7 @@ def _join(surf: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def _annot(hemi: str) -> Path | None:
     """The cached CBIG annotation file for one hemisphere, downloading it once."""
-    out = cfg.cache_dir() / f"{hemi}.Schaefer2018_100Parcels_7Networks_fsa5.annot"
+    out = cfg.cache_dir() / f"{hemi}.Schaefer2018_100Parcels_7Networks_fsa6.annot"
     if out.exists() and out.stat().st_size > 1000:
         return out
     if cfg.offline:
@@ -358,12 +358,12 @@ def build(force: bool = False) -> dict:
             source = "procedural"
         else:
             lab = _fill_nearest(lab, pos)
-            source = "fsaverage5"
+            source = "fsaverage6"
             del how
 
     cent = _centroids(pos, lab)
     out = {
-        "space": "fsaverage5" if source == "fsaverage5" else "procedural",
+        "space": "fsaverage6" if source == "fsaverage6" else "procedural",
         "source": source,
         "verts": int(pos.shape[0]),
         "pial": [round(float(v), ROUND) for v in pos.ravel()],

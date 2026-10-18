@@ -104,14 +104,17 @@ export function layerValues(id: LayerId, ctx: LayerCtx): LayerValues {
     // cortex dark. The ramp is scaled to this patient's own worst region at week 0, with a
     // floor so a nearly healthy brain does not get amplified into looking wrecked. The legend
     // prints the real number at the bright end.
-    let top = 0.12;
-    for (const r of regions) top = Math.max(top, r.damage?.[0] ?? 0);
+    // Scaled to the worst region at the week being shown, so the colours spread across the
+    // whole ramp and regions can be told apart. The legend prints the real number at the top.
+    let top = 0.04;
+    for (const r of regions) top = Math.max(top, atWeek(r.damage, week));
     for (let i = 0; i < REGIONS; i++) {
       const v = atWeek(regions[i]?.damage, week);
       out.raw[i] = v;
       out.pos[i] = clamp01(v / top);
       // The glow curve is steeper than the colour so only the genuinely worst regions burn.
-      out.glow[i] = clamp01(Math.pow(v / top, 1.8));
+      // No floor: undamaged cortex keeps its own blue, damage shows as amber then red.
+      out.glow[i] = clamp01(Math.pow(v / top, 1.1));
     }
     out.scaleTop = top;
     out.format = (v) => v.toFixed(2);
