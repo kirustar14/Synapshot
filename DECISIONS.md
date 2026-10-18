@@ -1509,3 +1509,15 @@ replaced the lot, moving through Waiting for the patient, Check-in in progress: 
 Processing, Done. The call page no longer posts /live; the route stays for a future
 console. The privacy sentence stays on the patient consent screen, which is where it is
 actually read.
+
+## 2: the thing floating on the brain was the tracts
+
+Isolated by rendering with each suspect off in turn. Not the vessels, which are already
+gated behind their overlay and off by default. Not the back pass, not the hologram, not
+the alpha. Turning the tracts off made it vanish.
+
+Both tract materials had `depthTest: false` at `renderOrder 12`, so the two hundred tubes
+painted over the cortex unconditionally. That was survivable while the cortex was opaque.
+Once the merged shader made it slightly translucent they read as a khaki veil draped
+across the brain with pale streaks through it. Depth testing is on now: the cortex in
+front of a tract hides it, the layer still toggles, and nothing else changed.
