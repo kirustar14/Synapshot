@@ -86,14 +86,6 @@ def pick_model() -> str:
     return DEFAULT_MODEL
 
 
-def tiger_is_mock() -> bool:
-    """Mock unless MOCK_TIGER says otherwise, or a database URL is present."""
-    raw = os.environ.get("MOCK_TIGER")
-    if raw is not None and raw != "":
-        return raw not in ("0", "false", "False", "no")
-    return not first("TIGER_DATABASE_URL", "DATABASE_URL")
-
-
 def e164(entry: str) -> str:
     """Just the number out of an allow list entry, in E.164.
 
@@ -168,9 +160,6 @@ class Cfg:
     # also why there is no SDK to be missing: the only way the LLM is unavailable is a
     # blank key or MOCK_LLM. See DECISIONS.md.
     gemini_model: str = field(default_factory=lambda: pick_model())
-    # Tiger Data, the time-series layer. Optional: no URL means every read falls back to SQLite.
-    mock_tiger: bool = field(default_factory=lambda: tiger_is_mock())
-    tiger_url: str = field(default_factory=lambda: first("TIGER_DATABASE_URL", "DATABASE_URL"))
     gemini_key: str = field(default_factory=lambda: first("GEMINI_API_KEY", "GOOGLE_API_KEY"))
     # CREAO, the three agent care pipeline. The key never leaves the server: see
     # docs/CREAO.md and the test that asserts it is in no response body.

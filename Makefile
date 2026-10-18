@@ -19,10 +19,6 @@ test:
 sample:
 	$(PY) -m backend.synth.make_sample
 
-# Tiger Data: build the schema, load every check-in, compress, and say what is there.
-tiger:
-	$(PY) -m backend.tiger
-
 check:
 	$(PY) -m backend.checklist
 
