@@ -23,6 +23,11 @@ preflight:
 check:
 	$(PY) -m backend.checklist
 
+# Just the phone chain: can a text reach you, can your phone open the call page,
+# and will the clinic call ring. Every unfinished line says what to do about it.
+phone:
+	$(PY) -m backend.phoneready
+
 # The cortical surface with a Schaefer-100 label on every vertex. Cached, so seed and
 # dev never refetch it.
 mesh:
