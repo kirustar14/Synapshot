@@ -670,6 +670,20 @@ class CallStatus(BaseModel):
     error: str | None = None
 
 
+class InboundBody(BaseModel):
+    """Body of POST /api/messages/inbound. A reply from the patient."""
+
+    patient_id: str | None = None
+    body: str = ""
+    channel: Literal["imessage", "sms", "mock"] | None = None
+
+
+class MidweekBody(BaseModel):
+    """Body of POST /api/comms/midweek."""
+
+    days: int = 3
+
+
 class AgentTranscript(BaseModel):
     """One line said to the optional question and answer agent. Never scored."""
 

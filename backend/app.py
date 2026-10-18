@@ -765,6 +765,27 @@ def call_page(token: str):
                          "web": "not built yet, run make web"})
 
 
+@app.post("/api/messages/inbound")
+def post_inbound(body: models.InboundBody) -> dict:
+    """A reply coming back from the patient.
+
+    One route for both the real transport's webhook and the demo console, so the
+    midweek symptom check, the STOP withdrawal and the reply parsing are the same code
+    either way. Spectrum Cloud signs its webhooks, and verifying that signature is the
+    one piece still to do before this is exposed publicly. See DECISIONS.md.
+    """
+    pid = body.patient_id or ""
+    need(pid)
+    return photon.incoming(pid, body.body, channel=body.channel or "")
+
+
+@app.post("/api/comms/midweek")
+def post_midweek(body: models.MidweekBody) -> dict:
+    """Text every consented patient who is due a midweek symptom check."""
+    got = photon.run_midweek(body.days)
+    return {"ok": True, "sent": got}
+
+
 @app.get("/api/photon/status")
 def photon_status() -> dict:
     """Which iMessage transport is live, and what the installed SDK looks like."""

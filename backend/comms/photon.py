@@ -107,12 +107,18 @@ def on_message(handler) -> None:
     HANDLERS.append(handler)
 
 
-def incoming(pid: str, body: str) -> dict:
-    """Handle a reply: log it, parse a symptom score, honour STOP, run the handlers."""
+def incoming(pid: str, body: str, channel: str = "") -> dict:
+    """Handle a reply: log it, parse a symptom score, honour STOP, run the handlers.
+
+    The channel is only called imessage when a real iMessage transport is live, the same
+    rule the outbound side follows. An inbound row in mock mode says mock.
+    """
     import re
 
-    db.message(pid, "in", body, channel="imessage", kind="reply")
-    out = {"pid": pid, "body": body, "score": None, "stopped": False}
+    if channel not in ("imessage", "sms", "mock"):
+        channel = "imessage" if available() else "mock"
+    db.message(pid, "in", body, channel=channel, kind="reply")
+    out = {"pid": pid, "body": body, "score": None, "stopped": False, "channel": channel}
 
     if body.strip().upper() == "STOP":
         row = db.consent_for(pid)
