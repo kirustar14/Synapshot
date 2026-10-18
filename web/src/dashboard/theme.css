@@ -1,0 +1,160 @@
+/* Dashboard visual language: warm paper surfaces, near black ink, one clay accent.
+   Scoped to html.dash so the landing page and login screen keep their own palette.
+   The class is added by ClinicLayout while the clinician workspace is mounted and removed
+   on unmount, which also lets Radix portals (menus, tooltips, dialogs) inherit the tokens. */
+
+html.dash {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --radius: 0.625rem;
+
+  --background: #f7f5f0;
+  --foreground: #1c1a17;
+  --card: #fffdfa;
+  --card-foreground: #1c1a17;
+  --popover: #fffdfa;
+  --popover-foreground: #1c1a17;
+
+  --primary: #b4552f;
+  --primary-foreground: #fff8f3;
+  --primary-soft: #f4e5dc;
+
+  --secondary: #f1ece3;
+  --secondary-foreground: #1c1a17;
+  --muted: #f1ece4;
+  --muted-foreground: #6d675e;
+  --accent: #f3ece2;
+  --accent-foreground: #7e3e23;
+
+  --destructive: #a83327;
+  --destructive-foreground: #fff8f3;
+  --destructive-soft: #f7e5e1;
+
+  --synthetic: #a9762b;
+  --synthetic-foreground: #7a5410;
+  --synthetic-soft: #f6ecd8;
+
+  --success: #4f7a56;
+  --success-soft: #e9f0e7;
+
+  --band: rgb(180 85 47 / 0.1);
+  --bubble-out: #b4552f;
+  --bubble-in: #f1ece3;
+  --bubble-in-foreground: #1c1a17;
+
+  --border: #e6e0d6;
+  --input: #dcd5c8;
+  --ring: #b4552f;
+
+  --chart-1: #b4552f;
+  --chart-2: #5b6e7a;
+  --chart-3: #a9762b;
+  --chart-4: #6f7d5a;
+  --chart-5: #a83327;
+
+  --sidebar: #f2eee6;
+  --sidebar-foreground: #55504a;
+  --sidebar-primary: #b4552f;
+  --sidebar-primary-foreground: #fff8f3;
+  --sidebar-accent: #fffdfa;
+  --sidebar-accent-foreground: #7e3e23;
+  --sidebar-border: transparent;
+  --sidebar-ring: #b4552f;
+
+  --lab-lilac: #efe9df;
+  --lab-peach: #f6ecdf;
+  --lab-surface: #faf7f1;
+
+  --shadow-soft: 0 1px 2px rgb(28 26 23 / 0.05);
+  --shadow-lift: 0 18px 40px -24px rgb(28 26 23 / 0.28);
+}
+
+html.dash body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum";
+}
+
+html.dash h1,
+html.dash h2,
+html.dash h3 {
+  letter-spacing: -0.015em;
+}
+
+html.dash :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Paper surfaces: hairline border, minimal shadow, small radius. */
+html.dash .dash-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+html.dash .dash-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+html.dash .panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+html.dash .dash-rule {
+  border-color: var(--border);
+}
+
+html.dash .dash-hover {
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+html.dash .dash-hover:hover {
+  background: #fbf8f2;
+}
+
+html.dash .dash-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d8d1c4 transparent;
+}
+
+html.dash .dash-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html.dash .dash-scroll::-webkit-scrollbar-thumb {
+  background: #ded7ca;
+  border-radius: 999px;
+}
+
+/* The rail never opens on hover. Only the toggle changes its width. */
+.dash-rail {
+  transition: width 170ms cubic-bezier(0.2, 0.6, 0.35, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-rail {
+    transition: none;
+  }
+}
+
+/* Recharts focus rings on svg elements are noise; the chart itself carries the label. */
+html.dash .recharts-wrapper svg:focus,
+html.dash .recharts-surface:focus {
+  outline: none;
+}
+
+@media print {
+  html.dash body {
+    background: #fff;
+  }
+  html.dash .dash-print-only {
+    display: block !important;
+  }
+}

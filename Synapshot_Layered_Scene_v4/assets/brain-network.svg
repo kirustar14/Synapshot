@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 320" fill="none">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <style>
+      .base{stroke:#F6D7AE; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; opacity:.35;}
+      .node{fill:#F6D7AE; opacity:.48;}
+    </style>
+  </defs>
+  <g id="brain-base" filter="url(#glow)">
+    <path id="p1" class="base" d="M74 164 C52 134, 66 92, 110 82 C115 52, 162 36, 196 56 C228 35, 278 42, 296 78 C336 82, 362 119, 352 154 C366 178, 362 211, 338 228 C334 254, 309 273, 276 273 C258 292, 228 300, 198 289 C166 304, 130 297, 106 274 C76 270, 54 247, 52 216 C28 198, 20 178, 31 152 C39 135, 55 127, 74 129"/>
+    <path id="p2" class="base" d="M116 84 C92 106, 84 130, 92 155 C100 182, 119 200, 149 214"/>
+    <path id="p3" class="base" d="M154 63 C126 88, 120 118, 128 144 C138 174, 166 190, 197 202"/>
+    <path id="p4" class="base" d="M196 56 C176 80, 171 111, 180 138 C192 173, 224 189, 258 196"/>
+    <path id="p5" class="base" d="M242 58 C232 84, 236 115, 252 138 C270 164, 299 176, 329 176"/>
+    <path id="p6" class="base" d="M298 79 C279 96, 270 122, 276 146 C285 179, 312 198, 338 206"/>
+    <path id="p7" class="base" d="M111 246 C146 233, 177 229, 213 235 C257 241, 284 253, 313 272"/>
+    <path id="p8" class="base" d="M163 214 C159 240, 164 262, 177 280"/>
+    <path id="p9" class="base" d="M214 206 C211 232, 217 259, 232 287"/>
+    <path id="p10" class="base" d="M264 197 C264 227, 271 252, 292 276"/>
+    <path id="p11" class="base" d="M188 235 C181 253, 183 272, 195 292"/>
+    <path id="p12" class="base" d="M214 236 C229 250, 244 260, 263 267"/>
+    <path id="p13" class="base" d="M183 203 C142 191, 111 174, 86 147"/>
+    <path id="p14" class="base" d="M258 198 C293 195, 322 186, 347 163"/>
+  </g>
+  <g id="brain-nodes" filter="url(#glow)">
+    <circle class="node" cx="110" cy="82" r="4.4"/>
+    <circle class="node" cx="196" cy="56" r="4.6"/>
+    <circle class="node" cx="296" cy="78" r="4.4"/>
+    <circle class="node" cx="92" cy="155" r="4"/>
+    <circle class="node" cx="128" cy="144" r="4"/>
+    <circle class="node" cx="180" cy="138" r="4"/>
+    <circle class="node" cx="252" cy="138" r="4"/>
+    <circle class="node" cx="276" cy="146" r="4"/>
+    <circle class="node" cx="149" cy="214" r="4"/>
+    <circle class="node" cx="197" cy="202" r="4.2"/>
+    <circle class="node" cx="258" cy="196" r="4.2"/>
+    <circle class="node" cx="338" cy="206" r="4"/>
+    <circle class="node" cx="213" cy="235" r="4.2"/>
+    <circle class="node" cx="292" cy="276" r="4.2"/>
+    <circle class="node" cx="195" cy="292" r="4.2"/>
+  </g>
+</svg>

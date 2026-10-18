@@ -19,62 +19,8 @@ import { FeatureTable } from "@/components/panels/FeatureTable";
 import { Transcript } from "@/components/panels/Transcript";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { ChannelHealth, GazeTrace } from "@/components/panels/AssessmentEvidence";
 import { usePatientContext } from "./PatientLayout";
-
-/** Channel health as four plain readings, each with a word for its colour. */
-function ChannelHealth({ channel }: { channel: Checkin["channel"] }) {
-  const items = [
-    { label: "Frame rate", value: `${channel.fps} fps`, ok: channel.fps >= 20 },
-    { label: "Calibration error", value: `${channel.calib_err_deg} deg`, ok: channel.calib_err_deg <= 1.5 },
-    { label: "Face share", value: `${Math.round(channel.face_share * 100)}%`, ok: channel.face_share >= 0.7 },
-    { label: "Flash test", value: channel.flash_ok ? "passed" : "failed", ok: channel.flash_ok },
-  ];
-  return (
-    <ul className="flex flex-wrap gap-2">
-      {items.map((i) => (
-        <li
-          key={i.label}
-          className={cn(
-            "rounded-full border px-2 py-0.5 text-[11px] font-medium",
-            i.ok ? "border-success/30 bg-success-soft text-success" : "border-synthetic/40 bg-synthetic-soft text-synthetic-foreground",
-          )}
-        >
-          {i.label} {i.value}
-          <span className="sr-only">, {i.ok ? "within limits" : "outside limits"}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** Target against gaze for one eye task. The axis follows whichever way the target moved. */
-function GazeTrace({ trace }: { trace: Checkin["gaze"][number] }) {
-  const spread = (a: number[]) => Math.max(...a) - Math.min(...a);
-  const vertical = spread(trace.ty) > spread(trace.tx);
-  const target = vertical ? trace.ty : trace.tx;
-  const gaze = vertical ? trace.y : trace.x;
-  const data = trace.t.map((t, i) => ({ t: Number(t.toFixed(2)), target: target[i], gaze: gaze[i] }));
-
-  return (
-    <div>
-      <h4 className="text-sm font-bold">
-        {trace.task} <span className="font-medium text-muted-foreground">{vertical ? "vertical" : "horizontal"}</span>
-      </h4>
-      <LineTrace
-        data={data}
-        x="t"
-        xLabel="seconds"
-        yLabel="degrees"
-        series={[
-          { key: "target", label: "Target", color: CHART.target, dashed: true },
-          { key: "gaze", label: "Gaze", color: CHART.gaze },
-        ]}
-        height={170}
-      />
-    </div>
-  );
-}
 
 /** The exploratory face traces. Labelled exploratory because nothing scores on them. */
 function FaceTraces({ traces }: { traces: NonNullable<Checkin["traces"]> }) {

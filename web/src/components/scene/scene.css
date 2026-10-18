@@ -1,0 +1,102 @@
+/* Native 1122 × 1802 scene; the first 1402 rows are the supplied photograph. */
+.scene {
+  --scene-width: 102vw;
+  --camera-cut: 14vw;
+  --ink: #383026;
+  --muted-ink: #615749;
+  --accent: #934525;
+  --floor: #efdfc8;
+  position: relative;
+  width: 100%;
+  isolation: isolate;
+  overflow: clip;
+  color: var(--ink);
+  background: var(--floor);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+}
+.scene__art {
+  position: absolute;
+  left: -1vw;
+  top: calc(-1 * var(--camera-cut));
+  width: var(--scene-width);
+  aspect-ratio: 1122 / 1802;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  transition: transform 800ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 79%,
+    rgb(0 0 0 / 94%) 85%,
+    rgb(0 0 0 / 60%) 93%,
+    transparent 100%
+  );
+}
+.scene__base {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.scene__environment {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: auto;
+}
+.scene__brain {
+  position: absolute;
+  height: auto;
+  overflow: visible;
+  mix-blend-mode: screen;
+  opacity: 0.72;
+}
+.scene__clock {
+  position: absolute;
+  left: 41.83%;
+  top: 12.8%;
+  width: 5.79%;
+  height: auto;
+  opacity: 0.6;
+}
+.scene__content {
+  position: relative;
+  z-index: 1;
+}
+.scene--landing::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: clamp(240px, 24vw, 400px);
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--floor));
+}
+.scene--login {
+  min-height: 100svh;
+}
+.scene--login .scene__art {
+  transform: translate3d(-0.9vw, -7vw, 0);
+}
+@media (max-width: 600px) {
+  .scene__clock {
+    display: none;
+  }
+  .scene {
+    --scene-width: 900px;
+    --camera-cut: 0px;
+  }
+  .scene__art {
+    left: calc((100vw - 900px) * 0.75);
+    top: 80px;
+  }
+  .scene--login .scene__art {
+    transform: translate3d(-12px, -30px, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene__art {
+    transition: none;
+  }
+}

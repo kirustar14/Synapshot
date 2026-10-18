@@ -1,0 +1,43 @@
+{
+  "source": "Synapshot_Paper_Landing_Kit_v6/assets/wide outpaint og ref.png",
+  "coordinates": [
+    1122,
+    1802
+  ],
+  "original_bounds": [
+    0,
+    0,
+    1122,
+    1402
+  ],
+  "floor_patch": [
+    0,
+    1202,
+    1122,
+    1402
+  ],
+  "floor_extension": "400 native pixels; alternating reflected/normal copies; CSS fade at bottom only",
+  "curtain": {
+    "x": 0,
+    "y": 0,
+    "scale": 0.5
+  },
+  "plant": {
+    "x": 997,
+    "y": 170,
+    "scale": 0.36,
+    "crop": [
+      490,
+      0,
+      941,
+      1420
+    ]
+  },
+  "brain": {
+    "x": 773,
+    "y": 365,
+    "width": 133,
+    "height": 133
+  },
+  "light": "Localized fabric transmission; supplied light artwork used as reference only."
+}

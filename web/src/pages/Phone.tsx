@@ -110,7 +110,7 @@ export default function Phone() {
             <ExternalLink aria-hidden /> {opening ? "Creating a link" : "Open call page"}
           </Button>
           <Button variant="outline" asChild>
-            <Link to={`/patients/${id}`}>Patient record</Link>
+            <Link to={`/app/patients/${id}`}>Patient record</Link>
           </Button>
         </div>
       </header>

@@ -1,0 +1,9 @@
+/* Seamless CSS cycles: 0% and 100% are IDENTICAL. No video cut points. */
+.syn-scene { position:relative; isolation:isolate; overflow:hidden; background:#f7f1e7; }
+.syn-scene__art { position:absolute;inset:0;background-image:url('/synapshot-living/hero-scene-wide.webp');background-position:center;background-size:cover; }
+.syn-scene__light { position:absolute;inset:-12%;pointer-events:none;background-image:url('/synapshot-living/living-light.svg');background-size:cover;opacity:.36;mix-blend-mode:screen;animation:syn-light 22s ease-in-out infinite;transform-origin:40% 30%; }
+.syn-scene__brain {position:absolute; left:var(--brain-x,68%);top:var(--brain-y,14%);width:var(--brain-w,16%);aspect-ratio:620/520;pointer-events:none;}
+.syn-scene__brain svg {width:100%;height:100%;overflow:visible}
+@keyframes syn-light {0%,100%{transform:translate3d(0,0,0) skewX(0deg);opacity:.26} 25%{transform:translate3d(1.2%,.35%,0) skewX(.3deg);opacity:.38} 50%{transform:translate3d(2%,.6%,0) skewX(.7deg);opacity:.32} 75%{transform:translate3d(.8%,.2%,0) skewX(.25deg);opacity:.4}}
+/* Light only: foliage is part of the still background; don't move the entire scene. */
+@media (prefers-reduced-motion:reduce){.syn-scene__light{animation:none;opacity:.26}}

@@ -1,30 +1,43 @@
-// Router, query client, theme sync and the toaster. The clinic routes sit inside the sidebar
-// shell. The patient facing routes sit outside it.
+// Router, query client, theme sync and the toaster. The landing page and the login screen are
+// public; the clinician workspace lives under /app behind the session gate. Patient facing
+// links (consent, call, phone, stretch) stay public because they open from a text message.
+//
+// Authenticated shape: Overview, Patients, Assessments, Research, Reports and Settings are the
+// primary destinations. Cross-cutting tools (alerts, live rig, demo console) stay reachable
+// from the overview, settings and the patient record rather than taking a permanent rail slot.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { RouterProvider } from "react-router-dom";
+import { Navigate, RouterProvider } from "react-router-dom";
 import { createRouter } from "@/lib/sentry";
 import { AuthGate } from "@/components/AuthGate";
 import { ClinicLayout } from "@/components/ClinicLayout";
 import { Toaster } from "@/components/ui/sonner";
 import { useApp } from "@/store/app";
 import Alerts from "@/pages/Alerts";
-import Cohort from "@/pages/Cohort";
+import Assessments from "@/pages/Assessments";
 import Consent from "@/pages/Consent";
 import Demo from "@/pages/Demo";
+import Overview from "@/pages/Overview";
+import PublicExperience from "@/components/scene/PublicExperience";
 import NotFound from "@/pages/NotFound";
+import PatientAssessment from "@/pages/PatientAssessment";
+import PatientAssessments from "@/pages/PatientAssessments";
 import PatientCall from "@/pages/PatientCall";
-import PatientCalls from "@/pages/PatientCalls";
 import PatientCompare from "@/pages/PatientCompare";
 import PatientLayout from "@/pages/PatientLayout";
+import PatientNotes from "@/pages/PatientNotes";
 import PatientOverview from "@/pages/PatientOverview";
-import PatientTwin from "@/pages/PatientTwin";
+import PatientRecovery from "@/pages/PatientRecovery";
+import PatientReports from "@/pages/PatientReports";
 import PatientUpload from "@/pages/PatientUpload";
-import Patients from "@/pages/Patients";
+import PatientsPage from "@/pages/PatientsPage";
 import Phone from "@/pages/Phone";
+import Reports from "@/pages/Reports";
+import Research from "@/pages/Research";
 import Rig from "@/pages/Rig";
 import RigPreflight from "@/pages/RigPreflight";
+import Settings from "@/pages/Settings";
 import Stretch from "@/pages/Stretch";
 
 export const queryClient = new QueryClient({
@@ -35,31 +48,47 @@ export const queryClient = new QueryClient({
 
 export const routes = [
   {
-    // Only the clinician routes sit behind the optional login. The patient pages must
-    // open from a texted link with no account, so they stay outside it.
+    element: <PublicExperience />,
+    children: [{ path: "/", element: <></> }, { path: "/login", element: <></> }],
+  },
+  {
+    // Only the clinician routes sit behind the session. The patient pages must open from a
+    // texted link with no account, so they stay outside it.
     element: (
-      <AuthGate>
+      <AuthGate pending={<ClinicLayout pending />}>
         <ClinicLayout />
       </AuthGate>
     ),
     children: [
-      { path: "/", element: <Patients /> },
+      { path: "/app", element: <Overview /> },
+      { path: "/app/patients", element: <PatientsPage /> },
+      { path: "/app/assessments", element: <Assessments /> },
+      { path: "/app/research", element: <Research /> },
+      { path: "/app/reports", element: <Reports /> },
+      { path: "/app/settings", element: <Settings /> },
       {
-        path: "/patients/:id",
+        path: "/app/patients/:id",
         element: <PatientLayout />,
         children: [
           { index: true, element: <PatientOverview /> },
+          { path: "assessments", element: <PatientAssessments /> },
+          { path: "assessments/:cid", element: <PatientAssessment /> },
+          { path: "recovery", element: <PatientRecovery /> },
+          { path: "notes", element: <PatientNotes /> },
+          { path: "reports", element: <PatientReports /> },
+          // Kept as redirects so old links and bookmarks land on the new tabs.
+          { path: "twin", element: <Navigate to="../recovery" replace /> },
+          { path: "calls", element: <Navigate to="../assessments" replace /> },
           { path: "upload", element: <PatientUpload /> },
-          { path: "twin", element: <PatientTwin /> },
           { path: "compare", element: <PatientCompare /> },
-          { path: "calls", element: <PatientCalls /> },
         ],
       },
-      { path: "/alerts", element: <Alerts /> },
-      { path: "/cohort", element: <Cohort /> },
-      { path: "/rig", element: <Rig /> },
-      { path: "/rig/preflight", element: <RigPreflight /> },
-      { path: "/demo", element: <Demo /> },
+      { path: "/app/alerts", element: <Alerts /> },
+      { path: "/app/cohort", element: <Navigate to="/app/research" replace /> },
+      { path: "/app/rig", element: <Rig /> },
+      { path: "/app/rig/preflight", element: <RigPreflight /> },
+      { path: "/app/demo", element: <Demo /> },
+      { path: "/app/*", element: <Navigate to="/app" replace /> },
     ],
   },
   { path: "/consent/:token", element: <Consent /> },

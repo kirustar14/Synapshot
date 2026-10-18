@@ -115,7 +115,7 @@ export default function PatientTwin() {
           </div>
         }
       >
-        <div className="grid gap-5 xl:grid-cols-[210px_minmax(0,1fr)_280px]">
+        <div className="grid gap-5 xl:grid-cols-[210px_minmax(0,1fr)_300px]">
           <div className="space-y-5">
             <LayerSwitcher
               layer={v.layer}
@@ -148,7 +148,7 @@ export default function PatientTwin() {
 
           <div className="min-w-0">
             <Tabs defaultValue="region">
-              <TabsList className="flex h-auto w-full flex-wrap">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1">
                 <TabsTrigger value="region">Region</TabsTrigger>
                 <TabsTrigger value="hurts">Where it hurts</TabsTrigger>
                 <TabsTrigger value="tracts">Tracts</TabsTrigger>

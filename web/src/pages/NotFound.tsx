@@ -13,7 +13,7 @@ export default function NotFound() {
           That page does not exist, or the link has moved.
         </p>
         <Button asChild className="mt-6">
-          <Link to="/">Go to the patient workspace</Link>
+          <Link to="/app">Go to the patient workspace</Link>
         </Button>
       </div>
     </div>

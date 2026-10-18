@@ -35,7 +35,7 @@ export default function Rig() {
         subtitle="What the patient's web call is doing right now. The video never leaves the patient's phone, so this console shows the measurements the phone sends and nothing else."
         actions={
           <Button variant="outline" asChild>
-            <Link to="/rig/preflight">Preflight</Link>
+            <Link to="/app/rig/preflight">Preflight</Link>
           </Button>
         }
       />

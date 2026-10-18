@@ -1,0 +1,39 @@
+{
+  "pack": "Synapshot_Paper_Landing_Kit_v6",
+  "assets": [
+    {
+      "file": "assets/room_base_full_scroll.png",
+      "role": "base room plate"
+    },
+    {
+      "file": "assets/curtain_overlay.png",
+      "role": "animated curtain overlay"
+    },
+    {
+      "file": "assets/light_and_shadow_overlay.png",
+      "role": "dynamic sunlight + foliage shadow overlay"
+    },
+    {
+      "file": "assets/plant_overlay.png",
+      "role": "right-side plant overlay"
+    },
+    {
+      "file": "assets/drifting_leaves_overlay.png",
+      "role": "sparse drifting leaves overlay"
+    },
+    {
+      "file": "assets/brain_overlay.png",
+      "role": "animated brain overlay"
+    }
+  ],
+  "references": [
+    {
+      "file": "references/full_scroll_layout_reference.png",
+      "role": "layout reference only"
+    },
+    {
+      "file": "references/hero_framing_reference.png",
+      "role": "hero framing reference only"
+    }
+  ]
+}

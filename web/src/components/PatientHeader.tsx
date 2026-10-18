@@ -1,71 +1,160 @@
-// Shared header for the five patient routes: who this is, any open flags, and the section tabs
-// as one segmented control.
+// Patient workspace header: who this is, the monitoring context, the review action and the five
+// contextual tabs. The header stays mounted while the tabs change underneath it.
 
-import { ChevronLeft } from "lucide-react";
-import { Link, NavLink } from "react-router-dom";
+import { CheckCheck, ChevronLeft, FileDown, GitCompare, MoreHorizontal, Upload } from "lucide-react";
+import { useState } from "react";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { useAckAlert, useNote } from "@/api/client";
 import type { Patient } from "@/api/types";
-import { FlagChip, SyntheticBadge } from "./common";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ENROLLED, reviewOf } from "@/dashboard/derive";
+import { StatusPill } from "@/dashboard/components";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { path: "", label: "Overview", end: true },
-  { path: "twin", label: "Brain twin" },
-  { path: "calls", label: "Check-ins" },
-  { path: "compare", label: "Scenarios" },
-  { path: "upload", label: "Model inputs" },
+  { path: "assessments", label: "Assessments" },
+  { path: "recovery", label: "Recovery model" },
+  { path: "notes", label: "Notes" },
+  { path: "reports", label: "Reports" },
 ];
 
-const injuredOn = (iso: string) =>
-  new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" });
-
 export function PatientHeader({ patient }: { patient: Patient }) {
-  const flags = Array.from(new Set(patient.alerts.map((a) => a.type)));
+  const [working, setWorking] = useState(false);
+  const ack = useAckAlert();
+  const note = useNote();
+  const navigate = useNavigate();
+
+  const open = patient.alerts.filter((a) => !a.acked);
+  // Only unacknowledged flags count as review work; the monitoring flag itself stays on the
+  // worklist until the record is read.
+  const review = reviewOf({
+    id: patient.id,
+    name: patient.name,
+    week: patient.week,
+    drift_z: 0,
+    last_call: patient.last_call?.date ?? null,
+    flags: Array.from(new Set(open.map((a) => a.type))),
+    synthetic: true,
+  });
+
+  // The existing persistence path: acknowledge every open alert, then note that a clinician
+  // read the record. With nothing open the action is disabled rather than a no-op.
+  const markReviewed = async () => {
+    if (open.length === 0) return;
+    setWorking(true);
+    try {
+      await Promise.all(open.map((a) => ack.mutateAsync(a.id)));
+      await note.mutateAsync({
+        id: patient.id,
+        text: `Record reviewed after the week ${patient.week} check-in. ${open.length} open alert${open.length === 1 ? "" : "s"} acknowledged.`,
+      });
+      toast.success("Record marked as reviewed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not mark the record reviewed");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
-      <div className="min-w-0">
-        <Link
-          to="/"
-          className="no-print mb-2 inline-flex items-center gap-1 text-sm font-bold text-primary hover:underline"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden /> Patients
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-[34px] font-extrabold leading-10">{patient.name}</h1>
-          <SyntheticBadge />
-          {patient.template_only && (
-            <span className="flex h-6 items-center rounded-full bg-muted px-2.5 text-xs font-bold text-muted-foreground">
-              Template only
+    <div className="mb-5">
+      <Link
+        to="/app/patients"
+        className="no-print mb-2 inline-flex items-center gap-1 rounded text-[11px] text-[#8b8375] hover:text-[#8a4222]"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> Back to patients
+      </Link>
+
+      <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-[27px] font-semibold leading-8 tracking-[-0.03em]">{patient.name}</h1>
+            <span className="inline-flex h-5 items-center rounded-[5px] border border-[#e6e0d6] px-1.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[#8b8375]">
+              Synthetic
             </span>
-          )}
-          {patient.low_fidelity && (
-            <span className="flex h-6 items-center rounded-full bg-synthetic-soft px-2.5 text-xs font-bold text-synthetic-foreground">
-              Low fidelity
-            </span>
-          )}
-          {flags.map((f) => (
-            <FlagChip key={f} flag={f} />
-          ))}
+            {review.priority >= 2 && <StatusPill review={review} />}
+          </div>
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[#6d675e]">
+            <span>{patient.age}y</span>
+            <span aria-hidden>·</span>
+            <span>{patient.injury.mechanism}</span>
+            <span aria-hidden>·</span>
+            <span>Week {patient.week} of 12</span>
+            <span aria-hidden>·</span>
+            <span>Injured {ENROLLED(patient.injury.date)}</span>
+            {patient.low_fidelity && (
+              <span className="rounded-[4px] bg-[#f7efdb] px-1.5 py-0.5 text-[10px] text-[#7d5b17]">Low fidelity</span>
+            )}
+            {patient.template_only && (
+              <span className="rounded-[4px] bg-[#f1ece4] px-1.5 py-0.5 text-[10px] text-[#6d675e]">Template only</span>
+            )}
+          </p>
         </div>
-        <p className="mt-1.5 text-[15px] font-semibold text-muted-foreground">
-          {patient.age} years old, {patient.sex === "F" ? "female" : "male"}, injured {injuredOn(patient.injury.date)},{" "}
-          {patient.injury.mechanism}
-        </p>
+
+        <div className="no-print flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => void markReviewed()}
+            disabled={working || open.length === 0}
+            className="h-8 gap-1.5 rounded-[7px] bg-[#b4552f] px-3 text-[12px] font-medium text-[#fff8f3] hover:bg-[#a04a27] disabled:bg-[#e7ded2] disabled:text-[#9b9488]"
+            title={open.length === 0 ? "No open review item on this record" : undefined}
+          >
+            <CheckCheck className="h-3.5 w-3.5" aria-hidden />
+            {working ? "Saving" : "Mark as reviewed"}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 rounded-[7px] border-[#e6e0d6] bg-[#fffdfa] hover:bg-[#fbf8f2]"
+                aria-label="More patient actions"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52 rounded-[9px] border-[#e3ddd2] bg-[#fffdfa] p-1">
+              <DropdownMenuItem asChild className="rounded-[6px] text-[12px] focus:bg-[#f7f2ea]">
+                <Link to={`/app/patients/${patient.id}/compare`}>
+                  <GitCompare aria-hidden /> Scenario comparison
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild className="rounded-[6px] text-[12px] focus:bg-[#f7f2ea]">
+                <Link to={`/app/patients/${patient.id}/upload`}>
+                  <Upload aria-hidden /> Model inputs
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="rounded-[6px] text-[12px] focus:bg-[#f7f2ea]" onSelect={() => navigate(`/app/patients/${patient.id}/reports`)}>
+                <FileDown aria-hidden /> Report
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+
       <nav
         aria-label="Patient sections"
-        className="no-print flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-secondary p-1"
+        className="no-print mt-4 flex max-w-full gap-5 overflow-x-auto overflow-y-hidden border-b border-[#e6e0d6]"
       >
         {TABS.map((t) => (
           <NavLink
             key={t.label}
-            to={t.path ? `/patients/${patient.id}/${t.path}` : `/patients/${patient.id}`}
+            to={t.path ? `/app/patients/${patient.id}/${t.path}` : `/app/patients/${patient.id}`}
             end={t.end}
             className={({ isActive }) =>
               cn(
-                "flex h-9 items-center whitespace-nowrap rounded-full px-4 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+                "-mb-px flex h-9 items-center whitespace-nowrap border-b-2 text-[12px] transition-colors",
                 isActive
-                  ? "bg-card font-extrabold text-foreground shadow-soft"
-                  : "font-bold text-muted-foreground hover:text-foreground",
+                  ? "border-[#b4552f] font-medium text-[#1c1a17]"
+                  : "border-transparent text-[#6d675e] hover:border-[#d8cfc0] hover:text-[#1c1a17]",
               )
             }
           >

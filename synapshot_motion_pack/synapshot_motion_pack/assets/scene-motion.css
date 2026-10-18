@@ -1,0 +1,11 @@
+/* Apply to a shared scene wrapper mounted across landing/login routes. */
+.synapshot-scene {position:absolute;inset:0;overflow:hidden;pointer-events:none;background:#f7f2eb;isolation:isolate}
+.synapshot-scene__photo {position:absolute;inset:0 0 0 45%;background-image:url('/assets/sunlit-scene.webp');background-position:center right;background-size:cover;mask-image:linear-gradient(to right, transparent, #000 30%);-webkit-mask-image:linear-gradient(to right, transparent, #000 30%);transform:scale(1.04)}
+.synapshot-scene__light {position:absolute;inset:-8%;background:url('/assets/curtain-light.svg') center/cover;mix-blend-mode:screen;opacity:.55;animation:synapshot-light 14s ease-in-out infinite alternate;will-change:transform,opacity}
+.synapshot-scene__brain {position:absolute;right:17%;top:25%;width:clamp(220px,29vw,480px);opacity:.75;filter:drop-shadow(0 2px 12px rgba(221,157,91,.28))}
+.synapshot-scene__plant {position:absolute;right:3%;top:18%;width:30%;height:60%;transform-origin:bottom right;animation:synapshot-sway 9s ease-in-out infinite alternate;pointer-events:none}
+/* The plant layer requires a SEPARATELY MASKED/TRANSPARENT plant image; omit this selector unless provided. Do not animate the entire background photo. */
+@keyframes synapshot-light {from{transform:translateX(-2%) skewX(-.5deg);opacity:.38}to{transform:translateX(2%) skewX(.6deg);opacity:.7}}
+@keyframes synapshot-sway {from{transform:rotate(-.45deg) translateX(-2px)}to{transform:rotate(.6deg) translateX(3px)}}
+@media (max-width:700px){.synapshot-scene__photo{inset:20% 0 0 0;mask-image:linear-gradient(to bottom,transparent,#000 30%);-webkit-mask-image:linear-gradient(to bottom,transparent,#000 30%)}.synapshot-scene__brain{right:8%;top:48%;width:55%}}
+@media (prefers-reduced-motion:reduce){.synapshot-scene__light,.synapshot-scene__plant{animation:none!important}}

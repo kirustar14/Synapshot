@@ -1,184 +1,455 @@
-// The clinician shell: sticky sidebar, 76px top bar, and the research environment footer.
-// The patient facing routes do not use this shell.
+// The authenticated clinician shell. A compact, deliberately collapsible rail on the left, a
+// restrained header with patient search and the account avatar, and one mounted Outlet. The
+// rail never expands on hover; only the toggle changes its width.
+//
+// The dashboard palette is scoped to html.dash while this shell is mounted, so the landing and
+// login screens keep their own tokens.
 
-import { Bell, Brain, ChevronRight, FlaskConical, Gamepad2, LineChart, LogOut, Menu, Moon, Radio, Sun, Users } from "lucide-react";
-import { authEnabled, useLogout } from "@/components/AuthGate";
-import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { isMock, useAlerts, useHealth } from "@/api/client";
-import { SyntheticBadge } from "@/components/common";
-import { Button } from "@/components/ui/button";
+import "@/dashboard/theme.css";
+
+import {
+  ClipboardCheck,
+  FileText,
+  FlaskConical,
+  House,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+  UserRound,
+  Users,
+  X,
+} from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { usePatients, useSession } from "@/api/client";
+import { useSignOut } from "@/components/AuthGate";
+import { RouteSurface } from "@/components/RouteSurface";
+import { WorkspaceSkeleton } from "@/components/WorkspaceSkeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { initialsOf } from "@/dashboard/derive";
 import { cn } from "@/lib/utils";
-import { useApp } from "@/store/app";
 
 interface NavItem {
   to: string;
   label: string;
   icon: typeof Users;
   end?: boolean;
-  badge?: number;
 }
 
-function Brand() {
+const NAV: NavItem[] = [
+  { to: "/app", label: "Overview", icon: House, end: true },
+  { to: "/app/patients", label: "Patients", icon: Users },
+  { to: "/app/assessments", label: "Assessments", icon: ClipboardCheck },
+  { to: "/app/research", label: "Research", icon: FlaskConical },
+  { to: "/app/reports", label: "Reports", icon: FileText },
+  { to: "/app/settings", label: "Settings", icon: SettingsIcon },
+];
+
+const RAIL_KEY = "synapshot-rail";
+
+function readCollapsed(): boolean {
+  try {
+    const raw = localStorage.getItem(RAIL_KEY);
+    if (raw === "collapsed") return true;
+    if (raw === "expanded") return false;
+  } catch {
+    // Storage can be blocked; the rail simply starts expanded.
+  }
+  return false;
+}
+
+function Wordmark({ collapsed }: { collapsed: boolean }) {
   return (
-    <Link to="/" aria-label="Synapshot home" className="flex h-[92px] items-center gap-3 px-7">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-soft">
-        <Brain className="h-5 w-5" strokeWidth={2} aria-hidden />
-      </span>
-      <span>
-        <span className="block text-xl font-black leading-[22px] tracking-tight">synapshot.</span>
-        <span className="block text-xs font-semibold text-muted-foreground">Brain twin lab</span>
-      </span>
+    <Link
+      to="/app"
+      aria-label="Synapshot overview"
+      className={cn(
+        "flex h-14 shrink-0 items-center border-b border-[#e8e2d8] text-[#1c1a17]",
+        collapsed ? "justify-center px-0" : "px-5",
+      )}
+    >
+      {collapsed ? (
+        <span className="text-[17px] font-semibold tracking-[-0.04em]" aria-hidden>
+          s
+        </span>
+      ) : (
+        <span className="text-[17px] font-semibold tracking-[-0.035em]">synapshot</span>
+      )}
     </Link>
   );
 }
 
-function Nav({ onNavigate }: { onNavigate?: () => void }) {
-  const unlocked = useApp((s) => s.demoUnlocked);
-  const { data: alerts } = useAlerts();
-  const open = alerts?.filter((a) => !a.acked).length ?? 0;
+function NavLinkRow({
+  item,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItem;
+  collapsed: boolean;
+  onNavigate?: () => void;
+}) {
+  const link = (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        cn(
+          "group relative flex h-9 items-center rounded-[7px] text-[13px] transition-colors",
+          collapsed ? "mx-auto w-10 justify-center" : "mx-2 gap-2.5 px-2.5",
+          isActive
+            ? "bg-[#fbeade] font-medium text-[#8a4222]"
+            : "font-normal text-[#55504a] hover:bg-[#ece6db] hover:text-[#1c1a17]",
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <item.icon
+            className={cn("h-[16px] w-[16px] shrink-0", isActive ? "text-[#a8492a]" : "text-[#7d766b]")}
+            strokeWidth={1.7}
+            aria-hidden
+          />
+          {!collapsed && <span className="truncate">{item.label}</span>}
+          {collapsed && <span className="sr-only">{item.label}</span>}
+        </>
+      )}
+    </NavLink>
+  );
 
-  const items: NavItem[] = [
-    { to: "/", label: "Patients", icon: Users, end: true },
-    { to: "/alerts", label: "Alerts", icon: Bell, badge: open },
-    { to: "/cohort", label: "Cohort", icon: LineChart },
-    { to: "/rig", label: "Live call", icon: Radio },
-  ];
-  if (unlocked) items.push({ to: "/demo", label: "Demo", icon: Gamepad2 });
-
+  if (!collapsed) return link;
   return (
-    <nav aria-label="Main" className="flex flex-col gap-1 px-4 py-2">
-      {items.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end={item.end}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            cn(
-              "group flex h-11 items-center gap-3 rounded-[14px] px-3.5 text-[15px] transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-              isActive
-                ? "bg-sidebar-accent font-extrabold text-sidebar-accent-foreground shadow-soft"
-                : "font-bold text-sidebar-foreground hover:bg-sidebar-accent/70",
-            )
-          }
-        >
-          <item.icon className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
-          <span className="flex-1">{item.label}</span>
-          {item.badge !== undefined && item.badge > 0 && (
-            <span
-              className="flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-extrabold text-destructive-foreground"
-              aria-label={`${item.badge} open alerts`}
-            >
-              {item.badge}
-            </span>
-          )}
-        </NavLink>
-      ))}
-    </nav>
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={10}>
+        {item.label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
-const SECTIONS: { prefix: string; label: string }[] = [
-  { prefix: "/patients/", label: "Patient" },
-  { prefix: "/alerts", label: "Alerts" },
-  { prefix: "/cohort", label: "Cohort" },
-  { prefix: "/rig", label: "Live call" },
-  { prefix: "/demo", label: "Demo console" },
-];
+function Rail({
+  collapsed,
+  onToggle,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  onToggle?: () => void;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-[#f2eee6]">
+      {onToggle && <Wordmark collapsed={collapsed} />}
+      <TooltipProvider delayDuration={200}>
+        <nav aria-label="Main" className="flex flex-col gap-0.5 py-3">
+          {NAV.map((item) => (
+            <NavLinkRow key={item.to} item={item} collapsed={collapsed} onNavigate={onNavigate} />
+          ))}
+        </nav>
+      </TooltipProvider>
 
-export function ClinicLayout() {
-  const { data: health } = useHealth();
-  const dark = useApp((s) => s.dark);
-  const setDark = useApp((s) => s.setDark);
-  const logout = useLogout();
-  const setUnlocked = useApp((s) => s.setDemoUnlocked);
+      <div className="mt-auto border-t border-[#e8e2d8] p-2">
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+            className={cn(
+              "flex h-9 w-full items-center rounded-[7px] text-[12px] text-[#6d675e] transition-colors hover:bg-[#e8e2d7] hover:text-[#1c1a17]",
+              collapsed ? "justify-center" : "gap-2 px-2.5",
+            )}
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="h-[16px] w-[16px]" strokeWidth={1.7} aria-hidden />
+            ) : (
+              <>
+                <PanelLeftClose className="h-[16px] w-[16px]" strokeWidth={1.7} aria-hidden />
+                <span>Collapse</span>
+              </>
+            )}
+          </button>
+        ) : null}
+        {!collapsed && (
+          <p className="px-2.5 pb-1 pt-3 text-[10px] leading-[15px] text-[#8b8375]">
+            Research prototype · synthetic records.
+            <br />
+            Forecasts are experimental, not diagnostic.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Header patient search. Results are links, so tab and enter work without extra bindings. */
+function PatientSearch() {
+  const { data } = usePatients();
+  const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const wrap = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (pathname.startsWith("/demo")) setUnlocked(true);
-  }, [pathname, setUnlocked]);
-
-  const section = SECTIONS.find((s) => pathname.startsWith(s.prefix))?.label ?? "Patients";
-  const syntheticData = health?.mode === "mock";
-  const mockLayer = isMock();
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return (data ?? [])
+      .filter((p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [data, query]);
 
   return (
-    <div className="flex min-h-screen overflow-x-clip bg-background">
-      <aside className="no-print sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col bg-sidebar lg:flex">
-        <Brand />
-        <Nav />
-        <div className="mt-auto px-4 pb-6">
-          <div className="rounded-2xl bg-card/70 p-4">
-            <div className="flex items-center gap-2 text-[13px] font-extrabold">
-              <FlaskConical className="h-4 w-4 text-synthetic" aria-hidden /> Research use only
-            </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-              Synthetic patients. Forecasts support clinical judgment and never replace it.
+    <div
+      ref={wrap}
+      className="relative w-full max-w-[520px]"
+      onBlur={(e) => {
+        if (!wrap.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <label htmlFor="patient-search" className="sr-only">
+        Search patients
+      </label>
+      <Search
+        className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-[#8b8375]"
+        strokeWidth={1.8}
+        aria-hidden
+      />
+      <input
+        id="patient-search"
+        type="search"
+        autoComplete="off"
+        value={query}
+        placeholder="Search patients, check-ins, or notes"
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setQuery("");
+            setOpen(false);
+          }
+          if (e.key === "Enter" && results[0]) {
+            e.preventDefault();
+            navigate(`/app/patients/${results[0].id}`);
+            setQuery("");
+            setOpen(false);
+          }
+        }}
+        className="h-9 w-full rounded-[8px] border border-[#e6e0d6] bg-[#fbf9f4] pl-9 pr-8 text-[13px] text-[#1c1a17] outline-none transition-colors placeholder:text-[#9b9488] focus:border-[#c9c0b1] focus:bg-[#fffdfa]"
+      />
+      {query && (
+        <button
+          type="button"
+          onClick={() => {
+            setQuery("");
+            setOpen(false);
+          }}
+          aria-label="Clear search"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[#8b8375] hover:text-[#1c1a17]"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      )}
+
+      {open && query.trim() && (
+        <div
+          role="region"
+          aria-label="Patient search results"
+          className="absolute left-0 right-0 top-[42px] z-40 overflow-hidden rounded-[9px] border border-[#e3ddd2] bg-[#fffdfa] shadow-[0_18px_40px_-24px_rgba(28,26,23,0.35)]"
+        >
+          <p className="border-b border-[#f0eae1] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8b8375]">
+            Patients
+          </p>
+          {results.length === 0 ? (
+            <p className="px-3 py-4 text-[12px] text-[#6d675e]">
+              No patient matches “{query.trim()}”. Search uses the display name.
             </p>
-          </div>
-          <div className="mt-4 flex items-center gap-3 px-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-card text-xs font-extrabold shadow-soft">CL</span>
-            <div>
-              <p className="text-[13px] font-bold">Clinical lab</p>
-              <p className="text-xs text-muted-foreground">TBI recovery research</p>
-            </div>
-          </div>
+          ) : (
+            <ul>
+              {results.map((p) => (
+                <li key={p.id}>
+                  <Link
+                    to={`/app/patients/${p.id}`}
+                    onClick={() => {
+                      setQuery("");
+                      setOpen(false);
+                    }}
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px] hover:bg-[#f7f2ea] focus:bg-[#f7f2ea]"
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#f1ece3] text-[10px] font-medium text-[#6b5a45]">
+                        {initialsOf(p.name)}
+                      </span>
+                      <span className="truncate font-medium">{p.name}</span>
+                    </span>
+                    <span className="shrink-0 text-[11px] text-[#8b8375]">Week {p.week}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      </aside>
+      )}
+    </div>
+  );
+}
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-64 bg-sidebar p-0">
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <Brand />
-          <Nav onNavigate={() => setOpen(false)} />
-        </SheetContent>
-      </Sheet>
+function AccountMenu() {
+  const { data } = useSession();
+  const signOut = useSignOut();
+  const [signingOut, setSigningOut] = useState(false);
+  const name = data?.name ?? "Demo clinician";
+  const email = data?.email ?? "demo@synapshot.health";
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 bg-background/85 px-4 backdrop-blur-md lg:pl-6 lg:pr-12">
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="Open navigation">
-            <Menu className="h-5 w-5" aria-hidden />
-          </Button>
-          <div className="hidden items-center gap-2 text-[13px] font-semibold sm:flex">
-            <span className="text-muted-foreground">Clinical lab</span>
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-            <span className="font-bold">{section}</span>
-          </div>
-          <span className="text-sm font-extrabold sm:hidden">synapshot.</span>
-          <div className="ml-auto flex items-center gap-2">
-            {syntheticData && (
-              <span className="inline-flex h-8 items-center gap-2 rounded-full bg-card px-3 text-xs font-bold text-muted-foreground shadow-soft">
-                <span className="h-1.5 w-1.5 rounded-full bg-synthetic" aria-hidden />
-                Synthetic data
-              </span>
-            )}
-            {mockLayer && <SyntheticBadge className="px-3 py-1.5 font-bold" label="Mock data" />}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setDark(!dark)}
-              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Account menu for ${name}`}
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-[#e3dcd0] bg-[#f6f1e8] text-[11px] font-semibold text-[#6b5a45] transition-colors hover:bg-[#efe8db]"
+        >
+          {initialsOf(name)}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={8} className="w-56 rounded-[9px] border-[#e3ddd2] bg-[#fffdfa] p-1">
+        <DropdownMenuLabel className="px-2 py-2">
+          <span className="block text-[13px] font-medium text-[#1c1a17]">{name}</span>
+          <span className="block truncate text-[11px] font-normal text-[#8b8375]">{email}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator className="bg-[#f0eae1]" />
+        <DropdownMenuItem asChild className="rounded-[6px] text-[13px] focus:bg-[#f7f2ea]">
+          <Link to="/app/settings#profile">
+            <UserRound className="text-[#7d766b]" aria-hidden /> Profile
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild className="rounded-[6px] text-[13px] focus:bg-[#f7f2ea]">
+          <Link to="/app/settings">
+            <SlidersHorizontal className="text-[#7d766b]" aria-hidden /> Settings
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="bg-[#f0eae1]" />
+        <DropdownMenuItem
+          className="rounded-[6px] text-[13px] text-[#96311f] focus:bg-[#f8e6e2] focus:text-[#96311f]"
+          disabled={signingOut}
+          onSelect={() => {
+            setSigningOut(true);
+            void signOut();
+          }}
+        >
+          <LogOut aria-hidden /> {signingOut ? "Signing out" : "Sign out"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function ClinicLayout({ pending = false }: { pending?: boolean }) {
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [mobileNav, setMobileNav] = useState(false);
+  const { pathname } = useLocation();
+
+  // Applied before paint so the dashboard never flashes the public palette. Radix portals sit
+  // on body, so the tokens have to live on the document element rather than a wrapper.
+  useLayoutEffect(() => {
+    document.documentElement.classList.add("dash");
+    return () => document.documentElement.classList.remove("dash");
+  }, []);
+
+  useEffect(() => {
+    setMobileNav(false);
+  }, [pathname]);
+
+  const toggle = () => {
+    setCollapsed((v) => {
+      try {
+        localStorage.setItem(RAIL_KEY, v ? "expanded" : "collapsed");
+      } catch {
+        // Storage can be blocked; the rail still works for this session.
+      }
+      return !v;
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-[#f7f5f0] text-[#1c1a17]">
+      <a
+        href="#clinic-main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-[#fffdfa] focus:px-3 focus:py-2 focus:text-[13px] focus:shadow"
+      >
+        Skip to content
+      </a>
+
+      <div className="flex min-h-screen">
+        <aside
+          className={cn(
+            "dash-rail sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[#e8e2d8] lg:flex",
+            collapsed ? "w-16" : "w-[216px]",
+          )}
+        >
+          <Rail collapsed={collapsed} onToggle={toggle} />
+        </aside>
+
+        <Sheet open={mobileNav} onOpenChange={setMobileNav}>
+          <SheetContent side="left" className="w-[248px] border-r border-[#e8e2d8] bg-[#f2eee6] p-0">
+            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <Rail collapsed={false} onNavigate={() => setMobileNav(false)} />
+          </SheetContent>
+        </Sheet>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-[#e8e2d8] bg-[#f7f5f0]/92 px-4 backdrop-blur-md lg:px-6">
+            <button
+              type="button"
+              onClick={() => setMobileNav(true)}
+              aria-label="Open navigation"
+              className="flex h-8 w-8 items-center justify-center rounded-[7px] text-[#55504a] hover:bg-[#ece6db] lg:hidden"
             >
-              {dark ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
-            </Button>
-            {authEnabled && logout && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
-                aria-label="Sign out"
+              <Menu className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden />
+            </button>
+            <Link to="/app" className="text-[15px] font-semibold tracking-[-0.03em] lg:hidden">
+              synapshot
+            </Link>
+
+            <div className="hidden flex-1 justify-center px-2 md:flex">
+              <PatientSearch />
+            </div>
+
+            <div className="ml-auto flex items-center gap-3">
+              <span
+                className="hidden items-center gap-1.5 text-[11px] text-[#8b8375] xl:flex"
+                title="All records in this workspace are synthetic. The models are experimental."
               >
-                <LogOut className="h-4 w-4" aria-hidden />
-              </Button>
-            )}
-          </div>
-        </header>
-        <main className="print-page mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-5 pb-12 pt-4 lg:pl-6 lg:pr-12">
-          <Outlet />
-        </main>
+                <span className="h-1.5 w-1.5 rounded-full bg-[#a9762b]" aria-hidden />
+                Synthetic cohort
+              </span>
+              <AccountMenu />
+            </div>
+          </header>
+
+          <main id="clinic-main" className="min-w-0 flex-1 px-4 py-5 lg:px-6 lg:py-6">
+            <div className="mx-auto w-full max-w-[1480px]">
+              <RouteSurface>
+                {pending ? <WorkspaceSkeleton label="Checking sign in" /> : <Outlet />}
+              </RouteSurface>
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   );

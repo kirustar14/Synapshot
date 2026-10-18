@@ -1,0 +1,157 @@
+.syn-scene {
+  --scene-max: 1200px;
+  --scene-shift: 0%;
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  overflow: clip;
+  isolation: isolate;
+}
+
+.syn-scene--login {
+  --scene-shift: -8%;
+}
+
+.syn-scene__base,
+.syn-scene__layer,
+.syn-scene__brain,
+.syn-scene__leaf-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.syn-scene__base {
+  object-fit: cover;
+  object-position: center top;
+  transform: translateX(var(--scene-shift));
+}
+
+.syn-scene__layer,
+.syn-scene__brain,
+.syn-scene__leaf-field {
+  transform: translateX(var(--scene-shift));
+}
+
+.syn-scene__curtain {
+  left: 0;
+  right: auto;
+  width: 44%;
+  height: 56%;
+  top: 0;
+  object-fit: contain;
+  object-position: left top;
+  opacity: 0.92;
+  transform-origin: top left;
+  animation: curtainSway 14s ease-in-out infinite;
+}
+
+.syn-scene__light {
+  mix-blend-mode: multiply;
+  opacity: 0.18;
+  animation: lightDrift 18s ease-in-out infinite;
+}
+
+.syn-scene__plant {
+  left: auto;
+  right: 0;
+  top: 6%;
+  width: 26%;
+  height: 54%;
+  object-fit: contain;
+  object-position: right top;
+  transform-origin: 78% 100%;
+  animation: plantSway 10s ease-in-out infinite;
+}
+
+.syn-scene__brain {
+  left: 53%;
+  top: 8%;
+  width: 26%;
+  height: 22%;
+  overflow: visible;
+}
+
+.syn-scene__leaf-field {
+  overflow: hidden;
+}
+.syn-scene__leaf {
+  position: absolute;
+  width: 34%;
+  height: auto;
+  opacity: 0.9;
+  filter: blur(0.1px);
+}
+.syn-scene__leaf--a {
+  left: 2%;
+  top: 14%;
+  animation: leavesDriftA 13s linear infinite;
+}
+.syn-scene__leaf--b {
+  right: -2%;
+  top: 28%;
+  animation: leavesDriftB 16s linear infinite;
+}
+.syn-scene__leaf--c {
+  left: 32%;
+  top: 6%;
+  animation: leavesDriftC 18s linear infinite;
+}
+
+.syn-scene__content {
+  position: relative;
+  z-index: 5;
+}
+
+@keyframes curtainSway {
+  0%,100% { transform: translateX(var(--scene-shift)) translate3d(0,0,0) rotate(0deg); }
+  25% { transform: translateX(calc(var(--scene-shift) + 0.6%)) translate3d(0.8%, 0.2%, 0) rotate(0.45deg); }
+  50% { transform: translateX(calc(var(--scene-shift) + 1.2%)) translate3d(1.6%, 0.4%, 0) rotate(0.8deg); }
+  75% { transform: translateX(calc(var(--scene-shift) + 0.4%)) translate3d(0.5%, 0.1%, 0) rotate(0.25deg); }
+}
+
+@keyframes lightDrift {
+  0%,100% { transform: translateX(var(--scene-shift)) translate3d(0,0,0); opacity: 0.12; }
+  50% { transform: translateX(calc(var(--scene-shift) + 1.3%)) translate3d(0.6%, 0.4%, 0); opacity: 0.2; }
+}
+
+@keyframes plantSway {
+  0%,100% { transform: translateX(var(--scene-shift)) rotate(0deg); }
+  30% { transform: translateX(var(--scene-shift)) rotate(0.8deg) translateY(-0.1%); }
+  60% { transform: translateX(var(--scene-shift)) rotate(-0.35deg); }
+}
+
+@keyframes leavesDriftA {
+  0% { transform: translate(-10%, -6%) rotate(0deg); opacity: 0; }
+  10% { opacity: 0.55; }
+  50% { transform: translate(12%, 20%) rotate(6deg); opacity: 0.75; }
+  100% { transform: translate(30%, 58%) rotate(11deg); opacity: 0; }
+}
+@keyframes leavesDriftB {
+  0% { transform: translate(8%, -8%) rotate(0deg); opacity: 0; }
+  12% { opacity: 0.45; }
+  55% { transform: translate(-10%, 14%) rotate(-8deg); opacity: 0.7; }
+  100% { transform: translate(-26%, 46%) rotate(-12deg); opacity: 0; }
+}
+@keyframes leavesDriftC {
+  0% { transform: translate(0, -4%) rotate(0deg) scale(0.95); opacity: 0; }
+  8% { opacity: 0.3; }
+  55% { transform: translate(6%, 24%) rotate(9deg) scale(1); opacity: 0.55; }
+  100% { transform: translate(18%, 50%) rotate(18deg) scale(1.03); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .syn-scene__curtain,
+  .syn-scene__light,
+  .syn-scene__plant,
+  .syn-scene__leaf { animation: none !important; }
+  .syn-scene__leaf { opacity: 0.16; }
+}
+
+@media (max-width: 900px) {
+  .syn-scene__curtain { width: 52%; height: 44%; }
+  .syn-scene__plant { width: 32%; height: 40%; top: 7%; }
+  .syn-scene__brain { left: 53%; top: 11%; width: 28%; height: 18%; }
+}

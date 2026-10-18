@@ -1,479 +1,326 @@
-// C2 Patient overview. The one screen a clinician reads before a call, and the one that prints
-// as a single page report.
+// Patient overview: the recovery trajectory first, then the measurements that deserve a look,
+// then the latest assessment and the care team's notes. Observations and model output are kept
+// visually and verbally separate.
 
-import { Boxes, Eye, FileDown, GitCompare, ListChecks, MoreHorizontal, PhoneCall, StickyNote } from "lucide-react";
+import { AlertTriangle, ArrowRight, Info, Minus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { toast } from "sonner";
-import { useForecast, useNote } from "@/api/client";
-import type { Alert, Patient, Signal } from "@/api/types";
-import {
-  Empty,
-  ErrorState,
-  Loading,
-  ModelLabel,
-  Panel,
-  RealBadge,
-  StatusChip,
-  SyntheticBadge,
-  TierChip,
-  fmtDate,
-} from "@/components/common";
-import { ChartKey, SignalChart } from "@/components/charts/SignalChart";
-import { Sparkline } from "@/components/charts/Sparkline";
-import { AlertCard } from "@/components/panels/AlertCard";
-import { CompactTwin } from "@/components/panels/CompactTwin";
-import { Gauge } from "@/components/panels/Gauge";
-import { Transcript } from "@/components/panels/Transcript";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { SignalTile, bandState } from "@/components/panels/SignalTile";
+import { useForecast } from "@/api/client";
+import { ErrorState } from "@/components/common";
+import { SectionCard } from "@/dashboard/components";
+import { findingsOf, metricsOf, reviewOf, unitLabel } from "@/dashboard/derive";
+import { formatNoteTime, notesFor } from "@/dashboard/notes";
+import { TrajectoryChart } from "@/dashboard/TrajectoryChart";
 import { cn } from "@/lib/utils";
 import { usePatientContext } from "./PatientLayout";
 
-const GROUPS: { key: Signal["group"]; label: string }[] = [
-  { key: "eyes", label: "Eyes" },
-  { key: "speech", label: "Speech" },
-  { key: "memory", label: "Memory" },
-  { key: "symptoms", label: "Symptoms" },
-];
+const fmtValue = (v: number) => {
+  const digits = Math.abs(v) >= 10 ? 0 : Math.abs(v) >= 1 ? 1 : 2;
+  return v.toFixed(digits);
+};
 
-/** The one sentence a clinician needs before anything else, built from the open alerts. */
-function status(patient: Patient): { tone: "alert" | "watch" | "ok"; chip: string; title: string; detail: string } {
-  const by = (t: Alert["type"]) => patient.alerts.find((a) => a.type === t);
-  const red = by("red_flag");
-  const drift = by("drift");
-  const poor = by("low_quality");
-  const missed = by("missed_call");
-  const called = (a: Alert) => (a.called ? " The clinic has been called." : "");
-  if (red)
-    return { tone: "alert", chip: "Red flag", title: "A safety question was answered yes", detail: red.trigger + called(red) };
-  if (drift)
-    return { tone: "alert", chip: "Drifting", title: "Recovery has slipped outside the forecast", detail: drift.trigger + called(drift) };
-  if (poor)
-    return { tone: "watch", chip: "Poor video", title: "The last check-in could not be measured well", detail: poor.trigger };
-  if (missed)
-    return { tone: "watch", chip: "Missed call", title: "This week's check-in was missed", detail: missed.trigger };
-  return {
-    tone: "ok",
-    chip: "On track",
-    title: "Recovering the way the twin expected",
-    detail: patient.last_call
-      ? "Every measurement from the last check-in landed inside its forecast band."
-      : "No check-in yet. The first call link has not been opened.",
-  };
-}
-
-/** The add note dialog. Notes go to the patient record, never to the patient. */
-function AddNote({ patientId }: { patientId: string }) {
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const note = useNote();
-
-  const save = () =>
-    note.mutate(
-      { id: patientId, text: text.trim() },
-      {
-        onSuccess: () => {
-          setOpen(false);
-          setText("");
-          toast.success("Note added to the record");
-        },
-        onError: (err) => toast.error(err.message),
-      },
-    );
-
+function MetricTile({
+  label,
+  group,
+  value,
+  unit,
+  previous,
+  mdc,
+  changed,
+  week,
+}: {
+  label: string;
+  group: string;
+  value: number;
+  unit: string;
+  previous: number | null;
+  mdc: number;
+  changed: boolean;
+  week: number;
+}) {
+  const delta = previous === null ? null : value - previous;
+  const mdcText = mdc >= 100 ? mdc.toFixed(0) : mdc >= 1 ? mdc.toFixed(2) : mdc.toFixed(2);
   return (
-    <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
-        <StickyNote aria-hidden /> Add note
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add a note</DialogTitle>
-            <DialogDescription>Free text for the care team. It is stored on the record and is not sent to the patient.</DialogDescription>
-          </DialogHeader>
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={5}
-            aria-label="Note text"
-            placeholder="What you want the next reader to know"
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={save} disabled={text.trim().length < 2 || note.isPending}>
-              {note.isPending ? "Saving" : "Save note"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+    <div className="dash-card px-4 py-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-[11px] text-[#6d675e]">{label}</p>
+        <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-[#a49c8f]">{group}</span>
+      </div>
+      <p className="mt-1.5 flex items-baseline gap-1">
+        <span className="text-[22px] font-semibold leading-none tracking-[-0.02em]">{fmtValue(value)}</span>
+        <span className="text-[11px] text-[#8b8375]">{unitLabel(unit)}</span>
+      </p>
+      <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
+        {delta === null ? (
+          <span className="text-[#8b8375]">First reading</span>
+        ) : (
+          <>
+            <span className="text-[#55504a]">
+              {delta === 0 ? "No change" : `${delta > 0 ? "Higher" : "Lower"} by ${fmtValue(Math.abs(delta))}`}
+            </span>
+            <span className="text-[#a49c8f]">vs previous</span>
+          </>
+        )}
+      </div>
+      <p className="mt-1 text-[10px] leading-snug text-[#a49c8f]">
+        Week {week} · {changed ? `beyond the ${mdcText} ${unitLabel(unit)} noise threshold` : `within the ${mdcText} ${unitLabel(unit)} noise threshold`}
+      </p>
+    </div>
   );
 }
 
 export default function PatientOverview() {
   const { patient } = usePatientContext();
   const forecast = useForecast(patient.id);
-  const note = useNote();
+  const notes = notesFor(patient.id);
+  // No charted measure is chosen yet, so the chart opens on the memory signal: it is the one
+  // the findings below are usually about, and it keeps the card and the findings in step.
+  const [signalKey, setSignalKey] = useState<string | null>(null);
 
-  const signals = forecast.data?.signals ?? [];
-  const weeks = forecast.data?.weeks ?? [];
-  const coverage = forecast.data?.coverage ?? [];
+  const signals = useMemo(
+    () => (forecast.data?.signals ?? []).filter((s) => s.tier === "A" && s.obs.length > 0),
+    [forecast.data],
+  );
+  const preferred = useMemo(
+    () => signals.find((s) => s.key === "recall_delayed") ?? signals.find((s) => s.key === "word_recall") ?? signals[0],
+    [signals],
+  );
+  const signal = signals.find((s) => s.key === signalKey) ?? preferred;
 
-  const lastCall = patient.last_call;
-  const flashOk = lastCall?.channel.flash_ok ?? false;
-  const saccade = useMemo(() => signals.find((s) => s.key === "saccade_latency"), [signals]);
-  const saccadeFeature = lastCall?.features.find((f) => f.name === "Saccade latency") ?? null;
-
-  const st = status(patient);
-  const tiles = GROUPS.flatMap((g) => {
-    const signal = signals.find((x) => x.group === g.key && x.tier === "A" && x.obs.length > 0);
-    return signal ? [{ group: g.label, signal }] : [];
+  const findings = useMemo(
+    () => (forecast.data ? findingsOf(forecast.data, patient) : []),
+    [forecast.data, patient],
+  );
+  const metrics = useMemo(() => metricsOf(patient).slice(0, 4), [patient]);
+  const openAlerts = patient.alerts.filter((a) => !a.acked);
+  const review = reviewOf({
+    id: patient.id,
+    name: patient.name,
+    week: patient.week,
+    drift_z: 0,
+    last_call: patient.last_call?.date ?? null,
+    flags: Array.from(new Set(openAlerts.map((a) => a.type))),
+    synthetic: true,
   });
-  // The tier A signal whose latest point sits furthest outside its band, else the first one.
-  const worst = useMemo(() => {
-    const scored = signals
-      .filter((x) => x.tier === "A" && x.obs.length > 0)
-      .map((x) => {
-        const last = x.obs[x.obs.length - 1];
-        const i = weeks.indexOf(last.week);
-        const half = i >= 0 ? Math.max(1e-6, (x.hi[i] - x.lo[i]) / 2) : 1;
-        const mid = i >= 0 ? (x.hi[i] + x.lo[i]) / 2 : last.value;
-        return { x, score: Math.abs(last.value - mid) / half, off: bandState(x, weeks).state };
-      })
-      .sort((a, b) => b.score - a.score);
-    return scored[0]?.x;
-  }, [signals, weeks]);
-
-  const requestCallback = () =>
-    note.mutate(
-      { id: patient.id, text: "Callback requested by the clinician from the overview screen." },
-      {
-        onSuccess: () => toast.success("Callback request recorded on the patient record"),
-        onError: (err) => toast.error(err.message),
-      },
-    );
+  const call = patient.last_call;
 
   return (
-    <div className="space-y-5">
-      <section className="panel flex flex-col gap-8 p-8 lg:flex-row">
-        <div className="flex min-w-0 flex-1 flex-col gap-3.5">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span
-              className={cn(
-                "flex h-7 items-center rounded-full px-3 text-[13px] font-extrabold",
-                st.tone === "alert" && "bg-destructive text-destructive-foreground",
-                st.tone === "watch" && "bg-synthetic-soft text-synthetic-foreground",
-                st.tone === "ok" && "bg-success-soft text-success",
-              )}
-            >
-              {st.chip}
-            </span>
-            <span className="text-sm font-bold text-muted-foreground">
-              Week {patient.week} of 12{lastCall ? `, last check-in ${fmtDate(lastCall.date)}` : ""}
-            </span>
+    <div className="space-y-4">
+      {openAlerts.some((a) => a.type === "red_flag") && (
+        <div role="alert" className="flex items-start gap-2.5 rounded-[9px] border border-[#edd6cf] bg-[#fbf0ec] px-3.5 py-2.5">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#a83327]" aria-hidden />
+          <div className="min-w-0 text-[12px]">
+            <p className="font-medium text-[#96311f]">Safety question answered yes</p>
+            <p className="mt-0.5 text-[#7c4a3e]">
+              {openAlerts.find((a) => a.type === "red_flag")?.trigger}. Review the week {patient.week} check-in before
+              anything else.
+            </p>
           </div>
-          <h2 className="max-w-[560px] text-[28px] font-extrabold leading-[34px] tracking-tight">{st.title}</h2>
-          <p className="max-w-[520px] text-[15px] leading-[23px] text-muted-foreground">{st.detail}</p>
-          <div className="no-print mt-2 flex flex-wrap items-center gap-2.5">
-            <Button onClick={requestCallback} disabled={note.isPending}>
-              <PhoneCall aria-hidden /> Request callback
-            </Button>
-            <Button asChild variant="outline">
-              <Link to={`/patients/${patient.id}/twin`}>
-                <Boxes aria-hidden /> Open brain twin
-              </Link>
-            </Button>
-            <AddNote patientId={patient.id} />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-11 w-11" aria-label="More actions">
-                  <MoreHorizontal aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="rounded-2xl p-1.5">
-                <DropdownMenuItem asChild className="rounded-xl">
-                  <Link to={`/patients/${patient.id}/compare`}>
-                    <GitCompare aria-hidden /> Compare scenarios
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild className="rounded-xl">
-                  <Link to={`/patients/${patient.id}/calls`}>
-                    <ListChecks aria-hidden /> Check-in log
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem className="rounded-xl" onSelect={() => window.print()}>
-                  <FileDown aria-hidden /> Export report
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <Link
+            to={`/app/patients/${patient.id}/assessments${call ? `/${call.id}` : ""}`}
+            className="ml-auto shrink-0 whitespace-nowrap text-[11px] font-medium text-[#96311f] hover:underline"
+          >
+            Open assessment
+          </Link>
         </div>
-        {worst && (
-          <div className="w-full shrink-0 rounded-[20px] bg-lab-surface p-5 lg:w-[420px]">
-            <p className="text-xs font-bold text-muted-foreground">Furthest from its forecast</p>
-            <p className="mb-2 mt-0.5 text-[15px] font-extrabold">{worst.label}</p>
-            <SignalChart signal={worst} weeks={weeks} week={patient.week} height={170} caption={false} />
-          </div>
-        )}
-      </section>
+      )}
 
-      {tiles.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {tiles.map(({ group, signal }) => (
-            <SignalTile key={signal.key} title={group} signal={signal} weeks={weeks} />
+      <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+        <SectionCard
+          title="Recovery trajectory"
+          subtitle="Measured points with their error bars, then the model's forecast and 80 percent band."
+          action={
+            <div className="flex items-center gap-2">
+              {signals.length > 0 && (
+                <>
+                  <label htmlFor="signal-select" className="sr-only">
+                    Measure to chart
+                  </label>
+                  <select
+                    id="signal-select"
+                    value={signal?.key ?? ""}
+                    onChange={(e) => setSignalKey(e.target.value)}
+                    className="h-7 max-w-[190px] rounded-[6px] border border-[#e6e0d6] bg-[#fbf9f4] px-2 text-[11px] text-[#55504a] outline-none focus:border-[#c9c0b1]"
+                  >
+                    {signals.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label} ({s.unit})
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <Link
+                to={`/app/patients/${patient.id}/recovery`}
+                className="inline-flex items-center gap-1 text-[11px] text-[#8a4222] hover:underline"
+              >
+                Model <ArrowRight className="h-3 w-3" aria-hidden />
+              </Link>
+            </div>
+          }
+          bodyClassName="px-3 pb-3 pt-3"
+        >
+          {forecast.isLoading && (
+            <div role="status" aria-label="Loading the trajectory" className="space-y-3 py-6">
+              <div className="h-3 w-48 animate-pulse rounded bg-[#f1ece4]" />
+              <div className="h-[220px] animate-pulse rounded-[7px] bg-[#faf7f1]" />
+            </div>
+          )}
+          {forecast.error && <ErrorState error={forecast.error} onRetry={() => forecast.refetch()} />}
+          {signal && forecast.data && (
+            <TrajectoryChart signal={signal} weeks={forecast.data.weeks} week={patient.week} height={252} />
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Key findings"
+          subtitle="Observations that deserve a look, each tied to its baseline and evidence."
+          bodyClassName="p-0"
+        >
+          {findings.length === 0 ? (
+            <p className="px-4 py-6 text-[12px] text-[#6d675e]">No measurements are available to compare yet.</p>
+          ) : (
+            <ul className="divide-y divide-[#f1ece4]">
+              {findings.slice(0, 2).map((f) => (
+                <li key={f.key} className="px-4 py-3.5">
+                  <div className="flex items-start gap-2">
+                    {f.tone === "attention" ? (
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#a8492a]" aria-hidden />
+                    ) : f.tone === "watch" ? (
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#a9762b]" aria-hidden />
+                    ) : (
+                      <Minus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#4f7a56]" aria-hidden />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-medium leading-snug text-[#1c1a17]">{f.title}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-[#6d675e]">{f.detail}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5">
+                    <div className="flex items-center justify-between text-[10px] text-[#8b8375]">
+                      <span>Observations inside the 80% band</span>
+                      <span className="font-medium text-[#55504a]">{Math.round(f.coverage * 100)}%</span>
+                    </div>
+                    <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[#ece6dc]" aria-hidden>
+                      <div className="h-full rounded-full bg-[#c6a58d]" style={{ width: `${Math.round(f.coverage * 100)}%` }} />
+                    </div>
+                  </div>
+
+                  <p className="mt-2 text-[10px] leading-relaxed text-[#8b8375]">{f.evidence}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[#55504a]">
+                    <span className="text-[#8b8375]">Suggested next measurement: </span>
+                    {f.next}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="border-t border-[#f1ece4] px-4 py-2.5">
+            <p className="text-[10px] leading-relaxed text-[#8b8375]">
+              These are observations from the recorded measurements, not clinical conclusions. The forecast is a model
+              output and is experimental.
+            </p>
+          </div>
+        </SectionCard>
+      </div>
+
+      {metrics.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {metrics.map(({ key, ...metric }) => (
+            <MetricTile key={key} {...metric} />
           ))}
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Injury summary" subtitle="From the injury form, not from any scan.">
-          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-xs text-muted-foreground">Mechanism</dt>
-              <dd className="font-bold">{patient.injury.mechanism}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Helmet</dt>
-              <dd className="font-bold">{patient.injury.helmet}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Impact angle</dt>
-              <dd className="font-bold">{patient.injury.angle_deg} deg</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Location</dt>
-              <dd className="font-bold">{patient.injury.location}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Date</dt>
-              <dd className="font-bold">{patient.injury.date}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Loss of consciousness</dt>
-              <dd className="font-bold">{patient.injury.loc ? "Yes, at the scene" : "No"}</dd>
-            </div>
-          </dl>
-          <dl className="mt-4 grid grid-cols-2 gap-4 border-t pt-4 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-xs text-muted-foreground">GFAP</dt>
-              <dd className="font-mono font-bold">{patient.biomarkers.gfap_z.toFixed(2)} z</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">UCH-L1</dt>
-              <dd className="font-mono font-bold">{patient.biomarkers.uchl1_z.toFixed(2)} z</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">APOE e4 copies</dt>
-              <dd className="font-mono font-bold">{patient.alleles.apoe_e4}</dd>
-            </div>
-          </dl>
-        </Panel>
-
-        <Panel
-          title="Inputs used"
-          subtitle="What the twin was built from. Amber means synthetic."
-          action={<ModelLabel />}
-        >
-          <Gauge value={patient.fc_fit} label="Functional connectivity fit" className="mb-4" />
-          <ul className="divide-y text-sm">
-            {patient.inputs.map((f) => (
-              <li key={f.kind} className="flex flex-wrap items-center gap-2 py-2">
-                <span className="w-16 font-mono text-xs font-semibold uppercase">{f.kind}</span>
-                <StatusChip status={f.status} />
-                {f.status !== "missing" && (f.synthetic ? <SyntheticBadge /> : <RealBadge />)}
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">{f.sets}</span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      </div>
-
-      <Panel
-        title="Twelve week forecast"
-        subtitle="The shaded area is the 80% band, the line is the forecast mean, and the dots are what the weekly calls measured."
-        action={<ModelLabel />}
-      >
-        {forecast.isLoading && <Loading label="Loading the forecast" />}
-        {forecast.error && <ErrorState error={forecast.error} onRetry={() => forecast.refetch()} />}
-        {forecast.data && (
-          <>
-            <ChartKey />
-            <div className="mt-4 grid gap-6 lg:grid-cols-2">
-              {GROUPS.map((g) => {
-                const group = signals.filter((s) => s.group === g.key && s.tier === "A");
-                return (
-                  <section key={g.key} className="rounded-[20px] bg-lab-surface p-5">
-                    <h3 className="mb-2 text-sm font-extrabold">{g.label}</h3>
-                    {group.length === 0 ? (
-                      <Empty>Nothing in this group was measurable on the calls so far.</Empty>
-                    ) : (
-                      <div className="space-y-4">
-                        {group.map((s) => (
-                          <SignalChart key={s.key} signal={s} weeks={weeks} week={patient.week} height={140} />
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </Panel>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Calibration" subtitle="Is the band honest, and is the model getting surer?">
-          <p className="text-3xl font-extrabold">{Math.round(patient.coverage * 100)}%</p>
-          <p className="text-xs text-muted-foreground">
-            of the measurements landed inside the 80% band. Near 80 is right. Much higher means the band is too wide,
-            much lower means it is too narrow.
-          </p>
-          <div className="mt-3">
-            <Sparkline
-              points={coverage.map((c) => ({ x: c.week, y: c.cov }))}
-              target={0.8}
-              label="Coverage of the 80 percent band by week, with the 0.8 target"
-            />
-            <p className="text-[11px] text-muted-foreground">Coverage by week, dashed line is the 0.8 target.</p>
-          </div>
-          <div className="mt-4 border-t pt-4">
-            <p className="text-xs font-bold">Posterior contraction, healing rate k</p>
-            <div className="mt-2 flex items-center gap-3">
-              <span className="h-3 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>
-                <span
-                  className="block h-full rounded-full bg-primary"
-                  style={{ width: `${Math.max(4, (1 - patient.contraction.k) * 100)}%` }}
-                />
-              </span>
-              <span className="font-mono text-xs font-bold">{Math.round(patient.contraction.k * 100)}% narrower</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              The bar is what is left of the starting uncertainty in k. It shrinks as each call arrives.
-            </p>
-          </div>
-        </Panel>
-
-        <Panel
-          title="Saccade latency"
-          subtitle="A tier B signal. It needs the flash test to pass so the eye movement can be timed against the screen."
-        >
-          {flashOk && saccadeFeature ? (
-            <>
-              <p className="flex items-baseline gap-2">
-                <span className="text-3xl font-extrabold">{saccadeFeature.value.toFixed(0)}</span>
-                <span className="text-sm text-muted-foreground">{saccadeFeature.unit}</span>
-                <TierChip tier="B" />
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Smallest change we can detect is {saccadeFeature.mdc.toFixed(0)} {saccadeFeature.unit}.
-                {saccadeFeature.prev == null
-                  ? " This is the first reading."
-                  : ` Previous reading ${saccadeFeature.prev.toFixed(0)}.`}
-              </p>
-              {saccade && (
-                <div className="mt-3">
-                  <SignalChart signal={saccade} weeks={weeks} week={patient.week} height={130} />
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="rounded-2xl bg-lab-surface p-4">
-              <p className="flex items-center gap-2 text-sm font-bold text-muted-foreground">
-                <Eye className="h-4 w-4" aria-hidden /> Not measured
-                <TierChip tier="B" />
-              </p>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                {lastCall
-                  ? "The flash test did not pass on the last call, so the screen and the camera clocks could not be aligned. Saccade latency needs that alignment, so it was left unmeasured rather than reported badly."
-                  : "There has been no call yet, so there is nothing to measure."}
-              </p>
-            </div>
-          )}
-        </Panel>
-
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title={`Active alerts (${patient.alerts.length})`} subtitle="Open alerts on this patient.">
-          {patient.alerts.length === 0 ? (
-            <Empty>No open alerts.</Empty>
-          ) : (
-            <div className="space-y-3">
-              {patient.alerts.map((a) => (
-                <AlertCard key={a.id} alert={a} />
-              ))}
-            </div>
-          )}
-          <Button asChild variant="link" className="no-print mt-2 px-0">
-            <Link to="/alerts">Go to the alerts screen</Link>
-          </Button>
-        </Panel>
-
-        <Panel
-          title="Last call"
-          subtitle={lastCall ? `Week ${lastCall.week}, ${fmtDate(lastCall.date)}` : "No call yet."}
+      <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+        <SectionCard
+          title="Latest assessment"
+          subtitle={call ? `Week ${call.week} · ${new Date(call.date).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}` : "No completed assessment"}
           action={
-            <Button asChild variant="link" className="no-print px-0">
-              <Link to={`/patients/${patient.id}/calls`}>Full call log</Link>
-            </Button>
+            call ? (
+              <Link
+                to={`/app/patients/${patient.id}/assessments/${call.id}`}
+                className="inline-flex items-center gap-1 text-[11px] text-[#8a4222] hover:underline"
+              >
+                View assessment <ArrowRight className="h-3 w-3" aria-hidden />
+              </Link>
+            ) : undefined
           }
         >
-          {!lastCall ? (
-            <Empty>Nothing yet. The first call link has not been opened.</Empty>
+          {!call ? (
+            <p className="text-[12px] text-[#6d675e]">
+              No check-in has been completed. The first call link has not been opened.
+            </p>
           ) : (
-            <>
-              <dl className="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Duration</dt>
-                  <dd className="font-bold">{Math.round(lastCall.duration_s / 60)} min</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Steps done</dt>
-                  <dd className="font-bold">{lastCall.steps.length}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Frame rate</dt>
-                  <dd className="font-bold">{lastCall.channel.fps} fps</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Flash test</dt>
-                  <dd className="font-bold">{lastCall.channel.flash_ok ? "passed" : "failed"}</dd>
-                </div>
-              </dl>
-              <div className="no-print">
-                <Transcript lines={lastCall.transcript} height={220} />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+              <div>
+                <p className="text-[11px] text-[#8b8375]">Duration</p>
+                <p className="mt-0.5 text-[13px] font-medium">{Math.round(call.duration_s / 60)} min</p>
               </div>
-            </>
+              <div>
+                <p className="text-[11px] text-[#8b8375]">Tasks completed</p>
+                <p className="mt-0.5 text-[13px] font-medium">{call.steps.length}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[#8b8375]">Capture rate</p>
+                <p className="mt-0.5 text-[13px] font-medium">{call.channel.fps} fps</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[#8b8375]">Data quality</p>
+                <p className="mt-0.5 text-[13px] font-medium">
+                  {call.unusable
+                    ? "Unusable"
+                    : call.channel.fps < 20 || call.channel.calib_err_deg > 1.5
+                      ? "Below limits"
+                      : "Within limits"}
+                </p>
+              </div>
+              <div className="col-span-2 sm:col-span-4">
+                <p className="text-[11px] leading-relaxed text-[#8b8375]">
+                  {review.reason} Video and audio are not retained for check-ins; measured evidence and the transcript
+                  are available in the assessment.
+                </p>
+              </div>
+            </div>
           )}
-        </Panel>
-      </div>
+        </SectionCard>
 
-      <Panel
-        className="no-print"
-        title="Damage at this week"
-        subtitle={`Where the model puts the damage at week ${patient.week}. A model output, not a scan.`}
-      >
-        <CompactTwin patientId={patient.id} week={patient.week} />
-      </Panel>
+        <SectionCard
+          title="Recent notes"
+          subtitle="Kept in this workspace. Notes are written to the patient record when saved."
+          action={
+            <Link
+              to={`/app/patients/${patient.id}/notes`}
+              className="inline-flex items-center gap-1 text-[11px] text-[#8a4222] hover:underline"
+            >
+              All notes <ArrowRight className="h-3 w-3" aria-hidden />
+            </Link>
+          }
+          bodyClassName="p-0"
+        >
+          {notes.length === 0 ? (
+            <div className="px-4 py-5">
+              <p className="text-[12px] text-[#6d675e]">No clinician notes saved on this device yet.</p>
+              <Link
+                to={`/app/patients/${patient.id}/notes`}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-[#8a4222] hover:underline"
+              >
+                Write the first note <ArrowRight className="h-3 w-3" aria-hidden />
+              </Link>
+            </div>
+          ) : (
+            <ul className="divide-y divide-[#f1ece4]">
+              {notes.slice(0, 3).map((n) => (
+                <li key={n.id} className="px-4 py-2.5">
+                  <p className="text-[11px] text-[#8b8375]">{formatNoteTime(n.createdAt)}</p>
+                  <p className={cn("mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-[#55504a]")}>{n.text}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
     </div>
   );
 }

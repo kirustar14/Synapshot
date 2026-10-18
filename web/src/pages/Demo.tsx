@@ -69,7 +69,7 @@ function WaitForPatient({ onInCall }: { onInCall: () => void }) {
         same stream.
       </p>
       <Button asChild variant="outline" size="sm" className="relative mt-4">
-        <Link to="/rig">Open the live call console</Link>
+        <Link to="/app/rig">Open the live call console</Link>
       </Button>
     </div>
   );
@@ -381,7 +381,7 @@ export default function Demo() {
             </dl>
             {row && (
               <Button asChild variant="outline">
-                <Link to={`/patients/${row.id}`}>Open the record</Link>
+                <Link to={`/app/patients/${row.id}`}>Open the record</Link>
               </Button>
             )}
           </div>

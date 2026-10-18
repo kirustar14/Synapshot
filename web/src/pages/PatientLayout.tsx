@@ -4,7 +4,8 @@
 import { Outlet, useOutletContext, useParams } from "react-router-dom";
 import { usePatient } from "@/api/client";
 import { PatientHeader } from "@/components/PatientHeader";
-import { ErrorState, Loading } from "@/components/common";
+import { ErrorState } from "@/components/common";
+import { WorkspaceSkeleton } from "@/components/WorkspaceSkeleton";
 import type { Patient } from "@/api/types";
 
 interface PatientContext {
@@ -18,8 +19,9 @@ export default function PatientLayout() {
   const { id = "" } = useParams();
   const { data, isLoading, error, refetch } = usePatient(id);
 
-  if (isLoading) return <Loading label="Loading patient" />;
-  if (error || !data) return <ErrorState error={error} onRetry={() => refetch()} />;
+  if (isLoading) return <WorkspaceSkeleton label="Loading patient" record />;
+  if (error || !data)
+    return <ErrorState error={error} onRetry={() => refetch()} />;
 
   return (
     <>

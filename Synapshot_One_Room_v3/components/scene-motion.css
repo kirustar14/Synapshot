@@ -1,0 +1,11 @@
+/* Place all overlays INSIDE the SAME image-coordinate scene element, not in viewport coordinates. */
+.syn-scene { position: relative; isolation: isolate; overflow: hidden; background: #f7efe2; }
+.syn-scene__art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; pointer-events:none; }
+.syn-scene__curtain { position:absolute; top:0; left:0; width:34%; height:37%; background: url('/synapshot-v3/curtain-veil.svg') left center/100% 100% no-repeat; opacity:.42; transform-origin: 10% 0%; animation:syn-curtain 20s ease-in-out infinite; pointer-events:none; mix-blend-mode:screen; }
+.syn-scene__light { position:absolute; inset:0; opacity:.11; background:linear-gradient(113deg,transparent 4%,rgba(255,244,211,.4) 28%,transparent 49%); background-size:115% 100%; animation:syn-light 26s ease-in-out infinite; pointer-events:none; mix-blend-mode:screen; }
+.syn-scene__foliage { position:absolute; top:8%; right:-1%; width:19%; height:24%; opacity:.22; background:url('/synapshot-v3/foliage-shadow.svg') center/contain no-repeat; transform-origin:90% 90%; animation:syn-leaf 17s ease-in-out infinite; filter: blur(3px); pointer-events:none; }
+/* Identical 0 and 100 frames; no discontinuous animation seam. */
+@keyframes syn-curtain {0%,100% {transform:translateX(0) skewX(0deg) scaleX(1)} 25% {transform:translateX(5px) skewX(.4deg) scaleX(1.006)} 55% {transform:translateX(-4px) skewX(-.5deg) scaleX(.994)} 80% {transform:translateX(3px) skewX(.25deg) scaleX(1.003)}}
+@keyframes syn-light {0%,100% {opacity:.1;transform:translateX(0)} 50% {opacity:.16;transform:translateX(1.2%)}}
+@keyframes syn-leaf {0%,100% {transform:rotate(0deg) translate(0,0)} 33% {transform:rotate(1deg) translate(3px,-2px)} 70% {transform:rotate(-.65deg) translate(-3px,2px)}}
+@media(prefers-reduced-motion:reduce){.syn-scene__curtain,.syn-scene__light,.syn-scene__foliage{animation:none!important}.syn-scene__foliage{opacity:.12}}

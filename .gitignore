@@ -1,33 +1,48 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+tiger-cloud-*.env
+
+# Python environments, caches, and test output
 .venv/
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# JavaScript dependencies and build output
+node_modules/
+dist/
+build/
+
+# Generated application data (keep data/sem.json)
 /data/cache/
+/data/calls/
+/data/decision/
 /data/synthetic/
 /data/uploads/
 /data/voice/
-/data/unnamed.db
-/data/test_unnamed.db
+/data/*.db
+/data/*.db-*
 /data/cohort.json
 /data/mesh.json
 /exports/
-.DS_Store
-.env
-tiger-cloud-*.env
-node_modules/
-lovable-frontend/.env*
-web/.env*
-web/dist/
-web/node_modules/
-web/public/models/*.task
-.pytest_cache/
-.gstack/
-web/public/mesh.json
-.env.backup-before-live
+/web/public/mesh.json
+/web/public/models/
+/web/public/voice/
 
-/data/verify.db
-/data/decision/
-/data/calls/
-.env.*
-!.env.example
+# Local preview and browser artifacts
+/.freebuff/
+/.playwright-cli/
+/.gstack/
+/output/
+
+# OS and editor noise
+.DS_Store
 Thumbs.db
 *.log
+*.pid

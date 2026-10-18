@@ -41,6 +41,21 @@ export const API: string = (import.meta.env.VITE_API_URL as string | undefined) 
 export interface Health {
   ok: boolean;
   mode: "mock" | "live";
+  /** Present on the live backend: whether cookie sign-in is switched on. */
+  auth?: boolean;
+  db?: string;
+  tiger?: boolean;
+}
+
+/** The signed in clinician, as /api/auth/me returns it. */
+export interface Clinician {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  clinic_id: string;
+  clinic_name: string;
+  auth?: boolean;
 }
 export interface TwinInputs {
   inputs: InputFile[];
@@ -64,6 +79,7 @@ export interface StretchResult {
 
 let useMock = false;
 let backendMode: Health["mode"] = "live";
+let backendHealth: Health | null = null;
 let probe: Promise<void> | null = null;
 
 /** True once the boot probe failed and the app switched to the local mock layer. */
@@ -90,6 +106,7 @@ export function ready(): Promise<void> {
         clearTimeout(timer);
         if (!res.ok) throw new Error(String(res.status));
         const body = (await res.json()) as Health;
+        backendHealth = body;
         backendMode = body.mode;
         useMock = !body.ok && !API;
       } catch {
@@ -101,6 +118,32 @@ export function ready(): Promise<void> {
 }
 
 const pause = (ms = 110) => new Promise((r) => setTimeout(r, ms));
+
+/** A 401 body is JSON with a detail line; show the sentence, not the envelope. */
+async function reason(res: Response): Promise<string> {
+  const text = await res.text().catch(() => res.statusText);
+  try {
+    const body = JSON.parse(text) as { detail?: string };
+    if (body.detail) return body.detail;
+  } catch {
+    /* not JSON, use the text */
+  }
+  return text || `Request failed (${res.status})`;
+}
+
+/**
+ * Auth talks to the session routes directly, never through the mock layer: a fake sign-in
+ * would hide a broken cookie and a mocked 401 would hide a real signed out session.
+ */
+async function session<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API}/api${path}`, {
+    credentials: "same-origin",
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) throw new Error(await reason(res));
+  return (await res.json()) as T;
+}
 
 interface CallInit {
   method?: string;
@@ -135,7 +178,15 @@ async function call<T>(path: string, init: CallInit | undefined, fallback: () =>
 export const api = {
   health: async (): Promise<Health> => {
     await ready();
-    return useMock ? mock.health() : { ok: true, mode: backendMode };
+    return useMock ? mock.health() : (backendHealth ?? { ok: true, mode: backendMode });
+  },
+
+  auth: {
+    me: () => session<Clinician>("/auth/me"),
+    login: (email: string, password: string) =>
+      session<Clinician>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+    demo: () => session<Clinician>("/auth/demo", { method: "POST" }),
+    logout: () => session<{ ok: boolean }>("/auth/logout", { method: "POST" }),
   },
 
   patients: () => call<PatientRow[]>("/patients", undefined, mock.patients),
@@ -240,6 +291,8 @@ export const api = {
 /* ---------------------------------------------------------------- query hooks */
 
 export const useHealth = () => useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: 60000 });
+export const useSession = (enabled = true) =>
+  useQuery({ queryKey: ["session"], queryFn: api.auth.me, retry: false, staleTime: 60000, enabled });
 export const usePatients = () => useQuery({ queryKey: ["patients"], queryFn: api.patients, refetchInterval: 10000 });
 export const usePatient = (id: string) => useQuery({ queryKey: ["patient", id], queryFn: () => api.patient(id), enabled: !!id });
 export const useForecast = (id: string) => useQuery({ queryKey: ["forecast", id], queryFn: () => api.forecast(id), enabled: !!id });
@@ -251,8 +304,8 @@ export const useLoadings = () => useQuery({ queryKey: ["loadings"], queryFn: api
 export const useCheckins = (id: string) => useQuery({ queryKey: ["checkins", id], queryFn: () => api.checkins(id), enabled: !!id });
 export const useCheckin = (cid: string | null) =>
   useQuery({ queryKey: ["checkin", cid], queryFn: () => api.checkin(cid as string), enabled: !!cid });
-export const useAlerts = (patientId?: string) =>
-  useQuery({ queryKey: ["alerts", patientId ?? "all"], queryFn: () => api.alerts(patientId), refetchInterval: 5000 });
+export const useAlerts = (patientId?: string, enabled = true) =>
+  useQuery({ queryKey: ["alerts", patientId ?? "all"], queryFn: () => api.alerts(patientId), refetchInterval: 5000, enabled });
 export const useCohort = () => useQuery({ queryKey: ["cohort"], queryFn: api.cohort });
 export const useMessages = (id: string) =>
   useQuery({ queryKey: ["messages", id], queryFn: () => api.messages(id), enabled: !!id, refetchInterval: 2000 });

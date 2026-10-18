@@ -72,7 +72,7 @@ export default function Alerts() {
         <CheckCheck aria-hidden /> Resolve
       </Button>
       <Button size="sm" variant="ghost" asChild>
-        <Link to={`/patients/${a.patient_id}`}>
+        <Link to={`/app/patients/${a.patient_id}`}>
           <ExternalLink aria-hidden /> Open patient
         </Link>
       </Button>
@@ -111,7 +111,7 @@ export default function Alerts() {
                   patientName={names.get(a.patient_id)}
                   actions={
                     <Button size="sm" variant="ghost" asChild>
-                      <Link to={`/patients/${a.patient_id}`}>
+                      <Link to={`/app/patients/${a.patient_id}`}>
                         <ExternalLink aria-hidden /> Open patient
                       </Link>
                     </Button>

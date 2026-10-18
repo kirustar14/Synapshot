@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCreatePatient, usePatients } from "@/api/client";
 import { Empty, ErrorState, FlagChip, Loading, fmtDate } from "@/components/common";
+import { WorkspaceSkeleton } from "@/components/WorkspaceSkeleton";
 import { DriftTrack, driftState } from "@/components/panels/DriftTrack";
 import type { PatientRow } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,7 @@ function AddPatient() {
           setOpen(false);
           setName("");
           toast.success(`${patient.name} created as a synthetic patient`);
-          navigate(`/patients/${patient.id}/upload`);
+          navigate(`/app/patients/${patient.id}/upload`);
         },
         onError: (err) => toast.error(err.message),
       },
@@ -194,7 +195,7 @@ export default function Patients() {
         </div>
       </div>
 
-      {isLoading && <Loading label="Loading patients" />}
+      {isLoading && <WorkspaceSkeleton />}
       {error && <ErrorState error={error} onRetry={() => refetch()} />}
 
       {data && (
@@ -217,7 +218,7 @@ export default function Patients() {
                   return (
                     <li key={p.id}>
                       <Link
-                        to={`/patients/${p.id}`}
+                        to={`/app/patients/${p.id}`}
                         className={cn(
                           GRID,
                           "group min-h-[76px] rounded-[18px] px-5 py-3 transition-colors focus-visible:outline-2 focus-visible:outline-ring",
