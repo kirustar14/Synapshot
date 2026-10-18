@@ -977,3 +977,75 @@ should fail loudly for a different reason than a unit test does.
 
 Four of the six real bugs in the v2 frontend were only visible in a browser. That is the
 argument for having them.
+
+## Polish pass, step 6: making the iMessage actually arrive
+
+### Two call-shape bugs, both of which look right
+
+The sidecar reached the Photon API on every send and reached a phone on none of them.
+Two separate mistakes, and both of the wrong forms read as correct:
+
+1. `im.space.create(to)` was passed the raw phone string. `space.create` takes a user,
+   so the handle has to be resolved first with `im.user(to)`.
+2. The message went out through `app.send(space, text(body))`. Messages are sent on the
+   space: `dm.send(body)`.
+
+The working shape, checked against the installed package rather than remembered:
+
+    const user = await im.user(to);
+    const dm = await im.space.create(user);
+    const sent = await dm.send(body);
+
+A test asserts all four facts about this file, because both wrong forms are easy to
+reintroduce from memory.
+
+### Accepted is not delivered
+
+The old modal said "iMessage sent" the moment the API returned, which is a claim about
+an HTTP response and not about a phone. A send now records `sent` with the provider id
+and the space id. `GET /api/messages/{id}/status` polls `isDelivered` through the
+sidecar, every two seconds for thirty seconds, and only a real yes from the provider
+promotes the row to `delivered`. If the provider cannot answer, the status stays `sent`
+and the chip says so. Four honest states, and no fifth one that means "probably":
+
+- Delivered via iMessage
+- Sent via iMessage, delivery not confirmed
+- Not sent, with the reason underneath
+- Mock, written to the thread
+
+### SMS is out of the fallback chain
+
+A failed iMessage used to become a text. That makes "did the iMessage work" unanswerable
+from the screen, which is the one question this demo is about. A failed iMessage now
+stays a failed iMessage and the reason is stored on the row so the modal can show it. A
+test makes any call to `sms.send` raise, so the send path can never quietly reach it.
+
+### Why nothing arrives on this machine, and what only you can fix
+
+`make send-test` probes both paths separately and names the step that failed.
+
+**Cloud.** The project authenticates. `profile.imessageSynced` is false, the line type is
+shared, and the project owns zero lines, so every send returns `Target not allowed for
+this project`. That is not a code fault and no code change fixes it. In the Photon
+dashboard, open the project, find the iMessage or Lines section, and connect an Apple ID
+or claim a number. If the booth runs the project, ask them to attach a line to it.
+
+**Local.** `@spectrum-ts/imessage-local` drives Messages on this Mac and needs no project
+line at all, which is why it is here. It fails with `unable to open database file`.
+`~/Library/Messages/chat.db` exists and is healthy; macOS is refusing to let this process
+read it. System Settings, Privacy and Security, Full Disk Access, add Terminal or iTerm,
+then restart the terminal. This is the one that takes thirty seconds.
+
+**Neither is load-bearing.** The QR code and the copyable link are always on the card,
+and the call page opens from a scan whether or not a message was ever sent.
+
+### The modal
+
+One card at 560, one focus ring on the dialog and `outline: none` on everything inside,
+which is what was stacking blue boxes. The link truncates in place with a copy button
+rather than running off the right edge. The QR sits beside it at 160 and always on white,
+because a dark-mode QR with inverted modules does not scan. The live strip lives in a
+closed "Live call" section that opens itself the moment frames start arriving, which is
+the one moment anybody wants to watch it. Below 640 the code and the link stack, because
+a 160 pixel square next to a URL leaves the URL about four characters wide. Checked at
+1440 and 390 in a browser, not from the code.

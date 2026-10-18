@@ -27,7 +27,6 @@ OPTIONAL = {
     "anthropic": "natural phrasing and summaries, falls back to templates",
     "reportlab": "the flagship patient's PDF documents, needed by make sample",
     "pypdf": "reading text out of an uploaded PDF",
-    "twilio": "the SMS fallback when iMessage cannot deliver",
     "numpyro": "the hierarchical population fit, falls back to weighted least squares",
     "sbi": "optional emulator upgrade behind USE_SBI",
 }
@@ -150,9 +149,9 @@ def mock_check() -> list[dict]:
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"
              if cfg.mock_photon else "live"),
-        line(MOCK if cfg.mock_twilio else GREEN, "SMS fallback",
-             "written to the messages table, set the Twilio keys to send"
-             if cfg.mock_twilio else f"live from {cfg.twilio_from}"),
+        line(MOCK, "SMS",
+             "not in the fallback chain. A failed iMessage stays a failed iMessage so "
+             "the screen can say so, and the QR code is the way round it."),
         line(MOCK if cfg.mock_eleven else GREEN, "ElevenLabs voices",
              "no key, the page uses the browser's own speech synthesis"
              if cfg.mock_eleven else f"live, {cfg.eleven_tts_model}"),
@@ -289,11 +288,18 @@ def webcall_check() -> list[dict]:
                     f"{tool} is installed, run make tunnel for the steps" if tool
                     else "neither cloudflared nor ngrok found. brew install cloudflared"))
 
-    # Twilio, the SMS fallback for when iMessage cannot deliver.
-    have_twilio = all([cfg.twilio_sid, cfg.twilio_token, cfg.twilio_from])
-    out.append(line(GREEN if have_twilio else MOCK, "Twilio credentials",
-                    f"set, SMS fallback live from {cfg.twilio_from}" if have_twilio
-                    else "not all set, SMS falls back to mock"))
+    # Which iMessage path can actually send. The detail comes from make send-test;
+    # this is the one line version.
+    from .comms import notify as texter
+
+    got = texter.status()
+    sidecar = got.get("sidecar") or {}
+    out.append(line(GREEN if sidecar.get("installed") else MOCK, "iMessage packages",
+                    f"cloud {'yes' if sidecar.get('cloud') else 'no'}, "
+                    f"local {'yes' if sidecar.get('local') else 'no'}"))
+    out.append(line(GREEN if got.get("imessage") else MOCK, "iMessage configured",
+                    "credentials present, run make send-test to see if it delivers"
+                    if got.get("imessage") else "mocked, messages go to the thread only"))
 
     # The mesh the viewer renders.
     from .data import mesh as meshmod

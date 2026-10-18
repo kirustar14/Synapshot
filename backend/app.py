@@ -857,7 +857,13 @@ def limit(token: str, request: Request, per: int = sessions.RATE_MAX) -> None:
 
 @app.post("/api/calls", response_model=models.CallStart)
 def post_calls(body: models.CallBody) -> dict:
-    """Create a call session and, when asked, text the patient the link."""
+    """Create a call session and, when asked, text the patient the link.
+
+    What comes back about the text is deliberately detailed: the channel, the status,
+    the message row so delivery can be polled, and the real reason when it failed. The
+    modal shows all of it, because "iMessage could not deliver" with no reason is the
+    thing that wasted an afternoon.
+    """
     pid = body.patient_id or ""
     need(pid)
     got = sessions.create(pid, body.week)
@@ -865,8 +871,43 @@ def post_calls(body: models.CallBody) -> dict:
         from .comms import notify as texter
 
         sent = texter.send(pid, "call_link", link=got["url"])
-        got = {**got, "sent": True, "channel": sent.get("channel", "mock")}
+        got = {
+            **got,
+            "sent": True,
+            "channel": sent.get("channel", "mock"),
+            "status": sent.get("status", "mock"),
+            "message_id": sent.get("message_id", ""),
+            "why": sent.get("why", ""),
+            "error": sent.get("imessage_error", ""),
+            "tried": sent.get("tried", []),
+        }
     return got
+
+
+@app.get("/api/messages/{mid}/status")
+def get_message_status(mid: str) -> dict:
+    """Has this message been delivered yet?
+
+    The call modal polls this for half a minute after a send. It is the only thing that
+    can turn `sent` into `delivered`, and it only does so when the provider says so: a
+    message that was accepted and never confirmed stays `sent` forever, which is the
+    truth about it.
+    """
+    from .comms import notify as texter
+
+    row = db.one("select * from messages where id=?", (mid,))
+    if row is None:
+        raise HTTPException(404, f"no message {mid}")
+    got = texter.confirm(mid)
+    fresh = db.one("select * from messages where id=?", (mid,))
+    return {
+        "ok": True,
+        "id": mid,
+        "channel": str(fresh["channel"] or ""),
+        "status": got.get("status", str(fresh["status"] or "sent")),
+        "detail": str(fresh["detail"] or ""),
+        "note": got.get("note", ""),
+    }
 
 
 @app.get("/api/call/{token}/script", response_model=models.CallScript)

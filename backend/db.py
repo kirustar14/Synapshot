@@ -74,6 +74,14 @@ ADDED = [
     # the left rail and the Treatment tab show them, and they are deliberately not in
     # `injury` or `biomarkers`, which are model inputs.
     ("patients", "chart", "text"),
+    # What really happened to an outbound message. `status` is one of sent, delivered,
+    # failed or mock; `provider_id` is the id the transport gave back, so delivery can be
+    # polled later; `detail` is the real error text. Accepted is not delivered, and
+    # without somewhere to record the difference the UI can only guess.
+    ("messages", "status", "text default 'sent'"),
+    ("messages", "provider_id", "text"),
+    ("messages", "space_id", "text"),
+    ("messages", "detail", "text"),
 ]
 
 
@@ -225,17 +233,30 @@ def event(pid: str, kind: str, payload: dict | None = None) -> str:
     return eid
 
 
-def message(pid: str, direction: str, body: str, channel: str = "mock", kind: str = "") -> str:
-    """Append a message in either direction, recording which transport carried it.
+def message(pid: str, direction: str, body: str, channel: str = "mock", kind: str = "",
+            status: str = "sent", provider_id: str = "", space_id: str = "",
+            detail: str = "") -> str:
+    """Append a message in either direction, recording what really happened to it.
 
     `channel` is one of imessage, sms or mock. It is never guessed: an SMS is labelled
     sms even when the patient reads it in the Messages app, because the whole point of
     the iMessage transport is that it really is iMessage.
+
+    `status` is the honest one. A provider accepting a message is not the same as a phone
+    receiving it, so a fresh send is `sent` and only becomes `delivered` when the provider
+    says so. `failed` carries the reason in `detail`.
     """
     mid = new_id("msg")
     put("messages", {"id": mid, "patient_id": pid, "dir": direction, "body": body,
-                     "time": now(), "channel": channel, "kind": kind})
+                     "time": now(), "channel": channel, "kind": kind,
+                     "status": status, "provider_id": provider_id,
+                     "space_id": space_id, "detail": detail})
     return mid
+
+
+def message_status(mid: str, status: str, detail: str = "") -> None:
+    """Move one message to a new delivery state."""
+    patch("messages", mid, {"status": status, **({"detail": detail} if detail else {})})
 
 
 def latest_forecast(pid: str):

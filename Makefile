@@ -1,6 +1,6 @@
 PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: dev seed sample test check what phone install clean mesh voices web models tunnel imessage all
+.PHONY: dev seed sample test check what phone send-test install clean mesh voices web models tunnel imessage all
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -67,10 +67,18 @@ all: mesh sample seed voices models web
 	@echo "  Ready. Run make dev, then make tunnel for a phone."
 	@echo ""
 
-# Enables the real iMessage transports. Optional: without them everything falls back to
-# Twilio SMS and then to mock.
+# Enables the real iMessage transports. Without them every message is written to the
+# patient's thread and nothing is sent.
 imessage:
 	cd backend/comms/node && npm install
+
+# Can an iMessage actually reach a phone? Probes the hosted relay and the local Messages
+# app separately and prints pass or fail per path with the exact thing to fix.
+# The leading dash: a path that cannot send is a real answer, not a broken tool, and
+# make printing "*** Error 1" over it reads like the probe crashed. The script still
+# exits non-zero for anything that wants to branch on it.
+send-test:
+	-@set -a; [ -f .env ] && . ./.env; set +a; node scripts/photon_probe.mjs $(TO)
 	@$(PY) -c "from backend.comms import photon; import json; print(json.dumps(photon.docs(), indent=2))"
 
 tunnel:

@@ -207,6 +207,8 @@ export const api = {
     call<Intervention>(`/patients/${id}/intervention`, { body: b }, () => mock.intervention(id, b)),
   loadings: () => call<Loadings>("/loadings", undefined, mock.loadings),
 
+  messageStatus: (mid: string) =>
+    call<MessageStatus>(`/messages/${mid}/status`, undefined, () => mock.messageStatus(mid)),
   createCall: (patientId: string, send: boolean) =>
     call<CallStart>("/calls", { body: { patient_id: patientId, send } }, () => mock.createCall(patientId, send)),
   callScript: (token: string) => call<CallScript>(`/call/${token}/script`, undefined, mock.callScript),
@@ -252,6 +254,17 @@ export const api = {
 };
 
 /* ---------------------------------------------------------------- v2 shapes */
+
+/** What really happened to one outbound message. */
+export interface MessageStatus {
+  ok: boolean;
+  id: string;
+  channel: string;
+  /** sent, delivered, failed or mock. Only the provider can produce delivered. */
+  status: string;
+  detail: string;
+  note: string;
+}
 
 export interface Vessel {
   name: string;

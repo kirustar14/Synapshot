@@ -5,7 +5,6 @@ phone and can your phone open the call page. Every line that is not ready says e
 what to do about it, in the order you should do it.
 """
 
-import base64
 import json
 import os
 import shutil
@@ -30,24 +29,6 @@ def mask(number: str) -> str:
     return f"{number[:3]}...{number[-4:]}" if number and len(number) > 7 else (number or "not set")
 
 
-def twilio_verified() -> tuple[list[str], str]:
-    """Numbers this Twilio account may contact, and an error if we could not ask."""
-    if not (cfg.twilio_sid and cfg.twilio_token):
-        return [], "no Twilio credentials"
-    auth = base64.b64encode(f"{cfg.twilio_sid}:{cfg.twilio_token}".encode()).decode()
-    url = (f"https://api.twilio.com/2010-04-01/Accounts/{cfg.twilio_sid}"
-           "/OutgoingCallerIds.json")
-    req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            got = json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        return [], f"Twilio said HTTP {exc.code}"
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return [], str(exc)[:80]
-    return [r.get("phone_number", "") for r in got.get("outgoing_caller_ids", [])], ""
-
-
 def tunnel_live() -> tuple[bool, str]:
     """Whether PUBLIC_URL answers over https right now."""
     if not cfg.public_url:
@@ -64,7 +45,6 @@ def tunnel_live() -> tuple[bool, str]:
 def run() -> list[dict]:
     """The checklist, in the order the steps have to happen."""
     out = []
-    verified, verr = twilio_verified()
     numbers = cfg.demo_phones
 
     # 1. Who may be contacted at all.
@@ -75,30 +55,24 @@ def run() -> list[dict]:
         out.append(row(OK, f"1. DEMO_PHONES holds {', '.join(mask(n) for n in numbers)}",
                        "the only numbers anything is allowed to contact"))
 
-    # 2. Twilio has to have verified it, because this is a trial account.
-    if verr:
-        out.append(row(MEH, "2. Could not check your verified numbers", verr))
-    elif not numbers:
-        out.append(row(NO, "2. Verify the number with Twilio", "do step 1 first"))
-    else:
-        missing = [n for n in numbers if n not in verified]
-        if missing:
-            out.append(row(NO, f"2. Verify {', '.join(mask(n) for n in missing)} with Twilio",
-                           "console.twilio.com, Phone Numbers, Manage, Verified Caller IDs, "
-                           "Add a new Caller ID. They text you a 6 digit code. A trial "
-                           "account cannot text or ring an unverified number."))
-        else:
-            out.append(row(OK, "2. Twilio has verified every number on the list",
-                           "a trial account needs this"))
+    # 2 and 3. Whether iMessage can actually send, which is two separate questions:
+    # does the hosted project own a line, and will this Mac let us read Messages. The
+    # probe answers both and says what to click.
+    from .comms import photon
 
-    # 3. The SMS switch.
-    if cfg.mock_twilio:
-        out.append(row(NO, "3. Set MOCK_TWILIO=0 in .env",
-                       "texts are written to the thread and not sent while this is 1"))
+    docs = photon.docs()
+    if not docs.get("installed"):
+        out.append(row(NO, "2. Install the iMessage packages", "run: make imessage"))
     else:
-        out.append(row(OK, "3. MOCK_TWILIO=0, so texts really send", "they will be labelled sms"))
+        out.append(row(OK, "2. The iMessage packages are installed",
+                       "cloud and local transports are both available to try"))
+    out.append(row(MEH, "3. Check which iMessage path can send",
+                   "run: make send-test. It says, per path, whether it sent and what to "
+                   "fix if not."))
 
-    # 4. A tunnel, so the phone can reach this laptop over https.
+    # 4. A tunnel, so the phone can reach this laptop over https. This is the one
+    # that matters most: with it, a QR code in the call modal works even when no
+    # message can be sent at all.
     tool = next((t for t in ("cloudflared", "ngrok") if shutil.which(t)), "")
     if not tool:
         out.append(row(NO, "4. Install a tunnel tool", "brew install cloudflared"))
@@ -113,24 +87,20 @@ def run() -> list[dict]:
                            f"https URL it prints into PUBLIC_URL in .env and restart make dev. "
                            f"({why})"))
 
-    # 5. iMessage, which is the channel the link is meant to arrive on. SMS in step 3 is
-    # the fallback for when this cannot deliver, and the message always says which one it
-    # actually went out on.
+    # 5. Are the credentials even there. Whether they can send is step 3's job.
     from .comms import notify as texter
 
     got = texter.status()
     if got.get("imessage"):
-        sdk = got.get("sidecar") or {}
-        out.append(row(OK, "5. iMessage is configured",
-                       f"over {'Spectrum Cloud' if sdk.get('spectrum_cloud') else 'the sidecar'}. "
-                       "The link arrives as a "
-                       "blue bubble when the transport accepts it, and the stored message "
-                       "says which channel it really went out on."))
+        out.append(row(OK, "5. iMessage credentials are set",
+                       "a message is only ever labelled iMessage when a real transport "
+                       "reported success, and only delivered when the provider confirmed "
+                       "it. There is no SMS fallback: a failed iMessage stays failed so "
+                       "the screen can say so."))
     else:
-        out.append(row(MEH, "5. iMessage is not configured, so the link goes by SMS",
-                       "set PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET for iMessage. SMS is a "
-                       "real text and the demo works on it; a message is never labelled "
-                       "iMessage unless a real iMessage transport reported success."))
+        out.append(row(MEH, "5. iMessage is mocked",
+                       "messages go to the patient's thread and nothing is sent. Set "
+                       "PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET to try for real."))
 
     # 6. What the phone has to download to measure anything.
     model = ROOT / "web" / "public" / "models" / "face_landmarker.task"

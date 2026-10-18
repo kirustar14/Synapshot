@@ -1,9 +1,13 @@
 """iMessage through the Node sidecar. Mock mode records the message and sends nothing.
 
-The two iMessage SDKs are TypeScript only, so the actual send happens in
+The iMessage SDKs are TypeScript only, so the actual send happens in
 `backend/comms/node/send.mjs` and this module is the thin Python side of it. The sidecar
 tries Spectrum Cloud first and the local Messages app second, and reports which one
 worked so the UI can say iMessage honestly rather than guessing.
+
+Accepted is not delivered. A send comes back with a provider message id and the status
+`sent`; `delivery()` polls that id and only returns `delivered` when the provider says
+so. Nothing in this file ever reports delivery it has not been told about.
 
 Credentials are handed over in the child's environment, never on its command line.
 """
@@ -65,9 +69,9 @@ def docs() -> dict:
         return {"installed": False, "reason": "sidecar missing"}
     got = _run({}, ["--probe"])
     return {
-        "installed": bool(got.get("spectrum") or got.get("kit")),
-        "spectrum_cloud": bool(got.get("spectrum")),
-        "imessage_kit": bool(got.get("kit")),
+        "installed": bool(got.get("cloud") or got.get("local")),
+        "cloud": bool(got.get("cloud")),
+        "local": bool(got.get("local")),
         "credentials": bool(got.get("credentials")),
         "platform": got.get("platform"),
         "node": got.get("node"),
@@ -95,11 +99,35 @@ def send(to: str, body: str, pid: str | None = None, kind: str = "") -> dict:
     got = _run({"to": to, "body": body})
     if got.get("ok"):
         if pid:
-            db.message(pid, "out", body, channel="imessage", kind=kind)
-        return {"ok": True, "channel": "imessage", "how": got.get("how"), "to": to}
+            db.message(pid, "out", body, channel="imessage", kind=kind, status="sent",
+                       provider_id=str(got.get("id") or ""),
+                       space_id=str(got.get("space") or ""))
+        return {"ok": True, "channel": "imessage", "how": got.get("how"), "to": to,
+                "status": "sent", "id": got.get("id", ""), "space": got.get("space", "")}
     return {"ok": False, "channel": "none", "how": got.get("how"),
+            "status": "failed",
             "error": str(got.get("error") or "the sidecar failed")[:300],
+            "why": str(got.get("why") or "")[:300],
             "tried": got.get("tried", [])}
+
+
+def delivery(how: str, space: str, mid: str) -> dict:
+    """Ask the provider whether one sent message actually arrived.
+
+    Three answers, and the difference matters: `delivered` means the provider said so,
+    `sent` means it was accepted and nothing has confirmed it, and `unknown` means the
+    question could not be asked. The UI shows all three differently and never upgrades
+    `sent` to `delivered` on its own.
+    """
+    if not available():
+        return {"ok": True, "status": "mock"}
+    if not mid:
+        return {"ok": True, "status": "sent", "note": "the provider returned no message id"}
+    got = _run({"how": how or "cloud", "space": space, "id": mid}, ["--status"])
+    if not got.get("ok"):
+        return {"ok": False, "status": "unknown", "error": str(got.get("error") or "")[:300]}
+    return {"ok": True, "status": str(got.get("status") or "sent"),
+            "delivered": bool(got.get("delivered"))}
 
 
 def on_message(handler) -> None:

@@ -25,3 +25,6 @@ web/public/models/*.task
 web/public/mesh.json
 # Any .env backup is still a file full of keys.
 .env.backup*
+
+# Screenshot output. The harness is checked in, the images are not.
+web/shots/**/*.png

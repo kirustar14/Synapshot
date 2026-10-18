@@ -308,6 +308,17 @@ export interface CallStart {
   token: string;
   url: string;
   expires: string;
+  sent?: boolean;
+  channel?: string | null;
+  /** sent, delivered, failed or mock. Never delivered until the provider confirms it. */
+  status?: string | null;
+  /** The row to poll for delivery. */
+  message_id?: string | null;
+  /** A plain sentence about why it failed, and the raw error behind it. */
+  why?: string | null;
+  error?: string | null;
+  /** Each transport that was tried and how it failed. */
+  tried?: { how?: string; error?: string; why?: string }[];
 }
 
 export type CallTask =

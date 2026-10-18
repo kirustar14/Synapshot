@@ -1197,6 +1197,16 @@ export const mock = {
     return clone(line);
   },
 
+  /** With no backend there is no provider, so nothing can claim delivery. */
+  messageStatus: (mid: string) => ({
+    ok: true,
+    id: mid,
+    channel: "mock",
+    status: "mock",
+    detail: "",
+    note: "No backend, so nothing was sent and nothing can be confirmed.",
+  }),
+
   /* ---- v2: vessels, formulary, evidence, timeline, percentile ---- */
 
   // A handful of vessels so the layer draws something without a backend. The real list

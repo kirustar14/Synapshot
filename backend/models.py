@@ -641,13 +641,24 @@ class CallBody(BaseModel):
 
 
 class CallStart(BaseModel):
-    """Response of POST /api/calls. The url is what the patient opens."""
+    """Response of POST /api/calls. The url is what the patient opens.
+
+    Everything after `channel` is about what happened to the text, and it is all here
+    because the modal has to be able to explain itself. `status` is sent, delivered,
+    failed or mock; `message_id` is what the delivery poll asks about; `why` and `error`
+    are the real reason; `tried` is each transport that was attempted and how it failed.
+    """
 
     token: str
     url: str
     expires: str
     sent: bool = False
     channel: str | None = None
+    status: str | None = None
+    message_id: str | None = None
+    why: str | None = None
+    error: str | None = None
+    tried: list[dict] = Field(default_factory=list)
 
 
 class ScriptStep(BaseModel):
