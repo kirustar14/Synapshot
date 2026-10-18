@@ -1,7 +1,7 @@
 # .venv/bin on macOS and Linux, .venv/Scripts on Windows. One Makefile, both.
 PY := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; elif [ -x .venv/Scripts/python.exe ]; then echo .venv/Scripts/python.exe; else echo python3; fi)
 
-.PHONY: dev seed sample test check what phone send-test install clean mesh voices web models tunnel imessage all tiger tiger-check tiger-load decision-data veri-train veri-eval
+.PHONY: dev seed sample test check what phone send-test install clean mesh voices web models tunnel imessage all decision-data veri-train veri-eval
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -22,23 +22,6 @@ sample:
 
 check:
 	$(PY) -m backend.checklist
-
-# ---------------------------------------------------------------- Tiger Data
-
-# Make the telemetry table a hypertable, add the two continuous aggregates,
-# the refresh policies and the columnstore policy. Idempotent: every step is
-# recorded in tiger_bootstrap and skipped on a second run.
-tiger:
-	$(PY) -c "from backend import db, tiger; db.conn(); print(tiger.bootstrap())"
-
-# What the service actually is, what is compressed, and a measured raw against
-# aggregate comparison. Exits 1 when DATABASE_URL is set but the extension is not.
-tiger-check:
-	$(PY) scripts/tiger_check.py
-
-# Fill the hypertable and measure ingest, refresh, compression and query time.
-tiger-load:
-	$(PY) scripts/tiger_load.py --rows 300000 --compress
 
 # ---------------------------------------------------------------- Veri
 

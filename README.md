@@ -30,8 +30,8 @@ a link in it.
 Every patient in this repository is synthetic, including the flagship one with ten
 documents. No real person's records are anywhere in it.
 
-The live-service path, from a new Tiger Cloud service to a trained Veri deployment, is
-[TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md).
+The live-service path, to a trained Veri deployment, is
+[VERI_SETUP.md](VERI_SETUP.md).
 
 ---
 
@@ -253,7 +253,6 @@ full mock mode. Set `MOCK_X=0` to force a real path. See `.env.example` for all 
 | `REGIONAL_LOADINGS` | `0` | Give each signal its own damage level from the regions that drive it. |
 | `OFFLINE` | `0` | `1` skips every loader that could touch the network and runs on the modelled template. |
 | `REACH` | `1` | Reach features on. |
-| `DATABASE_URL` | empty | Tiger Cloud service URI. Empty means sqlite. |
 | `AUTH_ENABLED` | `0` | `1` enforces clinician sessions. The synthetic admin is the default until the login screen exists. |
 | `DEMO_LOGIN` | `1` | The one click demo sign in, for the seeded account. |
 | `VERI_API_KEY`, `VERI_DEPLOYMENT_ID` | empty | The deployed decision model. Empty runs the heuristic. |
@@ -434,39 +433,15 @@ Numbers from the current build, all reproducible with `make mesh`, `make seed` a
 
 ---
 
-## Phase 10: Tiger Data, clinician accounts, and the decision model
+## Clinician accounts and the decision model
 
 Three capabilities on top of the twin, all of them runnable with no external account. The
-click-by-click path to the live services is [TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md).
+click-by-click path to the live services is [VERI_SETUP.md](VERI_SETUP.md).
 
-### Tiger Data
+### Local storage
 
-`DATABASE_URL` is the only switch. With it set, every query goes to Postgres and the
-interaction between the relational graph and the time-series stream is real: clinics,
-clinicians, patients and assignments sit beside a `metric_samples` hypertable that takes
-the 5 Hz live telemetry from the call page. With it empty, sqlite is the system of record
-and every response says so.
-
-```sh
-make tiger          # hypertable, metrics_1m and metrics_1h, refresh + columnstore policies
-make tiger-check    # extension, aggregates, size, compression, measured raw against aggregate
-make tiger-load     # 300k samples, ingest rate, refresh, compression, benchmark
-```
-
-What is used:
-
-- `create_hypertable('metric_samples', by_range('time', interval '1 day'))`
-- two continuous aggregates, `metrics_1m` and `metrics_1h`, with refresh policies
-- columnstore after one day, segmented by `patient_id`, ordered by `time desc`, with the
-  pre 2.18 compression calls as the fallback
-- `GET /api/pulse` reads the aggregate first, falls back to a raw `time_bucket` query, and
-  reports `source`, aggregate lag, table size, compression stats and assignment totals
-- `GET /api/pulse?bench=1` (admin only) runs the same window against the raw table and the
-  aggregate and returns median wall clock, row counts and the speedup
-
-The bootstrap records each step in `tiger_bootstrap`, so `make tiger` twice does not create
-duplicate policies. Every catalog query is guarded: a service version that lacks a view
-returns `available: false` with the reason, never a made up number.
+All patient records, accounts and telemetry use SQLite. Tiger Data and remote Postgres
+connections have been removed; existing database URL environment variables are ignored.
 
 ### Clinician accounts and assignments
 
@@ -563,12 +538,8 @@ generator, not clinical annotations.
 
 ### What is not done
 
-- No Tiger Cloud service and no Veri account were available while this was built, so the
-  Postgres and GPU paths are implemented and their setup commands are scripted, but they
-  have not been run against a live service. The sqlite path and every fallback is tested.
-  [TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md) is the exact sequence to run them.
-- The landing page, `/login` screen, clinic team screen and pulse chart are not built. The
-  capabilities behind them (auth, assignments, pulse) are complete and verified over HTTP.
+- Veri training remains optional. See [VERI_SETUP.md](VERI_SETUP.md) for deployment instructions.
+- The clinic team screen and pulse chart are not built; their APIs remain available.
 
 ## Sentry
 

@@ -205,13 +205,6 @@ class Cfg:
         default_factory=lambda: ROOT / (os.environ.get("DB_PATH") or "data/synapshot.db")
     )
 
-    # Tiger Data. DATABASE_URL is the Tiger Cloud service URI, sslmode=require. With it
-    # set, every query goes to Postgres and the telemetry stream uses TimescaleDB. With
-    # it empty, sqlite keeps the whole system runnable on a plane.
-    database_url: str = field(
-        default_factory=lambda: first("DATABASE_URL", "TIGER_DATABASE_URL", "TIMESCALE_URL")
-    )
-
     # Clinician accounts. Set AUTH_ENABLED=1 to require sign-in at /login for both
     # clinician shells. With it off the local demo runs as the synthetic admin.
     auth_enabled: bool = field(default_factory=lambda: on("AUTH_ENABLED", "0"))

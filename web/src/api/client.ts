@@ -46,7 +46,6 @@ export interface Health {
   /** Present on the live backend: whether cookie sign-in is switched on. */
   auth?: boolean;
   db?: string;
-  tiger?: boolean;
 }
 
 /** The signed in clinician, as /api/auth/me returns it. */

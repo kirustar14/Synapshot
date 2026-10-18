@@ -186,7 +186,7 @@ def test_the_benchmark_is_admin_only(client, locked):
     got = client.get("/api/pulse?bench=1")
     assert got.status_code == 200
     assert got.json()["bench"]["available"] is False
-    assert "DATABASE_URL" in got.json()["bench"]["reason"]
+    assert "SQLite" in got.json()["bench"]["reason"]
 
 
 def test_demo_login_can_be_switched_off(client, locked):

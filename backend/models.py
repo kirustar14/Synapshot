@@ -654,14 +654,13 @@ class TwinInputs(BaseModel):
 class Health(BaseModel):
     """Response of GET /api/health.
 
-    `db`, `tiger` and `auth` are additions. The two original fields keep their exact
+    `db` and `auth` are additions. The two original fields keep their exact
     names and values, so an old client is unaffected.
     """
 
     ok: bool = True
     mode: Literal["mock", "live"] = Field(default="mock")
-    db: Literal["sqlite", "postgres"] = "sqlite"
-    tiger: bool = False
+    db: Literal["sqlite"] = "sqlite"
     auth: bool = True
 
 

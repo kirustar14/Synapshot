@@ -1,10 +1,6 @@
-"""Telemetry, the sqlite pulse fallback, and the Tiger bootstrap report.
+"""Local telemetry buffering and SQLite dashboard reads."""
 
-The Postgres path needs a real service. These tests prove the write path, the aggregate
-shaped response and every fallback. tests/test_tiger_pg.py is the opt in service test.
-"""
-
-from backend import db, telemetry, tiger
+from backend import db, telemetry
 from backend.config import cfg
 
 
@@ -54,20 +50,19 @@ def test_the_live_route_feeds_the_metric_table(client, seeded):
     assert {"fps", "face", "dist", "light", "gaze_err", "pursuit_gain"} <= names
 
 
-def test_pulse_falls_back_to_sqlite_without_pretending_to_be_tiger(client, seeded):
+def test_pulse_uses_local_sqlite(client, seeded):
     """The response says sqlite and still has a series, a total and a guarded stats block."""
     pid = str(seeded[0]["id"])
     token = _session(client, pid)
     telemetry.add(token, pid, "fps", 28.0)
     telemetry.flush(token)
-    got = tiger.pulse()
+    got = telemetry.pulse()
     assert got["source"] == "sqlite"
     assert got["error"] == ""
-    assert got["minutes"], "the demo still draws a chart with no Tiger service"
+    assert got["minutes"], "the demo still draws a chart with no external database"
     assert any("fps" in bucket for bucket in got["minutes"])
     assert got["totals"]["samples"] >= 1
-    assert got["tiger"]["available"] is False
-    assert "DATABASE_URL" in " ".join(got["tiger"]["notes"])
+    assert "tiger" not in got
 
 
 def test_the_pulse_route_is_scoped_and_returns_the_same_shape(client):
@@ -75,24 +70,9 @@ def test_the_pulse_route_is_scoped_and_returns_the_same_shape(client):
     got = client.get("/api/pulse?minutes=30&hours=6")
     assert got.status_code == 200
     body = got.json()
-    for key in ("source", "minutes", "hourly", "totals", "tiger"):
+    for key in ("source", "minutes", "hourly", "totals"):
         assert key in body
     assert body["window"] == {"minutes": 30, "hours": 6}
-
-
-def test_bootstrap_on_sqlite_is_a_quiet_no_op(client):
-    """A laptop gets a reason, not an exception."""
-    got = tiger.bootstrap()
-    assert got["ok"] is False
-    assert got["dialect"] == "sqlite"
-    assert got["notes"]
-
-
-def test_bench_is_unavailable_without_postgres():
-    """No service, no invented latency number."""
-    got = tiger.bench()
-    assert got["available"] is False
-    assert "DATABASE_URL" in got["reason"]
 
 
 def test_now_is_ordered_inside_one_second():

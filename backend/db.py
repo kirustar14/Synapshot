@@ -1,12 +1,4 @@
-"""One small SQL layer, two dialects.
-
-sqlite is the default so a laptop with no network is a complete system. Set
-DATABASE_URL and every call goes to Postgres instead, with the TimescaleDB extension
-used for the telemetry stream. The helper names never changed: `put`, `patch`, `run`,
-`rows`, `one`, `conn`. Call sites do not know which engine is behind them.
-
-Rows are dict-like in both drivers, so `row["name"]` keeps working.
-"""
+"""Thread-safe SQLite storage for patients, accounts, calls and local telemetry."""
 
 import json
 import sqlite3
@@ -16,10 +8,8 @@ import uuid
 from pathlib import Path
 
 from .config import cfg
-from .schema import DDL_PG, DDL_SQLITE, SQLITE_ADDED
+from .schema import DDL_SQLITE, SQLITE_ADDED
 
-# Tables that are written with `put`. The value is the conflict target. Everything here
-# is owned by this codebase, so the names are constants rather than user input.
 PRIMARY_KEY = {
     "patients": "id",
     "events": "id",
@@ -38,7 +28,6 @@ PRIMARY_KEY = {
     "clinicians": "id",
     "clinician_sessions": "token_hash",
     "assignments": "id",
-    "tiger_bootstrap": "name",
     "metric_samples": None,
     "agent_runs": "id",
 }
@@ -49,32 +38,16 @@ WIPE = (
     "call_frames", "assignments", "metric_samples", "agent_runs",
 )
 
-_CONN = None
-_POOL = None
+_CONN: sqlite3.Connection | None = None
 _SCHEMA_READY = False
-_PG_ERROR = ""
-
-# One connection is shared by every FastAPI worker thread (check_same_thread=False), and
-# the clinician app fires its twin, shape, forecast and mesh requests in parallel. Without
-# a lock two threads used the same connection at once and one of them read a half-moved
-# page: Sentry caught it as "database disk image is malformed" on /api/patients/{pid}/twin
-# (UNNAMED-BACKEND-2) while the file itself passed integrity_check. Every statement now
-# holds this lock. Reentrant, because conn() itself runs statements on first open.
 LOCK = threading.RLock()
 
 
-def is_pg() -> bool:
-    """True when DATABASE_URL is set, so Postgres is the system of record."""
-    return bool(cfg.database_url)
-
-
 def dialect() -> str:
-    """'postgres' or 'sqlite', for the status endpoints and the logs."""
-    return "postgres" if is_pg() else "sqlite"
+    return "sqlite"
 
 
 def _sqlite() -> sqlite3.Connection:
-    """The one shared connection. Callers hold LOCK; conn() is the public door."""
     global _CONN
     if _CONN is None:
         Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -83,139 +56,44 @@ def _sqlite() -> sqlite3.Connection:
     return _CONN
 
 
-def _pool():
-    global _POOL
-    if _POOL is None:
-        try:
-            from psycopg.rows import dict_row
-            from psycopg_pool import ConnectionPool
-        except ImportError as exc:  # pragma: no cover - depends on the install
-            raise RuntimeError(
-                "DATABASE_URL is set but psycopg is not installed. "
-                "Run: pip install 'psycopg[binary,pool]'"
-            ) from exc
-        _POOL = ConnectionPool(
-            cfg.database_url,
-            min_size=1,
-            # The worklist and the overview fan out one detail and one forecast request per
-            # patient, so a page load is a dozen requests at once. With four connections the
-            # rest queued behind them and the screen took 6.6 s; the queries themselves are
-            # 60 ms each. The pool is a cap on parallelism, not a cost per connection.
-            max_size=12,
-            # Autocommit is what makes a remote database usable. Every call site issues one
-            # statement, so a transaction adds nothing but two more round trips, and a round
-            # trip to a hosted Timescale reaches 70 ms. The dashboard sends several statements
-            # per screen, so the BEGIN/COMMIT pair was most of a second on its own.
-            kwargs={"row_factory": dict_row, "autocommit": True},
-            open=True,
-            timeout=15,
-        )
-    return _POOL
-
-
-def q(sql: str) -> str:
-    """Translate the sqlite placeholder style to the Postgres one."""
-    return sql.replace("?", "%s") if is_pg() else sql
-
-
-class _Facade:
-    """The shape existed before the Postgres path, so keep it.
-
-    Only three call sites opened the raw connection: the lifespan, the seed script and
-    the call-table setup. They need `execute`, `executescript` and `commit`, nothing else.
-    """
-
-    def execute(self, sql: str, args: tuple = ()):
-        if is_pg():
-            with _pool().connection() as conn, conn.cursor() as cur:
-                cur.execute(q(sql), args)
-                return cur
-        with LOCK:
-            cur = _sqlite().execute(sql, args)
-            _sqlite().commit()
-            return cur
-
-    def executescript(self, script: str) -> None:
-        if is_pg():
-            with _pool().connection() as conn, conn.cursor() as cur:
-                for statement in _statements(script):
-                    cur.execute(statement)
-            return
-        with LOCK:
-            _sqlite().executescript(script)
-            _sqlite().commit()
-
-    def commit(self) -> None:
-        if not is_pg():
-            with LOCK:
-                _sqlite().commit()
-
-
-_CONN_FACADE = _Facade()
-
-
-def _statements(script: str) -> list[str]:
-    """Split a DDL script into statements without a parser."""
-    return [part.strip() for part in script.split(";") if part.strip()]
-
-
-def _migrate_sqlite(conn: sqlite3.Connection) -> None:
-    """Add any column this build needs that an older database does not have."""
-    for table, col, decl in SQLITE_ADDED:
-        have = {r["name"] for r in conn.execute(f"pragma table_info({table})").fetchall()}
-        if col not in have:
-            conn.execute(f"alter table {table} add column {col} {decl}")
-    conn.commit()
-
-
 def _bootstrap() -> None:
     global _SCHEMA_READY
-    if _SCHEMA_READY:
-        return
-    if is_pg():
-        with _pool().connection() as conn, conn.cursor() as cur:
-            for statement in _statements(DDL_PG):
-                cur.execute(statement)
-            # Apply the same additive migrations as SQLite to existing Postgres databases.
-            for table, col, decl in SQLITE_ADDED:
-                cur.execute(f"alter table {table} add column if not exists {col} {decl}")
+    with LOCK:
+        if _SCHEMA_READY:
+            return
+        connection = _sqlite()
+        connection.executescript(DDL_SQLITE)
+        for table, col, decl in SQLITE_ADDED:
+            have = {r["name"] for r in connection.execute(f"pragma table_info({table})")}
+            if col not in have:
+                connection.execute(f"alter table {table} add column {col} {decl}")
+        connection.commit()
         _SCHEMA_READY = True
-        return
-    conn = _sqlite()
-    conn.executescript(DDL_SQLITE)
-    conn.commit()
-    _migrate_sqlite(conn)
-    _SCHEMA_READY = True
 
 
-def conn() -> sqlite3.Connection | _Facade:
-    """Open the database once and make sure the schema is there."""
+def conn() -> sqlite3.Connection:
     _bootstrap()
-    return _CONN_FACADE if is_pg() else _sqlite()
+    return _sqlite()
 
 
 def setup() -> None:
-    """Public bootstrap, used by scripts and tests that need the schema without a query."""
     _bootstrap()
 
 
 def close() -> None:
-    """Close what was opened. Tests use this between databases."""
-    global _CONN, _POOL, _SCHEMA_READY
-    if _CONN is not None:
-        _CONN.close()
-        _CONN = None
-    if _POOL is not None:
-        _POOL.close()
-        _POOL = None
-    _SCHEMA_READY = False
+    global _CONN, _SCHEMA_READY
+    with LOCK:
+        if _CONN is not None:
+            _CONN.close()
+            _CONN = None
+        _SCHEMA_READY = False
 
 
 def now() -> str:
     """Current time as an ISO string.
 
     Microseconds matter: before this, a rescore and a rebuild in the same second tied on
-    `time` and the tie was broken by rowid, which Postgres does not have. The contract
+    `time`, so microseconds preserve their ordering. The contract
     already accepts an ISO timestamp and the UI parses it without help.
     """
     return time.strftime("%Y-%m-%dT%H:%M:%S") + f".{int(time.time() * 1e6) % 1_000_000:06d}"
@@ -259,43 +137,17 @@ def dec(raw, default=None):
 def run(sql: str, args: tuple = ()):
     """Execute and commit."""
     _bootstrap()
-    if is_pg():
-        with _pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(q(sql), args)
-            return cur
     with LOCK:
         cur = _sqlite().execute(sql, args)
         _sqlite().commit()
         return cur
 
 
-def autocommit(sql: str, args: tuple = ()) -> list:
-    """Run one statement outside a transaction.
-
-    A few TimescaleDB calls refuse to run inside a transaction block, notably
-    `refresh_continuous_aggregate`. Everything else should keep using `run`.
-    """
-    _bootstrap()
-    if is_pg():
-        import psycopg
-
-        with psycopg.connect(cfg.database_url, autocommit=True) as conn:
-            with conn.cursor() as cur:
-                cur.execute(q(sql), args)
-                try:
-                    return list(cur.fetchall())
-                except psycopg.ProgrammingError:
-                    return []
-    return list(run(sql, args).fetchall())
 
 
 def rows(sql: str, args: tuple = ()) -> list:
     """All rows of a query."""
     _bootstrap()
-    if is_pg():
-        with _pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(q(sql), args)
-            return list(cur.fetchall())
     with LOCK:
         return list(_sqlite().execute(sql, args).fetchall())
 
@@ -303,10 +155,6 @@ def rows(sql: str, args: tuple = ()) -> list:
 def one(sql: str, args: tuple = ()):
     """First row of a query or None."""
     _bootstrap()
-    if is_pg():
-        with _pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(q(sql), args)
-            return cur.fetchone()
     with LOCK:
         return _sqlite().execute(sql, args).fetchone()
 
@@ -318,15 +166,7 @@ def put(table: str, row: dict) -> str:
     keys = list(row)
     cols = ",".join(keys)
     marks = ",".join("?" * len(keys))
-    if is_pg():
-        pk = PRIMARY_KEY[table]
-        if pk is None:
-            raise KeyError(f"{table} is append only, use insert_many()")
-        updates = ",".join(f"{k}=excluded.{k}" for k in keys if k != pk)
-        sql = f"insert into {table} ({cols}) values ({marks}) on conflict ({pk})"
-        sql += f" do update set {updates}" if updates else " do nothing"
-    else:
-        sql = f"insert or replace into {table} ({cols}) values ({marks})"
+    sql = f"insert or replace into {table} ({cols}) values ({marks})"
     run(sql, tuple(row[k] for k in keys))
     return str(row.get("id") or row.get("token") or row.get("token_hash") or "")
 
@@ -338,10 +178,6 @@ def insert_many(table: str, keys: list[str], values: list[tuple]) -> int:
     _bootstrap()
     marks = ",".join("?" * len(keys))
     sql = f"insert into {table} ({','.join(keys)}) values ({marks})"
-    if is_pg():
-        with _pool().connection() as conn, conn.cursor() as cur:
-            cur.executemany(q(sql), values)
-        return len(values)
     with LOCK:
         _sqlite().executemany(sql, values)
         _sqlite().commit()
@@ -530,9 +366,6 @@ def wipe() -> None:
     Clinicians, clinics and sessions survive on purpose: resetting the demo data must
     not sign everybody out. Assignments are rebuilt from the fresh patient ids.
     """
-    if is_pg():
-        run(f"truncate table {', '.join(WIPE)}")
-        return
     for table in WIPE:
         run(f"delete from {table}")
 

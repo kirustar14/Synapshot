@@ -11,8 +11,6 @@ websockets
 httpx
 pytest
 
-# Tiger Data. Only imported when DATABASE_URL is set; sqlite is the default.
-psycopg[binary,pool]
 # Needed by the quick start. `make mesh` builds the real cortex with nilearn (without it you get a
 # lumpy stand-in brain), `make sample` writes the demo PDFs with reportlab, and uploaded PDFs are
 # read with pypdf.

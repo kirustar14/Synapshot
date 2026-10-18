@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
-from . import auth, db, demo, live, logs, models, observability, team, telemetry, tiger
+from . import auth, db, demo, live, logs, models, observability, team, telemetry
 from .agent import creao, safety, summary
 from .calls import audio as callaudio
 from .calls import run as callrun
@@ -36,7 +36,6 @@ async def lifespan(_app: FastAPI):
     db.conn()
     logs.install()
     team.ensure_demo()
-    tiger.bootstrap()
     yield
 
 
@@ -218,28 +217,11 @@ def forecast_obj(pid: str) -> dict:
 
 # ---------------------------------------------------------------- health and patients
 
-_TIGER: dict[str, float] = {"at": 0.0, "ok": 0.0}
-
-
-def tiger_available() -> bool:
-    """Whether this database has TimescaleDB, remembered for 30 seconds.
-
-    The probe is a catalog query against a database in another region, and the health route
-    is called on every boot, by the proxy and by anything watching the process. A liveness
-    check should not cost a round trip.
-    """
-    now = time.time()
-    if now - _TIGER["at"] > 30:
-        _TIGER["ok"] = 1.0 if tiger.available() else 0.0
-        _TIGER["at"] = now
-    return bool(_TIGER["ok"])
-
-
 @app.get("/api/health", response_model=models.Health)
 def health() -> dict:
     """Is the backend up, in which mode, on which database, with login on or off."""
     return {"ok": True, "mode": cfg.mode(), "db": db.dialect(),
-            "tiger": tiger_available(), "auth": cfg.auth_enabled}
+            "auth": cfg.auth_enabled}
 
 
 # ---------------------------------------------------------------- auth and team
@@ -932,22 +914,21 @@ def get_percentile(pid: str, request: Request) -> dict:
 
 @app.get("/api/pulse")
 def get_pulse(request: Request, bench: bool = False, minutes: int = 60, hours: int = 48) -> dict:
-    """The live dashboard read path, backed by the continuous aggregate when there is one.
+    """The live dashboard read path, backed by local SQLite telemetry.
 
-    `bench=1` runs the measured raw table against aggregate comparison. It is admin only
-    and deliberately opt in: a page load must not be a load test.
+    The legacy benchmark option remains admin-only and reports that it is unavailable.
     """
     who = auth.current(request)
     # A dashboard read is also the natural moment to publish the buffered samples. It is
     # one batched insert at most, and it means the chart is never five seconds stale while
     # claiming to be live.
     telemetry.flush()
-    got = tiger.pulse(minutes=max(5, min(int(minutes), 1440)),
+    got = telemetry.pulse(minutes=max(5, min(int(minutes), 1440)),
                       hours=max(1, min(int(hours), 24 * 30)))
     if bench:
         if who.get("role") != "admin":
             raise HTTPException(403, "the benchmark is admin only")
-        got["bench"] = tiger.bench(minutes=max(5, min(int(minutes), 1440)))
+        got["bench"] = {"available": False, "reason": "SQLite storage has no aggregate benchmark"}
     return got
 
 

@@ -5,13 +5,11 @@ the clinician console; this module also projects a handful of numbers out of eac
 buffers them for the time-series table. One batched insert every few seconds, not one
 insert per request.
 
-If DATABASE_URL is empty the rows go to sqlite, so the dashboard has something honest to
-draw in a local demo and the tests can assert the whole path without a server.
+Samples stay in SQLite alongside the patient records; no external database is used.
 """
 
 import threading
 import time
-from datetime import datetime, timezone
 
 from . import db
 
@@ -23,9 +21,7 @@ MAX_SECONDS = 5.0
 
 
 def _stamp():
-    """A real timestamp on Postgres, the ISO string on sqlite."""
-    if db.is_pg():
-        return datetime.now(timezone.utc)
+    """A local SQLite timestamp."""
     return db.now()
 
 
@@ -91,3 +87,61 @@ def pending() -> int:
     """How many rows are waiting, for the status line."""
     with _LOCK:
         return sum(len(v) for v in BUFFER.values())
+
+
+def _pivot(rows: list, key: str = "bucket") -> list[dict]:
+    """Turn (bucket, metric, value) rows into one object per bucket."""
+    out: dict[str, dict] = {}
+    for r in rows:
+        row = dict(r) if not isinstance(r, dict) else r
+        stamp = str(row.get(key))
+        item = out.setdefault(stamp, {"t": stamp})
+        metric = str(row.get("metric"))
+        item[metric] = round(float(row.get("avg_value") or 0.0), 4)
+        item[f"{metric}_n"] = int(row.get("n") or 0)
+    return [out[k] for k in sorted(out)]
+
+
+def _sqlite_pulse(minutes: int, hours: int) -> tuple[list, list, str]:
+    """The same shape from sqlite, so a local demo is not an empty chart."""
+    since_min = time.strftime("%Y-%m-%dT%H:%M", time.localtime(time.time() - minutes * 60))
+    since_hour = time.strftime("%Y-%m-%dT%H", time.localtime(time.time() - hours * 3600))
+    mins = db.rows(
+        "select substr(time,1,16)||':00' as bucket, metric, avg(value) as avg_value,"
+        " count(*) as n from metric_samples where time >= ? group by bucket, metric"
+        " order by bucket",
+        (since_min,),
+    )
+    hrs = db.rows(
+        "select substr(time,1,13)||':00:00' as bucket, metric, avg(value) as avg_value,"
+        " count(*) as n from metric_samples where time >= ? group by bucket, metric"
+        " order by bucket",
+        (since_hour,),
+    )
+    return _pivot(mins), _pivot(hrs), "sqlite"
+
+
+def pulse(minutes: int = 60, hours: int = 48) -> dict:
+    """Everything the live dashboard needs, in one round trip."""
+    mins, hrs, source = _sqlite_pulse(minutes, hours)
+
+    totals = {
+        "patients": db.count("select count(*) as c from patients"),
+        "checkins": db.count("select count(*) as c from checkins"),
+        "observations": db.count("select count(*) as c from observations"),
+        "alerts": db.count("select count(*) as c from alerts"),
+        "open_alerts": db.count("select count(*) as c from alerts where acked=0"),
+        "clinicians": db.count("select count(*) as c from clinicians"),
+        "assignments": db.count("select count(*) as c from assignments where active=1"),
+        "samples": db.count("select count(*) as c from metric_samples"),
+    }
+
+    out = {
+        "source": source,
+        "window": {"minutes": minutes, "hours": hours},
+        "minutes": mins,
+        "hourly": hrs,
+        "totals": totals,
+        "error": "",
+    }
+    return out

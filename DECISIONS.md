@@ -1691,3 +1691,9 @@ that workspace instead of calling the retired outbound-call endpoint.
 The shared SQL schema includes both account/telemetry tables and the new chart and
 message-delivery fields, with additive migrations for SQLite and Postgres. A receptor
 cache written by the earlier five-target viewer is rebuilt for the expanded atlas.
+
+## Remove Tiger Data
+
+Tiger Data and remote Postgres support are removed. SQLite remains the sole database,
+including patient accounts, document intake and local telemetry. Old database URL
+settings no longer select a remote database. Sentry and Veri remain available.
