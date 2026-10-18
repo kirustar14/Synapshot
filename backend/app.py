@@ -917,6 +917,22 @@ def post_call_symptoms(token: str, body: models.SymptomBody) -> dict:
     return {"jump": bool(jump >= 10.0), "short": bool(short or row["short"]), "skip": list(skip)}
 
 
+@app.post("/api/call/{token}/answer")
+def post_call_answer(token: str, body: models.AnswerBody) -> dict:
+    """One spoken or tapped answer that is not a symptom score.
+
+    The near point of convergence is the case this exists for: the patient taps when the
+    dot goes double and the page reports the distance in centimetres. The pipeline has
+    always read `answers["npc_cm"]`, and before this there was no way to put it there.
+    """
+    row = call_row(token)
+    have = db.dec(row["symptoms"], {}) or {}
+    answers = dict(have.get("answers") or {})
+    answers[body.task] = body.value
+    sessions.patch(token, {"symptoms": db.enc({**have, "answers": answers})})
+    return {"ok": True, "task": body.task, "stored": list(answers)}
+
+
 @app.post("/api/call/{token}/live")
 def post_call_live(token: str, body: models.LiveBody, request: Request) -> dict:
     """Fire and forget live telemetry, forwarded to the R1 console as a RigEvent."""

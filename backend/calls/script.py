@@ -222,6 +222,8 @@ def consent_text() -> list[str]:
 
 def payload(short: bool = False, audio: dict | None = None, voice_base: str = "/voice/") -> dict:
     """The CallScript contract object the page is driven by."""
+    from ..config import cfg
+
     audio = audio or {}
     out = []
     for step in steps(short=short):
@@ -240,4 +242,7 @@ def payload(short: bool = False, audio: dict | None = None, voice_base: str = "/
         "passage": PASSAGE,
         "picture": PICTURE,
         "fluency_seconds": FLUENCY_S,
+        # So "Stop and contact my clinic" can give a number rather than saying to reply
+        # to a text. Empty when CLINIC_NUMBER is unset, and the page falls back to that.
+        "clinic_number": cfg.clinic_number,
     }

@@ -612,6 +612,7 @@ class CallScript(BaseModel):
     passage: str
     picture: Literal["kitchen"]
     fluency_seconds: int
+    clinic_number: str = ""
 
 
 class RedflagBody(BaseModel):
@@ -641,6 +642,13 @@ class SymptomResult(BaseModel):
     jump: bool
     short: bool
     skip: list[str] = Field(default_factory=list)
+
+
+class AnswerBody(BaseModel):
+    """Body of POST /api/call/{token}/answer. One non-symptom answer from the page."""
+
+    task: Literal["npc_cm", "recall_immediate", "recall_delayed", "fluency"]
+    value: float | list[str]
 
 
 class LiveBody(BaseModel):

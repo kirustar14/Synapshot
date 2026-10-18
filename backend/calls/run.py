@@ -99,8 +99,10 @@ def measure(token: str, pid: str, week: int) -> dict:
     meta = db.dec(sess_row["meta"], {}) or {}
 
     # The spoken answers. A real call collects them task by task through the routes; the
-    # mock path hands the whole set over at once.
+    # mock path hands the whole set over at once. The per task answers the page posted
+    # win over the generated ones, because on a real call they are the measurement.
     answers = dict(meta.get("answers") or {})
+    answers.update(stored.get("answers") or {})
     if stored.get("symptoms"):
         answers["symptoms"] = stored["symptoms"]
 
