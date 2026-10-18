@@ -41,7 +41,7 @@ function twinFixture(peak = 0.2): Twin {
 }
 
 const meshFixture = (): Mesh => ({
-  space: "fsaverage5",
+  space: "fsaverage6",
   pial: [],
   inflated: [],
   faces: [],
@@ -50,7 +50,7 @@ const meshFixture = (): Mesh => ({
   networks: Array.from({ length: REGIONS }, () => "Visual"),
   border: [],
   lobes: Array.from({ length: REGIONS }, (_, i) => (i < 50 ? "occipital" : "frontal")),
-  source: "fsaverage5",
+  source: "fsaverage6",
 });
 
 describe("layer ramps", () => {

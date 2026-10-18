@@ -30,6 +30,5 @@ numpyro
 # mss
 # sounddevice
 # Comms and LLM
-# anthropic
 # twilio
 # sbi                # optional upgrade for twin/surrogate.py behind USE_SBI=1

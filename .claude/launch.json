@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "backend.app:app",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "/Users/mallika/.nvm/versions/node/v22.22.2/bin/node",
+      "runtimeArgs": [
+        "web/node_modules/vite/bin/vite.js",
+        "web"
+      ],
+      "port": 5173
+    }
+  ]
+}

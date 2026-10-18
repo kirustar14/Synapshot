@@ -18,6 +18,39 @@ export interface CortexBuild {
   sulcHi: number;
 }
 
+
+const sig = (v: number, c: number, w: number) => 1 / (1 + Math.exp(-(v - c) / w));
+
+/** Four lobes in one blue family, picked by where a vertex sits (y runs front to back, z
+ * bottom to top, in the centred mesh space). Weights are soft, so the colour blends from one
+ * lobe into the next instead of switching. Approximate by design, like the lobe tags. */
+const LOBE_RGB = {
+  frontal: [0.5, 0.74, 0.96],
+  parietal: [0.7, 0.86, 0.98],
+  temporal: [0.4, 0.8, 0.88],
+  occipital: [0.6, 0.66, 0.96],
+} as const;
+
+function lobeColors(pial: Float32Array): Float32Array {
+  const n = pial.length / 3;
+  const out = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const y = pial[i * 3 + 1];
+    const z = pial[i * 3 + 2];
+    const temporal = sig(-z, 10, 6) * sig(y, -50, 10) * (1 - sig(y, 38, 8));
+    const frontal = (1 - temporal) * sig(y, 8, 9);
+    const occipital = (1 - temporal) * (1 - sig(y, -48, 9));
+    const parietal = Math.max(0, 1 - temporal - frontal - occipital);
+    const sum = temporal + frontal + occipital + parietal || 1;
+    for (let c = 0; c < 3; c++) {
+      out[i * 3 + c] =
+        (temporal * LOBE_RGB.temporal[c] + frontal * LOBE_RGB.frontal[c] +
+          occipital * LOBE_RGB.occipital[c] + parietal * LOBE_RGB.parietal[c]) / sum;
+    }
+  }
+  return out;
+}
+
 /** One BufferGeometry for the whole cortex, with every attribute the shader reads. */
 export function buildCortex(mesh: MeshPayload, shape: Shape | undefined): CortexBuild {
   const pial = new Float32Array(mesh.pial);
@@ -36,6 +69,7 @@ export function buildCortex(mesh: MeshPayload, shape: Shape | undefined): Cortex
     region[i] = label === undefined || label < 0 || label >= REGIONS ? -1 : label;
   }
   geometry.setAttribute("aRegion", new THREE.BufferAttribute(region, 1));
+  geometry.setAttribute("aLobeCol", new THREE.BufferAttribute(lobeColors(pial), 3));
 
   const point = shape?.impact?.point;
   const dist = new Float32Array(verts);

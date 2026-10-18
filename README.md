@@ -147,7 +147,7 @@ full mock mode. Set `MOCK_X=0` to force a real path. See `.env.example` for all 
 | `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | empty | The clinic call through the conversational agent. |
 | `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET` | empty | iMessage. Also needs `make imessage`. |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `CLINIC_NUMBER` | empty | The SMS fallback and the clinic call. |
-| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | empty / `claude-sonnet-5` | Natural phrasing and the summaries. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | empty / `gemini-2.5-flash` | Natural phrasing and the summaries. |
 | `KEEP_AUDIO` | `0` | Keep the uploaded recordings after measuring them. For debugging only. |
 | `ASR` | `whisper` | `elevenlabs` sends the audio to the API instead of transcribing locally. |
 | `LIVE_AGENT` | `0` | An optional question and answer agent after the script. Never on the safety path. |

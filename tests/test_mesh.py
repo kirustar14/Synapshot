@@ -1,6 +1,6 @@
 """The cortical surface, the per person shape, the damage bands and the what-if.
 
-These pass against either mesh source. The real fsaverage5 surface needs the network on
+These pass against either mesh source. The real fsaverage6 surface needs the network on
 the first run, and the tests force OFFLINE=1, so on a clean checkout without a prebuilt
 data/mesh.json the procedural fallback is what gets checked. Every assertion below is
 true of both, which is the point: the viewer must work either way.
