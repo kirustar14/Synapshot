@@ -119,6 +119,9 @@ export class FaceTracker {
     } catch (err) {
       this.landmarker = null;
       this.ready = false;
+      // The real cause goes to the console for whoever is deploying this. The patient
+      // sees a calm sentence and two buttons, never the loader's own words.
+      console.error("[synapshot] face landmarker did not start:", err);
       this.reason = err instanceof Error ? err.message : "the face measurement could not start";
     }
     this.running = true;

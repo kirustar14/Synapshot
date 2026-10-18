@@ -5,7 +5,7 @@ PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 install:
 	$(PY) -m pip install -r requirements.txt
 
-dev:
+dev: models
 	$(PY) -m uvicorn backend.app:app --reload --port 8000
 
 seed:
@@ -50,10 +50,13 @@ models:
 		echo "  already there: web/public/models/face_landmarker.task"; \
 	else \
 		echo "  downloading the face landmarker..."; \
-		curl -fSL -o web/public/models/face_landmarker.task \
+		curl -fSL -o web/public/models/face_landmarker.task.part \
 		  https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task \
+		  && mv web/public/models/face_landmarker.task.part web/public/models/face_landmarker.task \
 		  && echo "  saved to web/public/models/face_landmarker.task"; \
 	fi
+	@test -s web/public/models/face_landmarker.task || \
+	  (echo "  the face landmarker did not download. The call page will say the camera check could not start."; exit 1)
 
 # The clinician app and the patient call page. The backend serves web/dist at /.
 web:

@@ -192,6 +192,7 @@ export function SetupStage({
   onNoCamera: () => void;
 }) {
   const [waited, setWaited] = useState(false);
+  const [told, setTold] = useState(false);
   useEffect(() => {
     const id = window.setTimeout(() => setWaited(true), 20000);
     return () => window.clearTimeout(id);
@@ -257,11 +258,37 @@ export function SetupStage({
         <SelfView stream={stream} lights={lights} />
         <LightRow lights={lights} />
       </div>
+      {/* A patient is never shown the loader's own words. "the face model file is not on
+          the server yet" is a sentence for whoever deploys this, and it reads as broken
+          to the person holding the phone. The real error goes to the console instead. */}
       {modelReason && (
         <div className="mt-5 rounded-2xl border border-synthetic/40 bg-synthetic-soft p-4 text-xs leading-relaxed">
           <AlertTriangle className="mr-1 inline h-4 w-4 text-synthetic-foreground" aria-hidden />
-          The eye measurement is not available on this call, because {modelReason}. The speaking and memory parts still
-          run and your clinician will see those. You do not need to do anything.
+          <p className="font-bold">The camera check could not start</p>
+          <p className="mt-1">
+            The speaking and memory parts still run and your clinician will see those. You do not
+            need to do anything.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex h-10 items-center rounded-full border border-border bg-card px-4 text-xs font-bold"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onTellClinic();
+                setTold(true);
+              }}
+              className="inline-flex h-10 items-center rounded-full border border-border bg-card px-4 text-xs font-bold"
+            >
+              Tell my clinic
+            </button>
+          </div>
+          {told && <p className="mt-2 text-[11px]">Your clinic has been told. You can carry on.</p>}
         </div>
       )}
       <div className="mt-5 space-y-3">

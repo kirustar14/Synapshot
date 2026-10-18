@@ -163,6 +163,24 @@ def llm_line() -> dict:
     return line(GREEN if got["ok"] and not config.MODEL_NOTE else MOCK, "LLM", detail + note)
 
 
+def face_model_line() -> dict:
+    """The face landmarker the phone runs. Checked on disk, not assumed.
+
+    It is 3.8 MB and gitignored, so it does not ship with a checkout. `make models`
+    fetches it and `make dev` now depends on that, but a machine that skipped both shows
+    the patient a call with no eye measurement and no obvious reason why.
+    """
+    path = ROOT / "web" / "public" / "models" / "face_landmarker.task"
+    if not path.exists():
+        return line(RED, "Face landmarker", "missing. Run make models")
+    size = path.stat().st_size
+    if size < 1_000_000:
+        return line(RED, "Face landmarker",
+                    f"only {size} bytes, which is a truncated download. Delete it and run make models")
+    return line(GREEN, f"Face landmarker: {size / 1e6:.1f} MB",
+                "served from web/public/models, same origin as the call page")
+
+
 def creao_line() -> dict:
     """The CREAO row: which of the three roles have a real agent behind them.
 
@@ -190,6 +208,7 @@ def mock_check() -> list[dict]:
              else "off, every call has to come from a real phone"),
         llm_line(),
         creao_line(),
+        face_model_line(),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"

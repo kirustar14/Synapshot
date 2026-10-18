@@ -1486,3 +1486,16 @@ Both are fixed: the SMS row now says there is no fallback chain, which is the tr
 the contract route list names the pathway viewer's routes instead of `/intervention`.
 
 `make check` now prints 42 passed, 0 failed, 7 running on a fallback.
+
+## 6a: the face model was never shipped
+
+`web/.gitignore` ignores `public/models`, so the 3.8 MB landmarker does not come with a
+checkout. `make models` fetches it, but `make dev` did not depend on that and `make check`
+never looked, so any machine that skipped the step served a call page where the eye
+measurement silently never ran. The loader itself was fine: wasm already bundled locally,
+GPU with a CPU fallback already there.
+
+`make dev` depends on `models` now, the download goes to a `.part` file first so a
+truncated one cannot masquerade as a model, and `make check` fails if the file is missing
+or under 1 MB. The patient never sees the loader's words: "The camera check could not
+start" with Try again and Tell my clinic, and the real error goes to the console.
