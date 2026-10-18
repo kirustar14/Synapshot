@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ENROLLED, reviewOf } from "@/dashboard/derive";
 import { StatusPill } from "@/dashboard/components";
+import { StartCall } from "@/dashboard/StartCall";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -100,6 +101,9 @@ export function PatientHeader({ patient }: { patient: Patient }) {
         </div>
 
         <div className="no-print flex items-center gap-2">
+          {/* Ringing or texting the patient is a separate act from reading the record, so it is
+              a separate control and it never sends anything on its own. */}
+          <StartCall patient={patient} />
           <Button
             size="sm"
             onClick={() => void markReviewed()}

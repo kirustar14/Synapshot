@@ -10,6 +10,7 @@ import type {
   Attribution,
   AgentPipeline,
   CallScript,
+  CallSend,
   CallStart,
   CallStatus,
   Check,
@@ -261,6 +262,7 @@ export const api = {
 
   createCall: (patientId: string, send: boolean) =>
     call<CallStart>("/calls", { body: { patient_id: patientId, send } }, () => mock.createCall(patientId, send)),
+  sendCall: (token: string) => call<CallSend>(`/calls/${token}/send`, { method: "POST" }, () => mock.sendCall(token)),
   callScript: (token: string) => call<CallScript>(`/call/${token}/script`, undefined, mock.callScript),
   callConsent: (token: string, b: ConsentChoices) => call(`/call/${token}/consent`, { body: b }, () => mock.callConsent(token, b)),
   // Both of these are keyed objects, not arrays: the backend reads answers by red flag
@@ -390,6 +392,7 @@ export const useIntervention = () => useWrite((a: { id: string; target: string; 
 export const useRescore = () => useWrite((a: { cid: string; task: string }) => api.rescore(a.cid, a.task));
 export const useUnusable = () => useWrite((cid: string) => api.unusable(cid));
 export const useCreateCall = () => useWrite((a: { patientId: string; send: boolean }) => api.createCall(a.patientId, a.send));
+export const useSendCall = () => useWrite((token: string) => api.sendCall(token));
 export const useDemoReset = () => useWrite(() => api.demoReset());
 export const useAdvanceWeek = () => useWrite((patientId: string) => api.advanceWeek(patientId));
 export const useInjectDrift = () => useWrite((a: { patientId: string; size: number }) => api.injectDrift(a.patientId, a.size));

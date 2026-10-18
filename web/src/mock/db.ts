@@ -6,6 +6,7 @@ import type {
   Alert,
   Attribution,
   CallScript,
+  CallSend,
   CallStart,
   CallStatus,
   Check,
@@ -1099,6 +1100,17 @@ export const mock = {
       });
     }
     return { token, url, expires: new Date(Date.now() + DAY).toISOString() };
+  },
+
+  /** Nothing left the machine in mock mode, and the reply says so. */
+  sendCall: (token: string): CallSend => {
+    const d = db();
+    const rec = d.calls[token];
+    if (!rec) throw new Error("unknown link");
+    const url = `${typeof window === "undefined" ? "" : window.location.origin}/call/${token}`;
+    const body = `Time for your weekly check-in. Open this link on your phone: ${url}. It takes about ten minutes and you can stop at any point.`;
+    get(rec.patient_id).messages.push({ dir: "out", body, time: new Date().toISOString(), channel: "mock" });
+    return { ok: true, channel: "mock", to: "", body, error: "" };
   },
 
   callScript: (): CallScript => callScript(),

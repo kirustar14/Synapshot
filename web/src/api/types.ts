@@ -259,6 +259,16 @@ export interface CallStart {
   expires: string;
 }
 
+/** Which transport carried a call link when it was texted. Mock means nothing left the machine. */
+export interface CallSend {
+  ok: boolean;
+  channel: string;
+  to: string;
+  body: string;
+  /** Why nothing was sent, when no transport would take the message. */
+  error?: string;
+}
+
 export type CallTask =
   | "none" | "redflags" | "quality" | "calib" | "symptoms" | "encode"
   | "pursuit_h" | "pursuit_v" | "saccade" | "antisaccade" | "fixation" | "npc"

@@ -9,12 +9,21 @@
   padding: 24px 3vw;
 }
 .lp-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42em;
   color: var(--ink);
   font-size: 28px;
   line-height: 44px;
   font-weight: 500;
   letter-spacing: 0.28em;
   text-decoration: none;
+}
+/* The mark is a mask on the current colour, so it scales with the wordmark it sits against
+   instead of needing its own rules per breakpoint. */
+.lp-mark-art {
+  height: 0.86em;
+  width: 0.86em;
 }
 .lp-login {
   display: inline-flex;

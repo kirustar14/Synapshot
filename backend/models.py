@@ -594,6 +594,20 @@ class CallStart(BaseModel):
     channel: str | None = None
 
 
+class CallSend(BaseModel):
+    """Response of POST /api/calls/{token}/send. Which transport carried the link.
+
+    `channel` is "mock" when nothing left the machine and "none" when no transport would
+    take it, in which case `error` says why. The dashboard shows that sentence as it is.
+    """
+
+    ok: bool
+    channel: str
+    to: str = ""
+    body: str = ""
+    error: str = ""
+
+
 class ScriptStep(BaseModel):
     """One screen of the call."""
 

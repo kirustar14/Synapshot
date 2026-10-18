@@ -4,6 +4,9 @@
 !.env.example
 tiger-cloud-*.env
 
+# Local tool binaries (cloudflared, for the phone tunnel)
+.tools/
+
 # Python environments, caches, and test output
 .venv/
 __pycache__/

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { BrandMark } from "@/components/BrandMark";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import LayeredScene from "./LayeredScene";
@@ -35,7 +36,8 @@ export default function PublicExperience() {
       </a>
       <header className="lp-nav">
         <Link to="/" className="lp-mark" aria-label="Synapshot home">
-          synapshot
+          <BrandMark className="lp-mark-art" />
+          <span>synapshot</span>
         </Link>
         {!login && (
           <nav aria-label="Public navigation">

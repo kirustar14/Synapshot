@@ -209,7 +209,7 @@ def require_patient(pid: str, request: Request) -> dict:
     who = from_request(request)
     if who is None:
         raise HTTPException(401, "sign in required")
-    if db.patient(pid) is None or not can_access(pid, who):
+    if not db.patient_exists(pid) or not can_access(pid, who):
         raise HTTPException(404, f"no patient {pid}")
     return who
 

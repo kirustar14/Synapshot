@@ -97,8 +97,16 @@ def _pool():
         _POOL = ConnectionPool(
             cfg.database_url,
             min_size=1,
-            max_size=4,
-            kwargs={"row_factory": dict_row},
+            # The worklist and the overview fan out one detail and one forecast request per
+            # patient, so a page load is a dozen requests at once. With four connections the
+            # rest queued behind them and the screen took 6.6 s; the queries themselves are
+            # 60 ms each. The pool is a cap on parallelism, not a cost per connection.
+            max_size=12,
+            # Autocommit is what makes a remote database usable. Every call site issues one
+            # statement, so a transaction adds nothing but two more round trips, and a round
+            # trip to a hosted Timescale reaches 70 ms. The dashboard sends several statements
+            # per screen, so the BEGIN/COMMIT pair was most of a second on its own.
+            kwargs={"row_factory": dict_row, "autocommit": True},
             open=True,
             timeout=15,
         )
@@ -337,14 +345,64 @@ def patient(pid: str):
     return one("select * from patients where id=?", (pid,))
 
 
+def patient_exists(pid: str) -> bool:
+    """Whether a patient id is known, without reading the row.
+
+    `select *` on this table is 44 KB, because the injury, params, alleles, biomarkers and
+    contraction are encrypted columns. Scope checks run on nearly every route and only need
+    to know whether the id is there.
+    """
+    return one("select 1 as x from patients where id=?", (pid,)) is not None
+
+
 def patients() -> list:
     """All patients, newest first."""
     return rows("select * from patients order by created desc")
 
 
+def worklist_rows() -> list:
+    """The columns the worklist row needs, without the encrypted payload of each patient.
+
+    `select *` is 44 KB a row here, because injury, params, alleles, biomarkers and the
+    contraction are encrypted columns. The worklist renders six fields, so it asks for six.
+    """
+    return rows("select id, name, week, drift_z, last_call, synthetic from patients order by created desc")
+
+
+def alert_types() -> dict[str, list[str]]:
+    """Distinct alert types per patient, in one query rather than one query per row."""
+    out: dict[str, list[str]] = {}
+    for row in rows("select distinct patient_id, type from alerts"):
+        out.setdefault(str(row["patient_id"]), []).append(str(row["type"]))
+    return {pid: sorted(types) for pid, types in out.items()}
+
+
 def checkins(pid: str) -> list:
     """Check-ins for a patient, oldest first."""
     return rows("select * from checkins where patient_id=? order by week", (pid,))
+
+
+# What a summary read of a check-in carries. The gaze, traces and transcript columns are
+# about 290 KB a row between them, and they are rendered for the one assessment that is
+# open, never for a list or a last-check-in pointer.
+CHECKIN_SUMMARY = (
+    "id", "patient_id", "week", "date", "duration_s", "steps", "channel", "features", "unusable",
+)
+
+
+def _summary_select() -> str:
+    """The summary projection. The dropped columns come back as null, so the keys stay."""
+    return f"select {', '.join(CHECKIN_SUMMARY)}, null as gaze, null as traces, null as transcript from checkins"
+
+
+def checkins_summary(pid: str) -> list:
+    """Check-ins for a patient as summaries, oldest first, without the evidence columns."""
+    return rows(f"{_summary_select()} where patient_id=? order by week", (pid,))
+
+
+def latest_checkin_summary(pid: str):
+    """The most recent check-in as a summary, or None."""
+    return one(f"{_summary_select()} where patient_id=? order by week desc, date desc limit 1", (pid,))
 
 
 def checkin(cid: str):

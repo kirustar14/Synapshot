@@ -27,6 +27,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { usePatients, useSession } from "@/api/client";
 import { useSignOut } from "@/components/AuthGate";
+import { BrandMark } from "@/components/BrandMark";
 import { RouteSurface } from "@/components/RouteSurface";
 import { WorkspaceSkeleton } from "@/components/WorkspaceSkeleton";
 import {
@@ -82,11 +83,14 @@ function Wordmark({ collapsed }: { collapsed: boolean }) {
       )}
     >
       {collapsed ? (
-        <span className="text-[17px] font-semibold tracking-[-0.04em]" aria-hidden>
-          s
-        </span>
+        // Collapsed, the mark carries the wordmark on its own, so the rail still reads as the
+        // product rather than as a stray letter.
+        <BrandMark className="h-[19px] w-[19px]" />
       ) : (
-        <span className="text-[17px] font-semibold tracking-[-0.035em]">synapshot</span>
+        <span className="flex items-center gap-2">
+          <BrandMark />
+          <span className="text-[17px] font-semibold tracking-[-0.035em]">synapshot</span>
+        </span>
       )}
     </Link>
   );
@@ -422,7 +426,13 @@ export function ClinicLayout({ pending = false }: { pending?: boolean }) {
             >
               <Menu className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden />
             </button>
-            <Link to="/app" className="text-[15px] font-semibold tracking-[-0.03em] lg:hidden">
+            {/* Below lg the rail is behind the menu button, so this header carries the brand.
+                It gets the mark too, or the narrow window is the one place the logo is missing. */}
+            <Link
+              to="/app"
+              className="flex items-center gap-1.5 text-[15px] font-semibold tracking-[-0.03em] lg:hidden"
+            >
+              <BrandMark className="h-[15px] w-[15px]" />
               synapshot
             </Link>
 

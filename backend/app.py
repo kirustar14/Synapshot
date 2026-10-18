@@ -133,8 +133,14 @@ def need(pid: str):
 
 # ---------------------------------------------------------------- assembly helpers
 
-def checkin_obj(row, with_gaze: bool = True) -> dict:
-    """One Checkin in the contract shape."""
+def checkin_obj(row, with_gaze: bool = True, with_evidence: bool = True) -> dict:
+    """One Checkin in the contract shape.
+
+    `with_evidence=False` drops the three bulky fields (gaze, traces, transcript) and keeps
+    the scored ones. A list or a `last_call` pointer is read for its measures, week and
+    duration; the raw traces are only ever rendered on the one assessment that is open.
+    Dropping them here is a 290 KB saving per row on each of those reads.
+    """
     out = {
         "id": row["id"],
         "patient_id": row["patient_id"],
@@ -144,9 +150,9 @@ def checkin_obj(row, with_gaze: bool = True) -> dict:
         "steps": db.dec(row["steps"], []) or [],
         "channel": db.dec(row["channel"], {}) or {"fps": 0, "calib_err_deg": 0, "face_share": 0, "flash_ok": False},
         "features": db.dec(row["features"], []) or [],
-        "gaze": (db.dec(row["gaze"], []) or []) if with_gaze else [],
-        "traces": db.dec(row["traces"], None),
-        "transcript": db.dec(row["transcript"], []) or [],
+        "gaze": (db.dec(row["gaze"], []) or []) if with_gaze and with_evidence else [],
+        "traces": (db.dec(row["traces"], None)) if with_evidence else None,
+        "transcript": (db.dec(row["transcript"], []) or []) if with_evidence else [],
         "unusable": bool(row["unusable"]),
     }
     return out
@@ -170,7 +176,7 @@ def inputs_of(pid: str) -> dict:
     return db.dec(row["payload"], {}) or {}
 
 
-def patient_row(row) -> dict:
+def patient_row(row, flags: list[str] | None = None) -> dict:
     """One PatientRow in the contract shape."""
     return {
         "id": row["id"],
@@ -178,7 +184,7 @@ def patient_row(row) -> dict:
         "week": int(row["week"] or 0),
         "drift_z": round(float(row["drift_z"] or 0.0), 3),
         "last_call": row["last_call"],
-        "flags": alertmod.flags(row["id"]),
+        "flags": alertmod.flags(row["id"]) if flags is None else flags,
         "synthetic": bool(row["synthetic"]),
     }
 
@@ -186,8 +192,7 @@ def patient_row(row) -> dict:
 def patient_obj(pid: str) -> dict:
     """One Patient in the contract shape."""
     row = need(pid)
-    bundle = inputs_of(pid)
-    chk = db.checkins(pid)
+    chk = db.latest_checkin_summary(pid)
     params = db.dec(row["params"], {}) or {}
     return {
         "id": row["id"],
@@ -196,7 +201,9 @@ def patient_obj(pid: str) -> dict:
         "sex": row["sex"],
         "week": int(row["week"] or 0),
         "injury": db.dec(row["injury"], {}) or {},
-        "inputs": bundle.get("inputs", []),
+        # current_inputs reads the uploads table first and only decrypts the twin bundle
+        # when there are none, so this no longer pulls 145 KB to build a four item list.
+        "inputs": current_inputs(pid),
         "alleles": db.dec(row["alleles"], {}) or {},
         "biomarkers": db.dec(row["biomarkers"], {}) or {},
         "fc_fit": None if row["fc_fit"] is None else float(row["fc_fit"]),
@@ -207,7 +214,7 @@ def patient_obj(pid: str) -> dict:
             "p": float(params.get("p", 0.0)), "eps": float(params.get("eps", 0.0)),
         },
         "alerts": [alert_obj(a) for a in db.alerts(pid)],
-        "last_call": checkin_obj(chk[-1]) if chk else None,
+        "last_call": checkin_obj(chk, with_evidence=False) if chk else None,
         "twin_built": bool(row["twin_built"]),
         "template_only": bool(row["template_only"]),
         "low_fidelity": bool(row["low_fidelity"]),
@@ -225,11 +232,28 @@ def forecast_obj(pid: str) -> dict:
 
 # ---------------------------------------------------------------- health and patients
 
+_TIGER: dict[str, float] = {"at": 0.0, "ok": 0.0}
+
+
+def tiger_available() -> bool:
+    """Whether this database has TimescaleDB, remembered for 30 seconds.
+
+    The probe is a catalog query against a database in another region, and the health route
+    is called on every boot, by the proxy and by anything watching the process. A liveness
+    check should not cost a round trip.
+    """
+    now = time.time()
+    if now - _TIGER["at"] > 30:
+        _TIGER["ok"] = 1.0 if tiger.available() else 0.0
+        _TIGER["at"] = now
+    return bool(_TIGER["ok"])
+
+
 @app.get("/api/health", response_model=models.Health)
 def health() -> dict:
     """Is the backend up, in which mode, on which database, with login on or off."""
     return {"ok": True, "mode": cfg.mode(), "db": db.dialect(),
-            "tiger": tiger.available(), "auth": cfg.auth_enabled}
+            "tiger": tiger_available(), "auth": cfg.auth_enabled}
 
 
 # ---------------------------------------------------------------- auth and team
@@ -350,10 +374,13 @@ def delete_assignment(aid: str, request: Request) -> dict:
 def list_patients(request: Request) -> list[dict]:
     """The clinician's worklist. Scoped to assignments and, for an admin, the clinic."""
     allowed = auth.scoped_patients(request)
-    rows = db.patients()
+    rows = db.worklist_rows()
     if allowed is not None:
         rows = [r for r in rows if str(r["id"]) in allowed]
-    return [patient_row(r) for r in rows]
+    # One query for every patient's flags: this used to be one query per row, and each one
+    # costs a round trip to the hosted database.
+    flags = db.alert_types()
+    return [patient_row(r, flags.get(str(r["id"]), [])) for r in rows]
 
 
 @app.post("/api/patients", response_model=models.Patient)
@@ -485,9 +512,14 @@ def get_attribution(pid: str, request: Request) -> list[dict]:
 
 @app.get("/api/patients/{pid}/checkins", response_model=list[models.Checkin])
 def get_checkins(pid: str, request: Request) -> list[dict]:
-    """Every check-in for a patient, without the gaze arrays."""
+    """Every check-in for a patient, as a summary: measures, week and duration.
+
+    Gaze traces, face traces and the transcript are the detail of one assessment, and they
+    are 290 KB of a row. The list never renders them, so it does not carry them; open the
+    check-in itself (`/api/checkins/{cid}`) for those.
+    """
     auth.require_patient(pid, request)
-    return [checkin_obj(r, with_gaze=False) for r in db.checkins(pid)]
+    return [checkin_obj(r, with_evidence=False) for r in db.checkins_summary(pid)]
 
 
 @app.get("/api/checkins/{cid}", response_model=models.Checkin)
@@ -1068,6 +1100,27 @@ def post_calls(body: models.CallBody, request: Request) -> dict:
         sent = texter.send(pid, "call_link", link=got["url"])
         got = {**got, "sent": True, "channel": sent.get("channel", "mock")}
     return got
+
+
+@app.post("/api/calls/{token}/send", response_model=models.CallSend)
+def post_call_send(token: str, request: Request) -> dict:
+    """Text an existing check-in link to the patient.
+
+    Separate from creating the session on purpose. Creating a link is a local act; putting a
+    message on somebody's phone is not, so the two are not the same button. Reusing the
+    session keeps one link per check-in instead of one per click.
+    """
+    row = sessions.get(token)
+    if row is None:
+        raise HTTPException(404, "unknown link")
+    pid = str(row["patient_id"])
+    auth.require_patient(pid, request)
+    from .comms import notify as texter
+
+    sent = texter.send(pid, "call_link", link=f"{cfg.base_url()}/call/{token}")
+    return {"ok": bool(sent.get("ok")), "channel": str(sent.get("channel") or "mock"),
+            "to": str(sent.get("to") or ""), "body": str(sent.get("body") or ""),
+            "error": str(sent.get("error") or "")}
 
 
 @app.get("/api/call/{token}/script", response_model=models.CallScript)
