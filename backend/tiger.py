@@ -67,6 +67,8 @@ def bootstrap() -> dict:
     Safe to call on every start. Each step is recorded once; nothing here drops data.
     """
     out = {"dialect": db.dialect(), "extension": "", "notes": [], "ok": False}
+    if db.pg_error():
+        out["notes"].append("DATABASE_URL is set but unreachable, so sqlite is in use: " + db.pg_error())
     if not db.is_pg():
         out["notes"].append("DATABASE_URL is not set, sqlite is the system of record")
         return out
@@ -192,6 +194,7 @@ def stats() -> dict:
     """What the database says about itself, one guarded query at a time."""
     out: dict = {
         "dialect": db.dialect(),
+        "fallback": db.pg_error() or None,
         "available": False,
         "extension": "",
         "hypertable": False,

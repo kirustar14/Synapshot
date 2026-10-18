@@ -9,6 +9,7 @@ Rows are dict-like in both drivers, so `row["name"]` keeps working.
 """
 
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -53,6 +54,8 @@ _CONN = None
 _POOL = None
 _SCHEMA_READY = False
 _PG_ERROR = ""
+_PG_CHECKED = False
+_PG_DOWN = False
 
 # One connection is shared by every FastAPI worker thread (check_same_thread=False), and
 # the clinician app fires its twin, shape, forecast and mesh requests in parallel. Without
@@ -63,9 +66,40 @@ _PG_ERROR = ""
 LOCK = threading.RLock()
 
 
+def _probe_pg() -> None:
+    """Once per process: when DATABASE_URL is set but unreachable, fall back to sqlite.
+
+    A hackathon network can block the Tiger port, and an app that will not start is worse
+    than an app that says it is running on sqlite. The reason is kept in `pg_error()` and
+    shown by the status endpoints, so a fallback is never silent. The URL is never put in it.
+    """
+    global _PG_CHECKED, _PG_DOWN, _PG_ERROR
+    _PG_CHECKED = True
+    try:
+        import psycopg
+
+        with psycopg.connect(cfg.database_url, connect_timeout=6) as con:
+            con.execute("select 1")
+    except Exception as exc:  # noqa: BLE001 - any failure means "use sqlite"
+        _PG_DOWN = True
+        text = (str(exc).splitlines() or [exc.__class__.__name__])[0]
+        _PG_ERROR = text.replace(cfg.database_url, "[url]")[:200]
+        logging.getLogger("synapshot.db").warning(
+            "DATABASE_URL is set but Tiger Data is unreachable, so this run uses sqlite: %s", _PG_ERROR)
+
+
 def is_pg() -> bool:
-    """True when DATABASE_URL is set, so Postgres is the system of record."""
-    return bool(cfg.database_url)
+    """True when DATABASE_URL is set and reachable, so Postgres is the system of record."""
+    if not cfg.database_url:
+        return False
+    if not _PG_CHECKED:
+        _probe_pg()
+    return not _PG_DOWN
+
+
+def pg_error() -> str:
+    """Why Postgres is not in use even though DATABASE_URL is set, or an empty string."""
+    return _PG_ERROR
 
 
 def dialect() -> str:
@@ -192,7 +226,7 @@ def setup() -> None:
 
 def close() -> None:
     """Close what was opened. Tests use this between databases."""
-    global _CONN, _POOL, _SCHEMA_READY
+    global _CONN, _POOL, _SCHEMA_READY, _PG_CHECKED, _PG_DOWN, _PG_ERROR
     if _CONN is not None:
         _CONN.close()
         _CONN = None
@@ -200,6 +234,7 @@ def close() -> None:
         _POOL.close()
         _POOL = None
     _SCHEMA_READY = False
+    _PG_CHECKED, _PG_DOWN, _PG_ERROR = False, False, ""
 
 
 def weeks_ago(weeks: float, hour: int = 10) -> str:

@@ -54,28 +54,32 @@ def init() -> bool:
 
     from .config import cfg
 
-    sentry_sdk.init(
-        dsn=dsn,
-        environment=os.environ.get("SENTRY_ENV") or cfg.mode(),
-        release=os.environ.get("SENTRY_RELEASE") or None,
-        # Patient data: never attach IPs, cookies or request bodies.
-        send_default_pii=False,
-        # Hackathon volume, so keep every trace and profile.
-        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_RATE", "1.0")),
-        profile_session_sample_rate=float(os.environ.get("SENTRY_PROFILE_RATE", "1.0")),
-        profile_lifecycle="trace",
-        enable_logs=True,
-        integrations=[
-            # Route templates (/api/call/{token}/finish) as transaction names, not raw URLs.
-            StarletteIntegration(transaction_style="url"),
-            FastApiIntegration(transaction_style="url"),
-            LoggingIntegration(level=logging.INFO, event_level=logging.ERROR,
-                               sentry_logs_level=logging.INFO),
-        ],
-        before_send=_before_send,
-        before_send_transaction=_before_send,
-        before_send_log=_before_send_log,
-    )
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.environ.get("SENTRY_ENV") or cfg.mode(),
+            release=os.environ.get("SENTRY_RELEASE") or None,
+            # Patient data: never attach IPs, cookies or request bodies.
+            send_default_pii=False,
+            # Hackathon volume, so keep every trace and profile.
+            traces_sample_rate=float(os.environ.get("SENTRY_TRACES_RATE", "1.0")),
+            profile_session_sample_rate=float(os.environ.get("SENTRY_PROFILE_RATE", "1.0")),
+            profile_lifecycle="trace",
+            enable_logs=True,
+            integrations=[
+                # Route templates (/api/call/{token}/finish) as transaction names, not raw URLs.
+                StarletteIntegration(transaction_style="url"),
+                FastApiIntegration(transaction_style="url"),
+                LoggingIntegration(level=logging.INFO, event_level=logging.ERROR,
+                                   sentry_logs_level=logging.INFO),
+            ],
+            before_send=_before_send,
+            before_send_transaction=_before_send,
+            before_send_log=_before_send_log,
+        )
+    except Exception as exc:  # noqa: BLE001 - monitoring must never stop the app
+        logging.getLogger(__name__).warning("Sentry could not start, so it stays off: %s", exc)
+        return False
     _ON = True
     # Python drops INFO records before any handler sees them unless the logger allows it.
     logging.getLogger("unnamed").setLevel(logging.INFO)

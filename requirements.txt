@@ -38,4 +38,4 @@ numpyro
 psycopg[binary,pool]
 
 # Error tracking and tracing. A no-op without SENTRY_DSN.
-sentry-sdk[fastapi]
+sentry-sdk[fastapi]>=2.40
