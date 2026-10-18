@@ -337,55 +337,82 @@ def get_receptors() -> dict:
     return interv.receptors()
 
 
-BANNER = ("Hypothetical what-if on a network model. Not a treatment recommendation, not "
-          "a prediction, and no dose is modelled.")
+# The Treatment tab used to simulate a drug: it perturbed the dynamic mean field model
+# with a receptor-weighted gain and showed a baseline, a with-drug and a difference. That
+# is a treatment response prediction, and nothing in this system has the standing to make
+# one. It is gone, along with the /intervention route and the effect size slider, and
+# what replaced it only shows where a medicine's known targets and pathways are. See
+# DECISIONS.md.
 
 
-@app.get("/api/formulary", response_model=models.Formulary)
+@app.get("/api/formulary", response_model=None)
 def get_formulary() -> dict:
-    """The drug list, what each one acts on, and what the maps behind it really are.
+    """Every medicine, what it does, what it acts on, and where that is in the brain.
 
-    Drugs this model cannot represent stay in the list with the reason. Leaving them out
-    would make the formulary look like a complete picture of what somebody is taking.
+    Medicines with no mapped brain target stay in the list with that said plainly.
+    Leaving them out would make the formulary look like a complete picture of what
+    somebody is taking when it is not.
     """
-    from .twin import drugs as drugmod
+    from .data import drugs as drugmod
 
-    rec = drugmod.receptor_payload()
-    return {
-        "drugs": drugmod.drugs(),
-        "receptors": rec["names"],
-        "tracers": rec.get("tracers") or {},
-        "stand_in": rec.get("stand_in") or [],
-        "synthetic_template": bool(rec.get("synthetic_template")),
-        "banner": BANNER,
-        "note": rec.get("note", ""),
-    }
+    return drugmod.listing()
 
 
-@app.post("/api/patients/{pid}/intervention", response_model=None)
-def post_intervention(pid: str, body: models.InterventionBody):
-    """A clinician only what-if: a receptor slider, or a drug from the formulary.
+@app.get("/api/pathways", response_model=None)
+def get_pathways() -> dict:
+    """Schematic transmitter pathways, in the same space as the mesh and the vessels."""
+    from .data import drugs as drugmod
 
-    Both are the same perturbation underneath. The slider scales one receptor map; a drug
-    combines its own targets into one weight first. Neither ever reaches a patient: no
-    text, no summary and no forecast sees any of this, and the API test checks that.
+    return drugmod.pathways()
+
+
+@app.get("/api/drugs/{name}", response_model=None)
+def get_drug(name: str) -> dict:
+    """One medicine's full record."""
+    from .data import drugs as drugmod
+
+    got = drugmod.drug(name)
+    if got is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.clean_record(got)
+
+
+@app.get("/api/drugs/{name}/map", response_model=None)
+def get_drug_map(name: str) -> dict:
+    """Per target z scored density over the 100 regions, and the mean across targets."""
+    from .data import drugs as drugmod
+
+    if drugmod.drug(name) is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.density(name)
+
+
+@app.get("/api/patients/{pid}/drugs/{name}/overlap", response_model=None)
+def get_drug_overlap(pid: str, name: str, week: int = 0) -> dict:
+    """Regions that are both damaged in this patient and dense in this drug's targets.
+
+    An intersection of two maps. It does not say the medicine reaches those regions and
+    it does not say anything would improve if it did.
     """
     need(pid)
-    from .twin import drugs as drugmod
-    from .twin import intervention as interv
+    from .data import drugs as drugmod
 
-    if body.drugs:
-        picked = [{"name": d.name, "gain": d.gain} for d in body.drugs]
-        gain = next((d.gain for d in body.drugs if d.gain is not None), body.gain)
-        got = drugmod.simulate(pid, picked, float(gain))
-        return {"kind": "drugs", "banner": BANNER, **got}
+    if drugmod.drug(name) is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.overlap(pid, name, week=week)
 
-    if not body.target:
-        raise HTTPException(400, "give either a receptor target or a list of drugs")
-    try:
-        return {"kind": "receptor", "banner": BANNER, **interv.run(pid, body.target, body.gain)}
-    except KeyError:
-        raise HTTPException(400, f"unknown receptor target {body.target}") from None
+
+@app.get("/api/patients/{pid}/suggested-drugs", response_model=None)
+def get_suggested_drugs(pid: str) -> dict:
+    """Medicines commonly considered for the symptoms this patient reported.
+
+    Ordered by how many of their elevated symptoms each one is ordinarily used for. Not a
+    ranking of which is better, because nothing here could know that.
+    """
+    need(pid)
+    from .data import suggest
+
+    return suggest.suggested(pid)
 
 
 @app.get("/api/loadings", response_model=models.Loadings)
@@ -917,12 +944,27 @@ def get_message_status(mid: str) -> dict:
         raise HTTPException(404, f"no message {mid}")
     got = texter.confirm(mid)
     fresh = db.one("select * from messages where id=?", (mid,))
+    status = str(got.get("status") or fresh["status"] or "sent")
+    # `failed` is what the transport layer calls it. `not_sent` is what it means on a
+    # screen: nothing left the building. Four states, and none of them is a guess.
+    if status == "failed":
+        status = "not_sent"
+    if status not in ("sent", "delivered", "not_sent", "mock"):
+        status = "sent"
+
+    delivered_at = str(fresh["delivered_at"] or "") or None
+    confirmation = "provider" if status == "delivered" else got.get("confirmation", "unavailable")
     return {
         "ok": True,
         "id": mid,
         "channel": str(fresh["channel"] or ""),
-        "status": got.get("status", str(fresh["status"] or "sent")),
-        "detail": str(fresh["detail"] or ""),
+        "status": status,
+        "provider_id": str(fresh["provider_id"] or "") or None,
+        "error": str(fresh["detail"] or "") or None,
+        "delivered_at": delivered_at,
+        # Only ever "provider" when a provider actually said so. Everything else is
+        # "unavailable", including local iMessage, which cannot read receipts at all.
+        "delivery_confirmation": confirmation,
         "note": got.get("note", ""),
     }
 

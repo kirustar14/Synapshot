@@ -4,7 +4,7 @@
 import { Canvas } from "@react-three/fiber";
 import { Eye, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { usePatient, useMesh, useShape, useTwin, useVessels } from "@/api/client";
+import { useFormulary, useMesh, usePathways, usePatient, useShape, useTwin, useVessels } from "@/api/client";
 import type { Shape } from "@/api/types";
 import { ErrorState, Loading } from "@/components/common";
 import { cn } from "@/lib/utils";
@@ -112,6 +112,19 @@ export default function BrainViewer(props: BrainViewerProps) {
   // Only fetched when the layer is on. It is 11 KB of polylines and most sessions never
   // turn it on, so there is no reason to pull it down on every workspace load.
   const vessels = useVessels(v.vessels);
+  // The transmitter pathways for whichever medicines are lit in the Treatment tab. Only
+  // fetched when something is lit, because with nothing on there is nothing to draw.
+  const pathways = usePathways();
+  const formulary = useFormulary();
+  const pathwayGroups = useMemo(() => {
+    const book = formulary.data?.drugs ?? [];
+    const on = new Set(v.drugs);
+    const out = new Set<string>();
+    for (const d of book) {
+      if (on.has(d.name)) for (const g of d.pathways) out.add(g);
+    }
+    return [...out];
+  }, [formulary.data, v.drugs]);
   const caps = useMemo(() => detectCaps(), []);
   const [big, setBig] = useState(false);
 
@@ -257,6 +270,8 @@ export default function BrainViewer(props: BrainViewerProps) {
           syncId={syncId ?? null}
           spin={spin}
           vessels={vessels.data}
+          pathways={pathways.data}
+          pathwayGroups={pathwayGroups}
           foci={foci}
         />
       </Canvas>

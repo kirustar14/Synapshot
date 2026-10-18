@@ -1,0 +1,195 @@
+{
+  "space": "fsaverage6, millimetres, origin centred, the same space as vessels.json and the cortical mesh",
+  "caption": "Schematic pathways from standard neuroanatomy. Not patient-specific.",
+  "note": "These are hand placed centrelines showing where each transmitter system runs, drawn from textbook neuroanatomy. They are not tractography, they are not derived from this patient, and they are not derived from any scan. Each one starts at its source nucleus and ends in the territory it projects to. The source nuclei are brainstem and basal forebrain structures that sit below the cortical surface, so the first point of a pathway is usually inside the brain rather than on the mesh.",
+  "groups": [
+    {"key": "serotonin", "label": "Serotonin", "color": "#d95f02"},
+    {"key": "dopamine", "label": "Dopamine", "color": "#7570b3"},
+    {"key": "norepinephrine", "label": "Norepinephrine", "color": "#1b9e77"},
+    {"key": "acetylcholine", "label": "Acetylcholine", "color": "#e7298a"},
+    {"key": "histamine", "label": "Histamine", "color": "#66a61e"}
+  ],
+  "pathways": [
+    {
+      "key": "serotonin_raphe_cortex",
+      "name": "Dorsal raphe to cortex",
+      "group": "serotonin",
+      "about": "The dorsal raphe sits in the midline of the brainstem and sends serotonin fibres forward along the medial forebrain bundle to almost the whole cortex.",
+      "source": "dorsal raphe nucleus",
+      "radius_mm": 1.8,
+      "points": [
+        [0.0, -28.0, -30.0],
+        [0.0, -16.0, -24.0],
+        [0.0, -2.0, -18.0],
+        [0.0, 14.0, -10.0],
+        [0.0, 32.0, 0.0],
+        [0.0, 50.0, 10.0],
+        [0.0, 62.0, 18.0]
+      ]
+    },
+    {
+      "key": "serotonin_raphe_limbic",
+      "name": "Median raphe to limbic system",
+      "group": "serotonin",
+      "about": "The median raphe projects to the hippocampus and the limbic structures either side of the midline.",
+      "source": "median raphe nucleus",
+      "radius_mm": 1.6,
+      "points": [
+        [0.0, -30.0, -36.0],
+        [-6.0, -28.0, -28.0],
+        [-16.0, -28.0, -24.0],
+        [-26.0, -28.0, -20.0],
+        [-32.0, -26.0, -18.0]
+      ]
+    },
+    {
+      "key": "serotonin_raphe_striatum",
+      "name": "Raphe to striatum",
+      "group": "serotonin",
+      "about": "A branch of the same ascending serotonin system that ends in the striatum.",
+      "source": "dorsal raphe nucleus",
+      "radius_mm": 1.5,
+      "points": [
+        [0.0, -28.0, -30.0],
+        [-6.0, -16.0, -22.0],
+        [-14.0, -4.0, -12.0],
+        [-20.0, 6.0, -4.0],
+        [-22.0, 12.0, 2.0]
+      ]
+    },
+    {
+      "key": "dopamine_vta_accumbens",
+      "name": "VTA to nucleus accumbens",
+      "group": "dopamine",
+      "about": "The mesolimbic pathway. The ventral tegmental area sits in the midbrain and projects forward to the nucleus accumbens.",
+      "source": "ventral tegmental area",
+      "radius_mm": 1.8,
+      "points": [
+        [0.0, -16.0, -24.0],
+        [-4.0, -8.0, -20.0],
+        [-7.0, 2.0, -16.0],
+        [-9.0, 12.0, -12.0]
+      ]
+    },
+    {
+      "key": "dopamine_vta_prefrontal",
+      "name": "VTA to prefrontal cortex",
+      "group": "dopamine",
+      "about": "The mesocortical pathway. The same midbrain source, carried forward to the prefrontal cortex.",
+      "source": "ventral tegmental area",
+      "radius_mm": 1.7,
+      "points": [
+        [0.0, -16.0, -24.0],
+        [-5.0, -2.0, -18.0],
+        [-9.0, 16.0, -8.0],
+        [-12.0, 36.0, 4.0],
+        [-14.0, 54.0, 14.0],
+        [-14.0, 64.0, 20.0]
+      ]
+    },
+    {
+      "key": "dopamine_nigra_striatum",
+      "name": "Substantia nigra to striatum",
+      "group": "dopamine",
+      "about": "The nigrostriatal pathway, the one that fails in Parkinson's disease. It runs from the substantia nigra up into the putamen and caudate.",
+      "source": "substantia nigra pars compacta",
+      "radius_mm": 1.8,
+      "points": [
+        [-10.0, -18.0, -24.0],
+        [-14.0, -12.0, -18.0],
+        [-19.0, -4.0, -10.0],
+        [-23.0, 4.0, -2.0],
+        [-24.0, 10.0, 4.0]
+      ]
+    },
+    {
+      "key": "norepinephrine_lc_cortex",
+      "name": "Locus coeruleus to cortex",
+      "group": "norepinephrine",
+      "about": "A small nucleus in the dorsal pons whose fibres reach almost the entire cortex. It is the brain's main source of noradrenaline.",
+      "source": "locus coeruleus",
+      "radius_mm": 1.8,
+      "points": [
+        [-5.0, -34.0, -32.0],
+        [-7.0, -22.0, -22.0],
+        [-9.0, -6.0, -8.0],
+        [-11.0, 12.0, 6.0],
+        [-12.0, 34.0, 16.0],
+        [-12.0, 56.0, 22.0]
+      ]
+    },
+    {
+      "key": "norepinephrine_lc_hippocampus",
+      "name": "Locus coeruleus to hippocampus",
+      "group": "norepinephrine",
+      "about": "The branch of the same system that reaches the hippocampus.",
+      "source": "locus coeruleus",
+      "radius_mm": 1.5,
+      "points": [
+        [-5.0, -34.0, -32.0],
+        [-14.0, -32.0, -28.0],
+        [-24.0, -30.0, -24.0],
+        [-31.0, -28.0, -20.0]
+      ]
+    },
+    {
+      "key": "norepinephrine_lc_thalamus",
+      "name": "Locus coeruleus to thalamus",
+      "group": "norepinephrine",
+      "about": "The branch that ends in the thalamus, which is part of how noradrenaline changes arousal.",
+      "source": "locus coeruleus",
+      "radius_mm": 1.5,
+      "points": [
+        [-5.0, -34.0, -32.0],
+        [-8.0, -26.0, -20.0],
+        [-11.0, -18.0, -8.0],
+        [-12.0, -14.0, 2.0]
+      ]
+    },
+    {
+      "key": "acetylcholine_basal_cortex",
+      "name": "Basal forebrain to cortex",
+      "group": "acetylcholine",
+      "about": "The nucleus basalis of Meynert sits under the front of the brain and supplies acetylcholine to the whole cortex. It is the system lost early in Alzheimer's disease.",
+      "source": "nucleus basalis of Meynert",
+      "radius_mm": 1.7,
+      "points": [
+        [-14.0, 4.0, -18.0],
+        [-18.0, 18.0, -10.0],
+        [-20.0, 38.0, 2.0],
+        [-20.0, 58.0, 12.0],
+        [-18.0, 70.0, 18.0]
+      ]
+    },
+    {
+      "key": "acetylcholine_septum_hippocampus",
+      "name": "Medial septum to hippocampus",
+      "group": "acetylcholine",
+      "about": "The septohippocampal pathway, which runs back through the fornix and sets the hippocampal theta rhythm.",
+      "source": "medial septal nucleus",
+      "radius_mm": 1.5,
+      "points": [
+        [0.0, 14.0, -8.0],
+        [-8.0, 4.0, -6.0],
+        [-18.0, -10.0, -8.0],
+        [-26.0, -22.0, -16.0],
+        [-31.0, -30.0, -20.0]
+      ]
+    },
+    {
+      "key": "histamine_tmn_cortex",
+      "name": "Tuberomammillary nucleus to cortex",
+      "group": "histamine",
+      "about": "The only source of histamine in the brain, in the posterior hypothalamus. It projects widely and is part of staying awake, which is why antihistamines are sedating.",
+      "source": "tuberomammillary nucleus",
+      "radius_mm": 1.6,
+      "points": [
+        [-6.0, -8.0, -28.0],
+        [-9.0, 4.0, -20.0],
+        [-12.0, 20.0, -8.0],
+        [-14.0, 42.0, 6.0],
+        [-14.0, 60.0, 16.0]
+      ]
+    }
+  ]
+}

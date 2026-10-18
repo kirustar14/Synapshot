@@ -46,7 +46,7 @@ import { useApp } from "@/store/app";
 const POLL_MS = 2000;
 const POLL_FOR_MS = 30000;
 
-type Status = "sent" | "delivered" | "failed" | "mock" | "none";
+type Status = "sent" | "delivered" | "not_sent" | "mock" | "none";
 
 /** The one line the chip shows. Never claims more than is known. */
 function chipFor(status: Status, channel: string) {
@@ -56,7 +56,7 @@ function chipFor(status: Status, channel: string) {
   if (status === "sent") {
     return { text: "Sent via iMessage, delivery not confirmed", tone: "wait" as const };
   }
-  if (status === "failed") {
+  if (status === "not_sent") {
     return { text: "Not sent", tone: "bad" as const };
   }
   if (status === "mock") {
@@ -198,7 +198,7 @@ export function CallModal({
       try {
         const got = await api.messageStatus(mid);
         setStatus(got.status as Status);
-        if (got.detail) setDetail(got.detail);
+        if (got.error) setDetail(got.error);
         // Only sent is still in flight. The other three are final.
         if (got.status === "sent") setTimeout(tick, POLL_MS);
       } catch {
@@ -218,13 +218,15 @@ export function CallModal({
         setStatus("none");
         return;
       }
-      const next = (got.status ?? "mock") as Status;
+      // createCall still reports the transport's own word for it.
+      const raw = got.status ?? "mock";
+      const next = (raw === "failed" ? "not_sent" : raw) as Status;
       setStatus(next);
       setDetail(got.why || got.error || "");
       if (next === "sent" && got.message_id) poll(got.message_id);
-      if (next === "failed") setShowDetails(true);
+      if (next === "not_sent") setShowDetails(true);
     } catch (err) {
-      setStatus("failed");
+      setStatus("not_sent");
       setDetail(err instanceof Error ? err.message : String(err));
       setShowDetails(true);
     } finally {
@@ -283,7 +285,7 @@ export function CallModal({
                 {chip.tone === "bad" && <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />}
                 <span className="min-w-0">
                   {chip.text}
-                  {status === "failed" && ". Open on phone with the QR code."}
+                  {status === "not_sent" && ". Open on phone with the QR code."}
                 </span>
               </p>
             )}

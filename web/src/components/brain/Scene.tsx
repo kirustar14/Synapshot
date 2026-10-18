@@ -12,6 +12,8 @@ import { Callouts } from "./Callouts";
 import { CortexMesh } from "./CortexMesh";
 import { Tracts } from "./Tracts";
 import { Vessels, type Focus } from "./Vessels";
+import { Pathways } from "./Pathways";
+import type { PathwayLine } from "@/api/client";
 import { TRACT_SLOTS, makeScalarTexture, makeTractTexture, makeValueTexture, type CortexBuild } from "./geometry";
 import { atWeek, REGIONS, type LayerValues, type Ranked, type TractInfo } from "./regionData";
 import { cortexUniforms, tractUniforms, type ViewerTextures } from "./uniforms";
@@ -36,6 +38,10 @@ export interface SceneProps {
   spin?: boolean;
   /** The schematic vessel layout, when the layer is on. */
   vessels?: { vessels: Vessel[]; groups: Record<string, { label: string; colour: string; about: string }> };
+  /** The schematic transmitter pathways, drawn for whichever medicines are lit. */
+  pathways?: { pathways: PathwayLine[]; groups: { key: string; label: string; color: string }[] };
+  /** Transmitter systems to draw, from the medicines toggled in the Treatment tab. */
+  pathwayGroups?: string[];
   /** SWI microhaemorrhage foci read off this patient's report. */
   foci?: Focus[];
 }
@@ -56,7 +62,7 @@ function presetPosition(name: ViewPreset, d: number): [number, number, number] {
 
 export function Scene(props: SceneProps) {
   const { cortex, mesh, twin, shape, points, tracts, values, ghost, layerIdx, week, ranked,
-          compact, syncId, spin, vessels, foci = [] } = props;
+          compact, syncId, spin, vessels, pathways, pathwayGroups = [], foci = [] } = props;
   const v = useViewer();
   const { camera, invalidate, size } = useThree();
   const controls = useRef<OrbitControlsImpl>(null);
@@ -337,6 +343,14 @@ export function Scene(props: SceneProps) {
         />
         {points && v.tracts && tracts.length > 0 && (
           <Tracts tracts={tracts} points={points} uniforms={tractU} particles={showParticles} onPick={v.setSelectedTract} />
+        )}
+        {pathways && pathwayGroups.length > 0 && (
+          <Pathways
+            lines={pathways.pathways}
+            groups={pathways.groups}
+            show={pathwayGroups}
+            flashed={v.flashed}
+          />
         )}
         {v.vessels && vessels && (
           <Vessels

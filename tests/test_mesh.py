@@ -194,40 +194,11 @@ def test_a_stand_in_map_is_never_passed_off_as_real():
         assert ":" in line and ("surface" in line or "volume" in line), line
 
 
-def test_intervention_is_finite_for_every_target(seeded):
-    """Every target returns a finite per region effect and the disclaimer."""
-    pid = seeded[0]["id"]
-    for target in intervention.receptors()["names"]:
-        got = intervention.run(pid, target, 0.3)
-        eff = np.asarray(got["region_effect"])
-        assert eff.shape == (REG,)
-        assert np.isfinite(eff).all()
-        for key in ("fc_strength", "rate", "metastability"):
-            assert np.isfinite(got["summary_delta"][key])
-        assert got["note"] == intervention.NOTE
-        assert "not a treatment recommendation" in got["note"].lower()
-
-
-def test_intervention_gain_is_clamped(seeded):
-    """A wild gain is clamped rather than run."""
-    pid = seeded[0]["id"]
-    assert intervention.run(pid, "NMDA", 99.0)["gain"] == intervention.GAIN_HI
-    assert intervention.run(pid, "NMDA", -99.0)["gain"] == intervention.GAIN_LO
-
-
-def test_intervention_never_touches_the_forecast(seeded):
-    """Running a what-if leaves the stored forecast, the filter and the alerts alone."""
-    pid = seeded[0]["id"]
-    before = db.dec(db.latest_forecast(pid)["payload"], {})
-    state_before = str(db.patient(pid)["state"])
-    alerts_before = len(db.alerts(pid))
-
-    intervention.run(pid, "GABA-A", 0.5)
-
-    after = db.dec(db.latest_forecast(pid)["payload"], {})
-    assert after == before, "the what-if changed the forecast"
-    assert str(db.patient(pid)["state"]) == state_before, "the what-if moved the filter"
-    assert len(db.alerts(pid)) == alerts_before, "the what-if raised an alert"
+# The intervention what-if is gone, and so are the three tests that drove it: one that
+# every target returned a finite per region effect, one that a wild gain was clamped, and
+# one that running it left the forecast and the filter alone. There is nothing left to
+# clamp or to leave alone. What replaced it only reads the receptor atlas, which the
+# tests above still cover, and never runs the model at all. See DECISIONS.md.
 
 
 def test_no_summary_mentions_an_intervention(seeded):
@@ -235,7 +206,6 @@ def test_no_summary_mentions_an_intervention(seeded):
     from backend.agent import summary
 
     pid = seeded[0]["id"]
-    intervention.run(pid, "D2", 0.4)
     row = db.patient(pid)
     both = summary.for_checkin(pid, int(row["week"] or 0))
     banned = ["gaba", "nmda", "receptor", "dopamine", "serotonin", "opioid", "d2",

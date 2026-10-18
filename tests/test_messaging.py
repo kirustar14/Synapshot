@@ -206,3 +206,53 @@ def test_make_send_test_exists():
     assert "send-test:" in src
     assert "photon_probe.mjs" in src
     assert "twilio" not in src.lower(), "the Makefile should not mention Twilio at all"
+
+
+# ---------------------------------------------------------------- delivery honesty
+
+def test_the_status_route_never_claims_delivery_it_cannot_see(client, seeded):
+    """Four states, and delivered only when a provider said so.
+
+    Local iMessage cannot read receipts at all, so a message sent that way stays `sent`
+    with delivery_confirmation `unavailable` forever. That is the honest state: accepted
+    and unconfirmed. Calling it delivered would be inventing a receipt.
+    """
+    from backend import db
+
+    pid = str(seeded[0]["id"])
+    mid = db.new_id("msg")
+    db.put("messages", {"id": mid, "patient_id": pid, "dir": "out", "body": "test",
+                        "time": db.now(), "channel": "imessage", "kind": "call_link",
+                        "status": "sent", "provider_id": "prov-123"})
+
+    got = client.get(f"/api/messages/{mid}/status")
+    assert got.status_code == 200, got.text
+    body = got.json()
+
+    assert body["status"] in ("sent", "delivered", "not_sent", "mock")
+    assert set(["channel", "status", "provider_id", "error", "delivered_at"]) <= set(body)
+    assert body["provider_id"] == "prov-123"
+    if body["status"] != "delivered":
+        assert body["delivered_at"] is None, "a delivery time with no delivery"
+        assert body["delivery_confirmation"] == "unavailable"
+
+
+def test_a_failed_send_reads_as_not_sent(client, seeded):
+    """`failed` is the transport's word. On a screen it means nothing left the building."""
+    from backend import db
+
+    pid = str(seeded[0]["id"])
+    mid = db.new_id("msg")
+    db.put("messages", {"id": mid, "patient_id": pid, "dir": "out", "body": "test",
+                        "time": db.now(), "channel": "imessage", "kind": "call_link",
+                        "status": "failed", "detail": "the sidecar refused it"})
+
+    body = client.get(f"/api/messages/{mid}/status").json()
+    assert body["status"] == "not_sent"
+    assert body["error"] == "the sidecar refused it"
+    assert body["delivered_at"] is None
+
+
+def test_an_unknown_message_is_a_404(client):
+    """Rather than a made up status for an id that does not exist."""
+    assert client.get("/api/messages/msg_nope/status").status_code == 404

@@ -383,7 +383,13 @@ def twin_json(dmg0: np.ndarray, ei: np.ndarray, state: dict, upto: int = fcast.W
 
     regions = []
     for i in range(sc.shape[0]):
-        dmg_i = dreg[i] * decay
+        # The ensemble mean, not dreg * decay. Those are two different formulas: the
+        # decay here is built from the point estimates of k and p and leaves out the
+        # damage scale, while the band is built from every member and includes it. With
+        # a scale above 1 that put the whole 10th to 90th interval above the line it was
+        # supposed to be an interval around, so every region on the Data tab showed a
+        # number outside its own band. Taking both from the ensemble is the fix.
+        dmg_i = band["mean"][i]
         regions.append({
             "id": i,
             "name": names[i],

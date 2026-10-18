@@ -1390,3 +1390,88 @@ visible partly because the damage ramp was rewritten earlier to window the top e
 
 Not done: the changed regions do not pulse on the brain yet. The banner names them and
 the colours move, but the one-off pulse is still to come.
+
+## Steps 3 and 4: the Treatment tab stops simulating and starts explaining
+
+The tab used to let you pick medicines, run the model, and read off a baseline, a treated
+version and the gap between them, with an effect size slider and a ranked list of the
+regions that moved most. Underneath, `twin/drugs.py` combined a drug's receptor affinities
+into one weight per region and `twin/intervention.run` scaled each region's local
+recurrent weight by `1 + gain * weight`, ran the dynamic mean field model twice, and
+called the difference the effect.
+
+Every part of that is defensible as a method and none of it is defensible as a screen. It
+is a treatment response prediction. Nothing in this system has any standing to make one:
+there is no outcome model, nothing was fitted to anybody's response to a medicine, and the
+number it printed to four decimal places came from a gain parameter somebody chose with a
+slider. Removed: `twin/drugs.py`, `intervention.run`, `intervention.scaled`, the
+`/intervention` route, the `DrugImpact` payload, the mock that stood in for it, and the
+three tests that drove it.
+
+Kept: the receptor and transporter atlas in `intervention.py`. The atlas was never the
+problem, and the viewer that replaced the simulation reads it directly.
+
+What the tab is now: a reference for what each medicine does and where its known targets
+are. Toggle one and the brain lights up its target density from the PET and SPECT atlas,
+plus the schematic pathway its transmitter runs along. Instant, because there is nothing
+to compute. Everything else is in a dropdown, closed by default, so twelve medicines fit
+on a page.
+
+- **`no map available` is a real answer and appears five times.** The Hansen atlas covers
+  twelve targets. Propranolol acts at beta adrenoceptors, ondansetron at 5-HT3, gabapentin
+  at the alpha-2-delta calcium channel subunit, melatonin at MT1 and MT2, and the atlas
+  covers none of them. Those say so. Drawing a nearby receptor instead would be inventing
+  a picture, and it is exactly the kind of invention that is impossible to spot later.
+  Acetaminophen and ibuprofen have no mapped brain target at all, cannot be toggled, and
+  keep their dropdown, because the most useful thing the screen can say about
+  acetaminophen is that it has nothing to show.
+- **The overlap is an intersection, not a claim.** Regions above a fixed damage floor of
+  0.15 and above a target density of z = 1. Fixed rather than percentile so the same
+  number means the same thing on every patient. It does not say the medicine reaches those
+  regions and it does not say anything would improve if it did. Empty is common and is
+  printed as empty.
+- **Citations are tagged, and most of them say check this.** Giacino 2012 was fetched and
+  read, so the amantadine entry is tagged verified and says what it actually studied: 184
+  patients in a vegetative or minimally conscious state after SEVERE TBI, in inpatient
+  rehabilitation, which is a different population from concussion. The amantadine NMDA
+  mechanism is verified the same way. Everything else is tagged check this. The GtoPdb
+  ligand pages need a login and the VA/DoD and AAN guideline PDFs would not extract to
+  text, so those claims are written from general pharmacological knowledge and are
+  labelled as needing a source read end to end. Nothing is cited that was not fetched.
+- **No dose anywhere, and a test that keeps it that way.** The old formulary carried a
+  `typical_dose` field for recognition. It is gone, and a test greps the whole payload for
+  " mg" and its relatives.
+- **Ordered by match count, never by better.** The symptom section counts how many of this
+  patient's elevated symptoms each medicine is ordinarily used for. That is a count, not a
+  judgement, and the words recommend and best appear nowhere, which a test enforces over
+  the whole payload. The threshold is a fixed 4 out of 10 so two weeks can be compared.
+  Pressure and neck pain fold into headache and blurred vision folds into light
+  sensitivity, because they are one complaint as far as what gets prescribed is concerned
+  and listing amitriptyline three times for it would be noise.
+
+Two bugs came out of building this:
+
+- **The damage interval never contained its own estimate.** `twin_json` built `damage`
+  from `dreg * decay`, where decay came from the point estimates of k and p and left out
+  the damage scale, while `damage_lo` and `damage_hi` came from the ensemble, which
+  includes it. With a scale above 1 the whole 10th to 90th band sat above the line it was
+  supposed to be a band around, on every region of every patient. Both now come from the
+  ensemble. Found by printing an overlap row and noticing 0.344 sitting outside
+  [0.386, 0.557].
+- **`suggested-drugs` would 500 on a fresh database.** The call tables are created the
+  first time somebody makes a call, so on a new install the query was against a table that
+  did not exist. An empty list is the right answer there.
+
+## Step 5: a message says only what is known about it
+
+`GET /api/messages/{id}/status` now returns the channel, the status, the provider id, the
+real error text and the delivery time, with the status one of sent, delivered, not_sent or
+mock.
+
+- **`failed` became `not_sent`.** `failed` is the transport's word for it. On a screen the
+  thing a clinician needs to know is that nothing left the building.
+- **`delivery_confirmation` is only ever `provider`.** Everything else is `unavailable`,
+  including local iMessage, which cannot read receipts at all. A message sent that way
+  stays `sent` forever, and the modal says "Sent via iMessage, delivery not confirmed",
+  which is the whole truth about it. `delivered_at` is null unless a provider confirmed,
+  so there is no delivery time without a delivery.

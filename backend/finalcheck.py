@@ -70,13 +70,16 @@ def real() -> list[dict]:
     out.append(line(GREEN, f"Vessel atlas: {len(vesselmod.VESSELS)} vessels",
                     vesselmod.CAPTION))
 
-    from .twin import drugs as drugmod
+    from .data import drugs as drugmod
 
     book = drugmod.drugs()
-    modeled = [d for d in book if d["modeled"]]
-    out.append(line(GREEN, f"Formulary: {len(book)} drugs, {len(modeled)} modelled",
-                    f"{len(book) - len(modeled)} say why this model has nothing to say "
-                    "about them"))
+    mapped = [d for d in book if drugmod.mapped_keys(d)]
+    out.append(line(GREEN, f"Formulary: {len(book)} medicines, {len(mapped)} with a target map",
+                    f"{len(book) - len(mapped)} say no map available rather than being "
+                    "drawn from a receptor they do not act on"))
+
+    out.append(line(GREEN, f"Pathways: {len(drugmod.pathways()['pathways'])} centrelines",
+                    drugmod.pathways()["caption"]))
 
     from .calls import script as callscript
 

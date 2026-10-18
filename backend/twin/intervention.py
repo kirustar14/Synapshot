@@ -16,7 +16,6 @@ from ..config import cfg
 from ..data.templates import ei_map, templates
 from . import dmf, priors, strain
 
-NOTE = "Hypothetical what-if. Not a treatment recommendation."
 
 # Receptor and transporter maps, by target, with the real neuromaps annotations behind
 # each one. Each entry is a list of (source, desc) tried in order; the second is a
@@ -63,7 +62,6 @@ TRACER = {
 }
 
 SIM_S = 20.0        # one short run per side of the comparison
-GAIN_LO, GAIN_HI = -0.5, 0.5
 HEMI_VERTS = 40962  # fsaverage6 per hemisphere, which is what the parcellation is on
 
 
@@ -296,77 +294,13 @@ def receptors() -> dict:
     return _CACHE
 
 
-def scaled(name: str) -> np.ndarray:
-    """One receptor map min-max scaled to 0 to 1, the weight on the local gain."""
-    got = receptors()
-    if name not in got["maps"]:
-        raise KeyError(name)
-    arr = np.asarray(got["maps"][name], dtype=float)
-    lo, hi = float(arr.min()), float(arr.max())
-    return (arr - lo) / (hi - lo if hi - lo > 1e-9 else 1.0)
-
-
-def run(pid: str, target: str, gain: float) -> dict:
-    """Scale local gain by 1 + gain * receptor_z_scaled, run the DMF, report the change.
-
-    Luppi style regional gain perturbation: the receptor map says where a drug acting on
-    that receptor would bite hardest, and the perturbation scales each region's local
-    recurrent weight by 1 + gain * weight_i. Both sides are simulated with this patient's
-    structural connectivity and current damage, so the difference is the effect.
-    """
-    row = db.patient(pid)
-    if row is None:
-        raise KeyError(f"no patient {pid}")
-    if target not in receptors()["maps"]:
-        raise KeyError(target)
-
-    from .attribution import damage_now
-    from .shape import personal_sc
-
-    gain = float(np.clip(gain, GAIN_LO, GAIN_HI))
-    bio = db.dec(row["biomarkers"], {"gfap_z": 0.0, "uchl1_z": 0.0}) or {}
-    zbio = float(0.5 * (float(bio.get("gfap_z", 0.0)) + float(bio.get("uchl1_z", 0.0))))
-    params = db.dec(row["params"], {}) or {}
-    gval = float(params.get("G") or priors.HYPER["mu_G"])
-
-    dmg, _ = damage_now(pid)
-    sc = personal_sc(pid) * (1.0 - strain.damage_matrix(np.clip(dmg, 0.0, 1.0)))
-    base_ei = ei_map(zbio)
-    pert_ei = base_ei * (1.0 + gain * scaled(target))
-
-    base = _summaries(sc, gval, base_ei, seed=11)
-    alt = _summaries(sc, gval, pert_ei, seed=11)
-    effect = alt["rates"] - base["rates"]
-
-    return {
-        "target": target,
-        "gain": round(gain, 4),
-        "region_effect": [round(float(v), 5) for v in effect],
-        "summary_delta": {
-            "fc_strength": round(float(alt["fc_strength"] - base["fc_strength"]), 5),
-            "rate": round(float(alt["rate"] - base["rate"]), 5),
-            "metastability": round(float(alt["metastability"] - base["metastability"]), 5),
-        },
-        "baseline": {
-            "fc_strength": round(float(base["fc_strength"]), 5),
-            "rate": round(float(base["rate"]), 5),
-            "metastability": round(float(base["metastability"]), 5),
-        },
-        "receptor": [round(float(v), 4) for v in scaled(target)],
-        "synthetic_template": bool(receptors()["synthetic_template"]),
-        "note": NOTE,
-    }
-
-
-def _summaries(sc: np.ndarray, gval: float, ei: np.ndarray, seed: int = 0) -> dict:
-    """Mean FC strength, mean rate, metastability and per region rates for one setting."""
-    jj = dmf.fic(sc, gval, ei)
-    sim = dmf.simulate(sc, gval, ei=ei, dur_s=SIM_S, seed=seed, j=jj)
-    fc = dmf.fc_lin(sc, gval, ei=ei, j=jj)
-    strength = float(dmf.upper(fc).mean()) if np.isfinite(fc).all() else float(dmf.upper(dmf.fc_of(sim["bold"])).mean())
-    return {
-        "rates": sim["rate"].mean(axis=0),
-        "rate": float(sim["rate"].mean()),
-        "fc_strength": strength,
-        "metastability": float(dmf.metastability(sim["bold"])),
-    }
+# What used to live below here: `scaled`, `run` and `_summaries`, the Luppi style regional
+# gain perturbation. It scaled each region's local recurrent weight by 1 + gain * receptor
+# weight, ran the dynamic mean field model twice, and reported the difference as the effect
+# of a drug. That is a treatment response prediction, and nothing in this system has the
+# standing to make one, so it is gone along with the /intervention route and the Treatment
+# tab's Simulate button. See DECISIONS.md.
+#
+# Everything above is kept because it is the receptor and transporter atlas itself, which
+# the pathway viewer and the evidence drawer both still read. The atlas was never the
+# problem; what was done with it was.
