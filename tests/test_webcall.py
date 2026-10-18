@@ -545,6 +545,41 @@ def test_the_token_is_not_logged_next_to_the_patient(seeded):
     assert start["token"] not in body
 
 
+def test_a_call_token_is_masked_in_the_access_log(seeded):
+    """The token travels in the URL path, so the access logger must not write it out.
+
+    It is the only credential a patient has: with it you can read their script, post
+    measurements as them and read their summary. uvicorn logs the whole path by default.
+    """
+    import logging
+
+    from backend import logs
+
+    token = sessions.create(seeded[0]["id"])["token"]
+    for path in (f"/api/call/{token}/frames", f"/call/{token}",
+                 f"/api/call/{token}/audio/speech_ah"):
+        masked = logs.mask(f'"GET {path} HTTP/1.1" 200 OK')
+        assert token not in masked, f"{path} leaked the token"
+        assert token[-6:] in masked, "enough of the tail should survive to debug with"
+
+    # And through a real log record, the way the filter actually runs.
+    flt = logs.MaskTokens()
+    record = logging.LogRecord("uvicorn.access", logging.INFO, "", 0,
+                               '%s - "%s %s HTTP/1.1" %d', ("127.0.0.1", "GET",
+                               f"/api/call/{token}/status", 200), None)
+    assert flt.filter(record)
+    assert token not in (record.getMessage())
+
+
+def test_masking_leaves_other_paths_alone():
+    """Only call tokens are rewritten, so ordinary paths stay readable."""
+    from backend import logs
+
+    for path in ("/api/patients", "/api/mesh", "/api/alerts", "/voice/redflags.mp3",
+                 "/api/patients/pat_abc123/twin"):
+        assert logs.mask(path) == path
+
+
 # ---------------------------------------------------------------- call mode
 
 def test_web_is_the_default_call_mode():

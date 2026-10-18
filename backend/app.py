@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
-from . import db, demo, models, rig_hub
+from . import db, demo, logs, models, rig_hub
 from .agent import safety, summary
 from .agent import summary as agent_summary
 from .calls import audio as callaudio
@@ -29,22 +29,23 @@ from .twin import attribution, build, counterfactual, forecast as fcast, populat
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Open the database and hand the event loop to the rig bridge."""
+    """Open the database, mask tokens in the logs, hand the loop to the rig bridge."""
     db.conn()
+    logs.install()
     rig_hub.set_loop(asyncio.get_running_loop())
     yield
 
 
 app = FastAPI(title="UNNAMED", version="0.1.0", lifespan=lifespan)
 
+# The mesh is about 1.5 MB of JSON and the twin payload is not small either, so every
+# response over a kilobyte is compressed. Measured: the mesh goes to 499 KB and the twin
+# to 48 KB. On a phone reaching this over a tunnel that is the whole difference.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 # The frontend is served from this same origin, so in live mode nothing needs a cross
 # origin grant and the only allowed origin is the public URL itself. Mock mode stays open
 # so a separate `npm run dev` on another port can talk to it.
-# The mesh is about 1.5 MB of JSON and the twin payload is not small either, so every
-# response over a kilobyte is compressed. On a phone over a tunnel this is the
-# difference between a usable page and a slow one.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
-
 ORIGINS = [cfg.public_url] if (cfg.mode() == "live" and cfg.public_url) else ["*"]
 app.add_middleware(
     CORSMiddleware,
