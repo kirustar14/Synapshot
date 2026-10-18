@@ -1475,3 +1475,14 @@ mock.
   stays `sent` forever, and the modal says "Sent via iMessage, delivery not confirmed",
   which is the whole truth about it. `delivered_at` is null unless a provider confirmed,
   so there is no delivery time without a delivery.
+
+## Step 6: two things `make check` was hiding
+
+It crashed outright on a `KeyError: 'sms'` and had been doing so since SMS was taken out
+of the fallback chain: `notify.status` stopped reporting an `sms` key and the row still
+read one. So the command whose whole job is to say what is real and what fell back could
+not run at all, which is why the Treatment tab's missing route was not noticed sooner.
+Both are fixed: the SMS row now says there is no fallback chain, which is the truth, and
+the contract route list names the pathway viewer's routes instead of `/intervention`.
+
+`make check` now prints 42 passed, 0 failed, 7 running on a fallback.

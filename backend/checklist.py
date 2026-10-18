@@ -35,7 +35,12 @@ OPTIONAL = {
 ROUTES = [
     # spec file 1: the mesh, the shape, the receptors and the what-if
     ("GET", "/api/mesh"), ("GET", "/api/patients/{pid}/shape"), ("GET", "/api/receptors"),
-    ("POST", "/api/patients/{pid}/intervention"),
+    # /intervention is gone with the drug simulation it drove. These are the pathway
+    # viewer that replaced it, which only reads.
+    ("GET", "/api/pathways"), ("GET", "/api/drugs/{name}"), ("GET", "/api/drugs/{name}/map"),
+    ("GET", "/api/patients/{pid}/drugs/{name}/overlap"),
+    ("GET", "/api/patients/{pid}/suggested-drugs"),
+    ("GET", "/api/patients/{pid}/latest-update"),
     # spec file 2: the web call
     ("POST", "/api/calls"), ("GET", "/api/call/{token}/script"),
     ("POST", "/api/call/{token}/consent"), ("POST", "/api/call/{token}/redflags"),
@@ -367,8 +372,13 @@ def comms_check() -> list[dict]:
              "live through the sidecar" if got["imessage"]
              else "mock. Needs PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET plus "
                   "make imessage"),
-        line(GREEN if got["sms"] else MOCK, "SMS fallback",
-             "live" if got["sms"] else "mock"),
+        # SMS is deliberately not in the fallback chain any more, so `notify.status` stopped
+        # reporting it and this row crashed `make check` outright on a KeyError. A failed
+        # iMessage stays a failed iMessage so the screen can say so, and the QR code is the
+        # way round it. The row says that rather than pretending there is a fallback.
+        line(MOCK, "SMS fallback",
+             "not in the fallback chain. A failed iMessage stays failed so the screen can "
+             "say so, and the QR code is the way round it"),
     ]
     sdk = got["sidecar"]
     out.append(line(GREEN if sdk.get("installed") else MOCK, "iMessage sidecar packages",
