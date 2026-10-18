@@ -24,7 +24,9 @@ export interface InputFile {
   file: string;
   synthetic: boolean;
   status: "ok" | "warn" | "error" | "missing";
+  /** What this file sets in the model, for the Data tab. */
   sets: string;
+  /** What the validator found, if anything. */
   note?: string;
 }
 
@@ -38,18 +40,83 @@ export interface Alert {
   acked: boolean;
 }
 
+/**
+ * How the head was hit.
+ *
+ * The first six fields drive the strain model. The rest are read off the patient's
+ * documents and shown in the Data tab with their provenance: they are what the chart
+ * said, not what the model used.
+ */
+export interface Injury {
+  mechanism: string;
+  helmet: string;
+  angle_deg: number;
+  location: string;
+  date: string;
+  loc: boolean;
+  loc_seconds?: number | null;
+  gcs?: number | null;
+  days_ago?: number | null;
+  contusion?: string | null;
+  ct_finding?: string | null;
+  mri_finding?: string | null;
+  swi_foci?: number | null;
+}
+
+/**
+ * Genotype calls. `apoe` and `bdnf` are as the report wrote them, so the Data tab can
+ * show "e3/e4" rather than "1". DNA changes the recovery rate and nothing else.
+ */
+export interface Alleles {
+  apoe_e4: 0 | 1 | 2;
+  bdnf_met: boolean;
+  comt: "Val/Val" | "Val/Met" | "Met/Met";
+  apoe?: string | null;
+  bdnf?: string | null;
+}
+
+/**
+ * Blood markers. The z is what the twin consumes; the pg/mL is what the lab reported,
+ * carried through so the conversion can be checked rather than trusted. NfL has no z:
+ * there is no reference to standardise it against, so it is shown and not modelled.
+ */
+export interface Biomarkers {
+  gfap_z: number;
+  uchl1_z: number;
+  gfap_pg_ml?: number | null;
+  uchl1_pg_ml?: number | null;
+  nfl_pg_ml?: number | null;
+}
+
+/** One medication as the chart wrote it. The dose is never interpreted. */
+export interface ChartMed {
+  name: string;
+  dose: string;
+  status: string;
+}
+
+/** Clinical facts read off the documents that the model does not consume. */
+export interface Chart {
+  occupation?: string | null;
+  medications: ChartMed[];
+  reported_symptoms: string[];
+}
+
 export interface Patient {
   id: string;
   name: string;
   age: number;
   sex: "F" | "M";
   week: number;
-  injury: { mechanism: string; helmet: string; angle_deg: number; location: string; date: string; loc: boolean };
+  injury: Injury;
+  chart: Chart;
   inputs: InputFile[];
-  alleles: { apoe_e4: 0 | 1 | 2; bdnf_met: boolean; comt: "Val/Val" | "Val/Met" | "Met/Met" };
-  biomarkers: { gfap_z: number; uchl1_z: number };
+  alleles: Alleles;
+  biomarkers: Biomarkers;
   fc_fit: number | null;
   coverage: number;
+  /** The drift z the alert rule reads: positive means worse than the twin expected. */
+  drift_z: number;
   contraction: { k: number };
   params: { G: number; k: number; p: number; eps: number };
   alerts: Alert[];
@@ -236,7 +303,8 @@ export interface Cohort {
 
 export interface Attribution {
   signal: string;
-  tracts: { name: string; score: number }[];
+  /** `a` and `b` are the two region indices the tract joins, for clicking through. */
+  tracts: { name: string; score: number; a?: number; b?: number }[];
   note: string;   // always says hypothesis
 }
 

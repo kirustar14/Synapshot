@@ -9,7 +9,7 @@ export const WEEK_MAX = 12;
 export const RECEPTOR_TARGETS = ["GABA-A", "NMDA", "D2", "5-HT2A", "mu-opioid"] as const;
 export type ReceptorTarget = (typeof RECEPTOR_TARGETS)[number];
 
-export type ViewPreset = "left" | "right" | "top" | "front";
+export type ViewPreset = "left" | "right" | "top" | "front" | "back" | "bottom";
 export type HemiMode = "both" | "split" | "L" | "R";
 
 /** Seconds the injury replay runs for before it hands over to the week player. */
@@ -43,8 +43,15 @@ interface ViewerState {
   borders: boolean;
   ghost: boolean;
   callouts: boolean;
+  /** The schematic vessel layer. Off by default: it is a diagram, not this patient's. */
+  vessels: boolean;
+  /** Arteries inside the vessel layer. Off even when vessels are on, because in a head
+      injury the venous side is what usually matters and both at once is a thicket. */
+  arteries: boolean;
+  /** Microhaemorrhage foci read off the SWI report, drawn as nodes. */
+  foci: boolean;
   hemi: HemiMode;
-  setFlag: (patch: Partial<Pick<ViewerState, "hologram" | "reduceMotion" | "tracts" | "borders" | "ghost" | "callouts">>) => void;
+  setFlag: (patch: Partial<Pick<ViewerState, "hologram" | "reduceMotion" | "tracts" | "borders" | "ghost" | "callouts" | "vessels" | "arteries" | "foci">>) => void;
   setHemi: (h: HemiMode) => void;
 
   hovered: number | null;
@@ -120,6 +127,9 @@ export const useViewer = create<ViewerState>((set) => ({
   borders: true,
   ghost: true,
   callouts: true,
+  vessels: false,
+  arteries: false,
+  foci: true,
   hemi: "both",
   setFlag: (patch) => set(patch),
   setHemi: (hemi) => set({ hemi }),

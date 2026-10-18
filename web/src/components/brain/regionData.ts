@@ -34,6 +34,8 @@ export interface LayerValues {
   empty: boolean;
   /** What the bright end of the ramp means for this patient, when the layer auto scales. */
   scaleTop?: number;
+  /** What the dark end means. Set when the ramp spans a range rather than starting at 0. */
+  scaleLo?: number;
 }
 
 export interface LayerCtx {
@@ -100,21 +102,43 @@ export function layerValues(id: LayerId, ctx: LayerCtx): LayerValues {
   const regions = twin.regions;
 
   if (id === "damage") {
-    // The model's damage runs small, often under 0.2, so a fixed 0 to 1 ramp would leave the
-    // cortex dark. The ramp is scaled to this patient's own worst region at week 0, with a
-    // floor so a nearly healthy brain does not get amplified into looking wrecked. The legend
-    // prints the real number at the bright end.
-    let top = 0.12;
-    for (const r of regions) top = Math.max(top, r.damage?.[0] ?? 0);
+    // Damage from a rotational impact is diffuse, not focal: the strain model damages
+    // edges by how they are oriented against the blow, so most of the brain carries
+    // some. A real patient's week 0 field is often 0.12 to 0.17, a spread of about 1.5x
+    // sitting well above zero.
+    //
+    // Dividing by the maximum, which is what this used to do, then mapped that whole
+    // field onto the top third of the ramp and lit the entire cortex red. The brain
+    // looked catastrophically injured when the model was saying something quite mild and
+    // quite even.
+    //
+    // So the ramp spans the patient's own range instead of starting at zero: dark is
+    // their least damaged region, bright is their worst. That makes the relative
+    // structure visible, which is the useful thing, and it is explicitly a relative map.
+    // `scaleLo` and `scaleTop` are both reported so the legend can say what the two ends
+    // actually are rather than implying 0 to 1.
+    let top = 0;
+    let lo = Infinity;
+    for (const r of regions) {
+      const v = r.damage?.[0] ?? 0;
+      top = Math.max(top, v);
+      lo = Math.min(lo, v);
+    }
+    if (!Number.isFinite(lo)) lo = 0;
+    // A floor on the span, so a perfectly even field is not amplified into noise. Below
+    // this the differences between regions are smaller than the filter's own spread.
+    const span = Math.max(0.02, top - lo);
     for (let i = 0; i < REGIONS; i++) {
       const v = atWeek(regions[i]?.damage, week);
       out.raw[i] = v;
-      out.pos[i] = clamp01(v / top);
-      // The glow curve is steeper than the colour so only the genuinely worst regions burn.
-      out.glow[i] = clamp01(Math.pow(v / top, 1.8));
+      out.pos[i] = clamp01((v - lo) / span);
+      // Glow is capped well under 1. The bloom pass multiplies this, and anything near
+      // the top blows the surface out to white and loses every parcel boundary with it.
+      out.glow[i] = 0.55 * clamp01(Math.pow((v - lo) / span, 1.8));
     }
+    out.scaleLo = lo;
     out.scaleTop = top;
-    out.format = (v) => v.toFixed(2);
+    out.format = (v) => v.toFixed(3);
     return out;
   }
 

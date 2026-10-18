@@ -218,6 +218,7 @@ class Patient(BaseModel):
     biomarkers: Biomarkers
     fc_fit: float | None
     coverage: float
+    drift_z: float = 0.0
     contraction: Contraction
     params: Params
     alerts: list[Alert]
@@ -515,10 +516,16 @@ class Cohort(BaseModel):
 
 
 class TractScore(BaseModel):
-    """One tract and its attribution score."""
+    """One tract and its attribution score.
+
+    `a` and `b` are the region indices the tract joins, so the Analysis tab can click a
+    tract and move the brain to one of its ends.
+    """
 
     name: str
     score: float
+    a: int | None = None
+    b: int | None = None
 
 
 class Attribution(BaseModel):

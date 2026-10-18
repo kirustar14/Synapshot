@@ -1,13 +1,13 @@
-// What the pages import. BrainViewer is deliberately absent: a page must pull it through
-// React.lazy so three, drei and postprocessing stay out of the main chunk.
+// What the workspace imports. BrainViewer is deliberately absent: a page must pull it
+// through React.lazy so three, drei and postprocessing stay out of the main chunk.
+//
+// The panels that used to hang off this barrel went with the pages they belonged to.
+// What is left is what the one-screen workspace actually uses: the region card, the
+// shape slider, and the pure data helpers that have no three import and so can be used
+// from a tab without dragging the 3D bundle in with them.
 
-export { AttributionPanel, HypothesisBadge } from "./AttributionPanel";
-export { CounterfactualPanel } from "./CounterfactualPanel";
-export { LayerSwitcher, Legend } from "./LayerSwitcher";
 export { PersonPanel, RegionPanel, TractPanel, WhereItHurts, receptorMap } from "./SidePanels";
 export { ShapeControls } from "./ShapeControls";
-export { DamageTimeline, ReplayControls, WeekScrubber } from "./TimeControls";
-export { WhatIfBanner, WhatIfPanel } from "./WhatIfPanel";
 export { LAYERS, LAYER_BY_ID, rampColor, rampGradient, type LayerId } from "./layers";
 export {
   REGIONS,
@@ -20,5 +20,5 @@ export {
   weightsFromAttribution,
   type LayerValues,
 } from "./regionData";
-export { RECEPTOR_TARGETS, WEEK_MAX, useViewer } from "./viewerStore";
+export { RECEPTOR_TARGETS, WEEK_MAX, useViewer, type ViewPreset } from "./viewerStore";
 export type { BrainViewerProps } from "./BrainViewer";

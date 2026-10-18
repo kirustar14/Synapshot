@@ -139,6 +139,7 @@ def patient_obj(pid: str) -> dict:
         "biomarkers": db.dec(row["biomarkers"], {}) or {},
         "fc_fit": None if row["fc_fit"] is None else float(row["fc_fit"]),
         "coverage": round(float(row["coverage"] or 0.0), 3),
+        "drift_z": round(float(row["drift_z"] or 0.0), 3),
         "contraction": db.dec(row["contraction"], {"k": 0.0}) or {"k": 0.0},
         "params": {
             "G": float(params.get("G", 0.0)), "k": float(params.get("k", 0.0)),

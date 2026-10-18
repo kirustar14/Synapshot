@@ -69,7 +69,11 @@ def attribution(pid: str, keep: int = 3) -> list[dict]:
         tracts = []
         for j in rank:
             e = int(order[j])
-            tracts.append({"name": f"{names[ia[e]]} to {names[ib[e]]}", "score": float(scores[j])})
+            # The two region indices go with the name, so a tract in the Analysis tab can
+            # be clicked through to the region on the brain.
+            tracts.append({"name": f"{names[ia[e]]} to {names[ib[e]]}",
+                           "score": float(scores[j]),
+                           "a": int(ia[e]), "b": int(ib[e])})
         out.append({"signal": o["key"], "tracts": tracts, "note": NOTE})
     return out
 

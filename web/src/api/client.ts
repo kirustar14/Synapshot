@@ -513,8 +513,8 @@ export const useTwinInputs = (id: string) =>
 export const useVoices = () => useQuery({ queryKey: ["voices"], queryFn: api.voices });
 export const useProvenance = (id: string) =>
   useQuery({ queryKey: ["provenance", id], queryFn: () => api.provenance(id), enabled: !!id });
-export const useVessels = () =>
-  useQuery({ queryKey: ["vessels"], queryFn: api.vessels, staleTime: Infinity });
+export const useVessels = (on = true) =>
+  useQuery({ queryKey: ["vessels"], queryFn: api.vessels, staleTime: Infinity, enabled: on });
 export const useFormulary = () =>
   useQuery({ queryKey: ["formulary"], queryFn: api.formulary, staleTime: Infinity });
 export const useEvidence = () =>

@@ -4,7 +4,7 @@
 import { Canvas } from "@react-three/fiber";
 import { Eye, FlaskConical, Info, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useMesh, useShape, useTwin } from "@/api/client";
+import { usePatient, useMesh, useShape, useTwin, useVessels } from "@/api/client";
 import type { Shape } from "@/api/types";
 import { ErrorState, Loading } from "@/components/common";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import {
   topLit,
   type LayerValues,
 } from "./regionData";
+import type { Focus } from "./Vessels";
 import { useViewer, type HemiMode, type ViewPreset } from "./viewerStore";
 
 export interface BrainViewerProps {
@@ -47,6 +48,10 @@ export interface BrainViewerProps {
   spin?: boolean;
   /** Drops every overlay except one honesty label, so the brain can be the whole frame. */
   bare?: boolean;
+  /** Fill the parent instead of using a fixed height. The workspace column drives it. */
+  fill?: boolean;
+  /** Hide the viewer's own preset row when the page supplies its own. */
+  presets?: boolean;
 }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -97,11 +102,16 @@ const HEMIS: { id: HemiMode; label: string }[] = [
 ];
 
 export default function BrainViewer(props: BrainViewerProps) {
-  const { patientId, compact = false, height, syncId, caption, spin = false, bare = false } = props;
+  const { patientId, compact = false, height, syncId, caption, spin = false, bare = false,
+          fill = false, presets = true } = props;
   const mesh = useMesh();
   const shape = useShape(patientId);
   const twin = useTwin(patientId);
+  const patient = usePatient(patientId);
   const v = useViewer();
+  // Only fetched when the layer is on. It is 11 KB of polylines and most sessions never
+  // turn it on, so there is no reason to pull it down on every workspace load.
+  const vessels = useVessels(v.vessels);
   const caps = useMemo(() => detectCaps(), []);
   const [big, setBig] = useState(false);
 
@@ -163,6 +173,29 @@ export default function BrainViewer(props: BrainViewerProps) {
 
   const ranked = useMemo(() => topLit(values, 5), [values]);
 
+  // SWI microhaemorrhage foci, placed inside the contusion the report localised.
+  //
+  // The report gives a count and a lobe, not coordinates, so the positions are spread
+  // around the impact point rather than measured. That is why they are only drawn when
+  // the vessel layer is on and why the layer's caption covers them: a node here says
+  // "the report counted this many foci in this region", not "a focus is here".
+  const foci = useMemo<Focus[]>(() => {
+    const n = patient.data?.injury?.swi_foci ?? 0;
+    const at = liveShape?.impact?.point;
+    if (!n || !at) return [];
+    const spread = (liveShape?.impact?.radius || 25) * 0.45;
+    return Array.from({ length: Math.min(12, n) }, (_, i) => {
+      // Deterministic from the index, so the same report draws the same nodes every time
+      // rather than scattering them again on every render.
+      const a = (i * 2.399963) % (Math.PI * 2);
+      const r = spread * (0.35 + 0.5 * ((i * 0.618) % 1));
+      return {
+        at: [at[0] + r * Math.cos(a), at[1] + r * Math.sin(a), at[2] + r * 0.4 * Math.sin(a * 1.7)] as [number, number, number],
+        mm: 2 + (i % 2),
+      };
+    });
+  }, [patient.data, liveShape]);
+
   const readout = v.hovered ?? v.selected;
   const def = LAYER_BY_ID[layer];
   const placeholder = !!mesh.data && mesh.data.source !== "fsaverage5";
@@ -189,10 +222,13 @@ export default function BrainViewer(props: BrainViewerProps) {
   return (
     <div
       className={cn(
-        "workspace-visual relative overflow-hidden rounded-xl border border-[#1e3a44] bg-[#070e12]",
+        "workspace-visual relative overflow-hidden bg-[#070e12]",
+        // `bare` is the landing page, where the canvas is the whole frame. A border and
+        // a corner radius there draw a box around what is meant to be the background.
+        !bare && "rounded-xl border border-[#1e3a44]",
         big && "fixed inset-4 z-50",
       )}
-      style={big ? undefined : { height: stageHeight }}
+      style={big ? undefined : bare || fill ? { height: "100%" } : { height: stageHeight }}
     >
       <Canvas
         dpr={[1, 1.75]}
@@ -216,6 +252,8 @@ export default function BrainViewer(props: BrainViewerProps) {
           compact={compact}
           syncId={syncId ?? null}
           spin={spin}
+          vessels={vessels.data}
+          foci={foci}
         />
       </Canvas>
 
@@ -247,7 +285,7 @@ export default function BrainViewer(props: BrainViewerProps) {
 
       {!bare && (
       <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5">
-        {(!compact || syncId) && (
+        {presets && (!compact || syncId) && (
           <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1" role="group" aria-label="Preset views">
             {PRESETS.map((p) => (
               <button

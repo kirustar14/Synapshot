@@ -7,11 +7,13 @@ import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import type { Vessel } from "@/api/client";
 import type { Mesh as MeshPayload, Shape, Twin } from "@/api/types";
 import { Callouts } from "./Callouts";
 import { CortexMesh } from "./CortexMesh";
 import { ImpactMarker } from "./ImpactMarker";
 import { Tracts } from "./Tracts";
+import { Vessels, type Focus } from "./Vessels";
 import { TRACT_SLOTS, makeScalarTexture, makeTractTexture, makeValueTexture, type CortexBuild } from "./geometry";
 import { atWeek, REGIONS, type LayerValues, type Ranked, type TractInfo } from "./regionData";
 import { cortexUniforms, tractUniforms, type ViewerTextures } from "./uniforms";
@@ -34,6 +36,10 @@ export interface SceneProps {
   syncId: string | null;
   /** Slow automatic rotation, for the landing page hologram. */
   spin?: boolean;
+  /** The schematic vessel layout, when the layer is on. */
+  vessels?: { vessels: Vessel[]; groups: Record<string, { label: string; colour: string; about: string }> };
+  /** SWI microhaemorrhage foci read off this patient's report. */
+  foci?: Focus[];
 }
 
 /** Rotates RAS millimetres so the superior direction is up in the scene. */
@@ -42,14 +48,19 @@ const UPRIGHT: [number, number, number] = [-Math.PI / 2, 0, 0];
 function presetPosition(name: ViewPreset, d: number): [number, number, number] {
   if (name === "left") return [-d, 0, 0];
   if (name === "right") return [d, 0, 0];
+  // The tiny z offset on the axial views keeps the camera off the up vector, where the
+  // orbit controls have nothing to orient against and the view flips.
   if (name === "top") return [0, d, 0.001];
+  if (name === "bottom") return [0, -d, 0.001];
+  if (name === "back") return [0, 0, d];
   return [0, 0, -d];
 }
 
 export function Scene(props: SceneProps) {
-  const { cortex, mesh, twin, shape, points, tracts, values, ghost, layerIdx, week, ranked, compact, syncId, spin } = props;
+  const { cortex, mesh, twin, shape, points, tracts, values, ghost, layerIdx, week, ranked,
+          compact, syncId, spin, vessels, foci = [] } = props;
   const v = useViewer();
-  const { camera, invalidate } = useThree();
+  const { camera, invalidate, size } = useThree();
   const controls = useRef<OrbitControlsImpl>(null);
 
   const textures = useMemo<ViewerTextures>(
@@ -137,8 +148,27 @@ export function Scene(props: SceneProps) {
     }
   }, [v.replay, cortexU]);
 
-  /** Frames the camera on the mesh once, then honours the preset buttons. */
-  const dist = cortex.radius * 3.1;
+  /**
+   * How far back the camera has to sit for the whole brain to fit.
+   *
+   * A fixed multiple of the mesh radius only works at one aspect ratio. The viewer lives
+   * in a tall narrow column in the workspace and full width on the landing page, and the
+   * fixed version framed it for the second and cropped it in the first: a perspective
+   * camera's horizontal field of view is the vertical one scaled by the aspect, so a
+   * narrow canvas sees less sideways and the brain runs off both edges.
+   *
+   * So fit against whichever axis is tighter. d = R / sin(half angle) is the distance at
+   * which a sphere of radius R exactly fills that angle; the margin leaves it some air.
+   */
+  const dist = useMemo(() => {
+    const fov = camera instanceof THREE.PerspectiveCamera ? camera.fov : 34;
+    const aspect = size.height > 0 ? size.width / size.height : 1;
+    const vHalf = (fov * Math.PI) / 360;
+    const hHalf = Math.atan(Math.tan(vHalf) * aspect);
+    const tight = Math.max(0.05, Math.min(vHalf, hHalf));
+    return (cortex.radius / Math.sin(tight)) * 1.08;
+  }, [camera, cortex.radius, size.width, size.height]);
+
   useEffect(() => {
     camera.position.set(-dist * 0.78, dist * 0.3, -dist * 0.52);
     camera.lookAt(0, 0, 0);
@@ -147,7 +177,14 @@ export function Scene(props: SceneProps) {
       camera.far = dist * 8;
       camera.updateProjectionMatrix();
     }
-  }, [camera, dist]);
+    // The orbit controls keep their own target and spherical state. Moving the camera
+    // without telling them leaves the two disagreeing, and the next damping tick drags
+    // the view back toward wherever the controls still think it should be, which looked
+    // like the brain drifting off centre a second after the panel resized.
+    controls.current?.target.set(0, 0, 0);
+    controls.current?.update();
+    invalidate();
+  }, [camera, dist, invalidate]);
 
   useEffect(() => {
     if (!v.preset) return;
@@ -301,6 +338,15 @@ export function Scene(props: SceneProps) {
         />
         {points && v.tracts && tracts.length > 0 && (
           <Tracts tracts={tracts} points={points} uniforms={tractU} particles={showParticles} onPick={v.setSelectedTract} />
+        )}
+        {v.vessels && vessels && (
+          <Vessels
+            vessels={vessels.vessels}
+            groups={vessels.groups}
+            arteries={v.arteries}
+            foci={foci}
+            showFoci={v.foci}
+          />
         )}
         {shape?.impact?.point && (
           <ImpactMarker point={shape.impact.point} radius={shape.impact.radius || 25} motion={!v.reduceMotion} wave={waveRef} />

@@ -33,7 +33,19 @@ import type {
   VoiceLine,
   Voices,
 } from "@/api/types";
-import type { DrugEntry } from "@/api/client";
+// Type-only, so there is no runtime cycle with the client that imports this file. The
+// annotations matter: without them the mock layer's shapes are inferred and can drift
+// away from the contract without anybody noticing until a screen renders undefined.
+import type {
+  AlertRule,
+  DrugEntry,
+  DrugImpact,
+  Evidence,
+  Formulary,
+  Percentile,
+  Timeline,
+  Vessels,
+} from "@/api/client";
 import { ATLAS, NETWORKS, REGION_NAMES } from "./atlas";
 import { callScript, voices as voiceInventory } from "./call";
 import { nearestVertex, proceduralMesh } from "./mesh";
@@ -376,12 +388,42 @@ function makePatient(id: string, seed: Seed, now: number): PState {
       location: seed.loc,
       date: new Date(base - DAY).toISOString().slice(0, 10),
       loc: seed.kind === "redflag",
+      loc_seconds: seed.kind === "redflag" ? 45 : 0,
+      gcs: seed.kind === "redflag" ? 13 : 15,
+      days_ago: seed.week * 7 + 2,
+      contusion: seed.loc.startsWith("temporal") ? "left temporal" : "right frontal",
+      ct_finding: "No acute intracranial haemorrhage, mass effect or midline shift.",
+      mri_finding:
+        "Small cortical contusion with mild surrounding oedema. Two small foci of susceptibility on SWI.",
+      swi_foci: 2,
+    },
+    chart: {
+      occupation: null,
+      medications: [
+        { name: "ondansetron", dose: "4 mg", status: "current" },
+        { name: "acetaminophen", dose: "500 mg", status: "current" },
+        { name: "amitriptyline", dose: "10 mg", status: "proposed" },
+      ],
+      reported_symptoms: ["headache", "fatigue", "light sensitivity"],
     },
     inputs: makeInputs(seed.kind),
-    alleles: { apoe_e4: apoe, bdnf_met: bdnf, comt: r.pick(["Val/Val", "Val/Met", "Met/Met"] as const) },
-    biomarkers: { gfap_z: round(1 + r.next() * 1.8, 2), uchl1_z: round(0.6 + r.next() * 1.5, 2) },
+    alleles: {
+      apoe_e4: apoe,
+      bdnf_met: bdnf,
+      comt: r.pick(["Val/Val", "Val/Met", "Met/Met"] as const),
+      apoe: apoe === 2 ? "e4/e4" : apoe === 1 ? "e3/e4" : "e3/e3",
+      bdnf: bdnf ? "Val/Met" : "Val/Val",
+    },
+    biomarkers: {
+      gfap_z: round(1 + r.next() * 1.8, 2),
+      uchl1_z: round(0.6 + r.next() * 1.5, 2),
+      gfap_pg_ml: round(120 + (1 + r.next() * 1.8) * 60, 1),
+      uchl1_pg_ml: round(290 + (0.6 + r.next() * 1.5) * 140, 1),
+      nfl_pg_ml: round(12 + r.next() * 6, 1),
+    },
     fc_fit: fcFit,
     coverage: 0.8,
+    drift_z: seed.kind === "drifting" ? 2.6 : round(r.normal() * 0.5, 2),
     contraction: { k: 0 },
     params: { G: round(1.8 + r.next() * 0.6, 2), k, p: round(0.08 + r.next() * 0.08, 3), eps: round(0.04 + r.next() * 0.03, 3) },
     alerts: [],
@@ -941,7 +983,7 @@ export const mock = {
 
   // The rules behind each flag, matching backend/alerts.py so the mock layer cannot
   // show a different threshold from the one the real backend enforces.
-  explainAlert: (aid: string) => {
+  explainAlert: (aid: string): AlertRule => {
     const a = db().alerts.find((x) => x.id === aid);
     const rules: Record<string, { rule: string; detail: string; threshold: number }> = {
       drift: {
@@ -1160,7 +1202,7 @@ export const mock = {
   // A handful of vessels so the layer draws something without a backend. The real list
   // is 35; this is the subset that reads as a venous system at a glance, and the caption
   // is the same one, because a schematic is a schematic either way.
-  vessels: () => ({
+  vessels: (): Vessels => ({
     vessels: [
       { name: "Superior sagittal sinus", group: "dural_sinus", radius_mm: 5,
         about: "Midline, along the attached margin of the falx.",
@@ -1204,7 +1246,7 @@ export const mock = {
     note: "Polylines through anatomical landmarks, at atlas scale. No angiogram went into this.",
   }),
 
-  formulary: () => ({
+  formulary: (): Formulary => ({
     drugs: [
       { name: "sertraline", class: "SSRI", typical_dose: "25 to 200 mg daily", modeled: true,
         targets: [{ receptor: "5-HTT", affinity: 1, direction: 1, why: "blocks the serotonin transporter" },
@@ -1261,7 +1303,7 @@ export const mock = {
     note: "Group average PET and SPECT maps from healthy volunteers, parcellated onto Schaefer-100 and z scored.",
   }),
 
-  evidence: () => ({
+  evidence: (): Evidence => ({
     ok: true,
     claims: [
       { section: "Parcellation and surface", tag: "verified" as const,
@@ -1329,7 +1371,7 @@ export const mock = {
     note: "Every claim carries whether anybody checked it. There is no state of this panel that hides a weak result.",
   }),
 
-  timeline: (id: string) => {
+  timeline: (id: string): Timeline => {
     const s = get(id);
     const events: ReturnType<typeof makeEvent>[] = [];
     function makeEvent(time: string, kind: string, labelText: string, band: string, detail: Record<string, unknown>) {
@@ -1383,7 +1425,7 @@ export const mock = {
     };
   },
 
-  percentile: (id: string) => {
+  percentile: (id: string): Percentile => {
     const s = get(id);
     const r = rng(hashStr(`${id}:cohort`));
     const ks = Array.from({ length: 50 }, () => clamp(0.25 + r.normal() * 0.07, 0.05, 0.6));
@@ -1423,10 +1465,12 @@ export const mock = {
     };
   },
 
-  drugImpact: (id: string, drugs: { name: string }[], gain: number) => {
+  drugImpact: (id: string, drugs: { name: string }[], gain: number): DrugImpact => {
     const s = get(id);
     const book = mock.formulary().drugs;
-    const picked = drugs.map((d) => book.find((b) => b.name === d.name)).filter((d): d is DrugEntry => !!d && d.modeled);
+    const picked: DrugEntry[] = drugs
+      .map((d) => book.find((b) => b.name === d.name))
+      .filter((d): d is DrugEntry => d !== undefined && d.modeled);
     const receptors = [...new Set(picked.flatMap((d) => d.targets.map((t) => t.receptor)))];
     if (!picked.length) {
       return { kind: "drugs" as const, ok: true, modeled: false, banner: mock.formulary().banner,
