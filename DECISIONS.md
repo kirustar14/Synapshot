@@ -1550,3 +1550,19 @@ chat bubbles with a tiny mono name above them. Not a dense dashboard.
   eleven sitting above the thing they describe.
 - The build log is a stepper: mono uppercase step name, ink while live and grey otherwise,
   with the detail underneath as a chat bubble.
+
+## 1c: the clinic list and the patient profile
+
+Both now read the way the reference does.
+
+The clinic list is a mono eyebrow, a serif headline with one italic word, one line of grey
+subcopy, a pill search and a black pill button, then flat rows with mono column heads and
+mono numbers. The highest drift row carries the one hard offset card on the screen, so
+the eye lands on the patient who needs looking at. It was a bordered table in a panel.
+
+The patient profile sets the name in serif, because on that screen the patient is the
+headline. Every label around it is mono uppercase: the fact row, the rail sections, the
+fold titles in all four tabs. Gutters went from 4 to 7 and the page padding from 5 to 10,
+which is most of what makes the reference feel calm.
+
+Nothing moved or was removed. Same rows, same numbers, same flags, same links.

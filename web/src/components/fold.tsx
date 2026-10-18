@@ -104,7 +104,7 @@ export function Fold({
           className={cn("h-3.5 w-3.5 shrink-0 transition-transform", !open && "-rotate-90")}
           aria-hidden
         />
-        <span className="shrink-0 text-xs font-black uppercase tracking-wide">{title}</span>
+        <span className="eyebrow shrink-0 text-foreground">{title}</span>
         {!open && summary !== undefined && (
           <span className="min-w-0 flex-1 truncate text-right text-[11px] text-muted-foreground">
             {summary}

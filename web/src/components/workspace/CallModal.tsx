@@ -239,7 +239,7 @@ export function CallModal({
             <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row">
               <QR text={link} />
               <div className="w-full min-w-0 flex-1 space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                <p className="eyebrow text-muted-foreground">
                   Open on phone
                 </p>
                 <p className="text-[11px] leading-snug text-muted-foreground">

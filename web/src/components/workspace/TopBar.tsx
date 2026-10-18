@@ -30,8 +30,8 @@ function Fact({
 }) {
   return (
     <div className={wide ? "min-w-0 max-w-[22ch] xl:max-w-[34ch]" : "min-w-0"} title={title ?? value}>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="truncate text-sm font-bold">{value}</p>
+      <p className="eyebrow text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-sm">{value}</p>
     </div>
   );
 }
@@ -64,12 +64,13 @@ export function TopBar({
   const mechanism = injury.mechanism || "mechanism not recorded";
 
   return (
-    <header className="no-print flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 px-4 py-3 lg:px-6">
+    <header className="no-print flex flex-wrap items-center gap-x-8 gap-y-4 border-b border-border/70 px-4 py-5 lg:px-8">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <h1 className="truncate text-xl font-black">{patient.name}</h1>
+          {/* The patient is the headline on this screen, so it is set like one. */}
+          <h1 className="display truncate text-3xl">{patient.name}</h1>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           {patient.age}, {patient.sex === "F" ? "female" : "male"}
           {patient.chart?.occupation ? `, ${patient.chart.occupation}` : ""}
         </p>

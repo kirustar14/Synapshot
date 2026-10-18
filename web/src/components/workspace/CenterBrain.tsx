@@ -173,7 +173,7 @@ export function CenterBrain({ patient }: { patient: Patient }) {
           left, its own toggles top right and its own hint bottom left, and anything put
           over the canvas landed on one of them. The canvas is for the brain. */}
       <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-muted/40 px-3 py-2">
-        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+        <span className="shrink-0 eyebrow text-muted-foreground">
           Week {week}
         </span>
         <Slider

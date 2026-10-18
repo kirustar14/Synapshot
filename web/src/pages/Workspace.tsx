@@ -157,7 +157,7 @@ export default function Workspace() {
           the page scrolls. Above it they become fixed height columns that scroll inside
           themselves, which is what makes the brain stay put while a tab is read. Trying
           to do both at once was what made them overlap on a phone. */}
-      <div className="grid grid-cols-1 gap-4 px-4 pb-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[260px_minmax(0,1fr)_380px] lg:overflow-hidden lg:px-6 xl:grid-cols-[280px_minmax(0,1fr)_420px]">
+      <div className="grid grid-cols-1 gap-7 px-5 pb-6 lg:min-h-0 lg:flex-1 lg:grid-cols-[250px_minmax(0,1fr)_370px] lg:overflow-hidden lg:px-10 xl:grid-cols-[270px_minmax(0,1fr)_400px]">
         <LeftRail patient={patient.data} stream={stream} />
         <CenterBrain patient={patient.data} />
         <RightPanel patient={patient.data} />
