@@ -408,7 +408,7 @@ this phase was the master prompt header, then spec file 1, then 2, then 3, then 
   on average and 8.6 mm at worst. Strain only uses unit edge directions, which are
   translation invariant, so centring the mesh on the origin changes nothing in the model.
 - **The inflated surface is centred on its own centroid**, not shifted by the pial offset.
-  Each fsaverage5 inflated hemisphere arrives centred on the origin and would occupy the
+  Each fsaverage6 inflated hemisphere arrives centred on the origin and would occupy the
   same space as its partner, so each slides sideways until its medial face is at x = 0 with
   a 2 mm gap, and then the joined surface is centred. Inflating expands the cortex in place
   instead of sliding the whole brain forward and down.
@@ -439,7 +439,7 @@ this phase was the master prompt header, then spec file 1, then 2, then 3, then 
   angle the strain model uses. The impact vertex is the pial vertex whose direction from the
   head centre best matches it, which keeps the marker and the tract damage from one impact.
 - **FreeSurfer uploads are a hook, not a feature.** `shape._freesurfer_base` reads
-  `data/uploads/<patient id>/surf/{lh,rh}.pial` when they exist and match the fsaverage5
+  `data/uploads/<patient id>/surf/{lh,rh}.pial` when they exist and match the fsaverage6
   vertex count, and sets `source: "freesurfer"`. Nothing in the UI writes to that path, so
   in practice every patient is synthetic. The spec allowed skipping this if it ran past 30
   minutes; the read path was cheap enough to keep, the upload path was not built.
@@ -803,7 +803,7 @@ job id and a second connection would be three moving parts where one does.
 - **Days since injury is measured from the bundle's own latest date, not from today.**
   Otherwise the same records describe a patient who drifts further from their injury
   every day the demo is run.
-- **Claude and the fallback never mix.** When the model succeeds nothing from the regex
+- **The model and the fallback never mix.** When the model succeeds nothing from the regex
   pass is merged in. Half a record from each would make `source_file` mean two different
   things on one screen with no way to tell which fields to trust.
 - **The build log's one second floor is pacing, not padding.** Steps two to five take
@@ -862,7 +862,7 @@ Every page carries "SYNTHETIC RECORD. NOT A REAL PERSON. NOT FOR CLINICAL USE."
 - **The dates are fixed, not relative to today.** Nine days is nine days, in every run,
   forever. A bundle whose dates move needs its answer key regenerated to stay true.
 - **One field lives only on a scan, on purpose.** Her sport is on the scanned referral
-  letter and nowhere else. With a key, Claude reads the image and gets it. Without one it
+  letter and nowhere else. With a key, Gemini reads the image and gets it. Without one it
   comes back at confidence zero and the workspace shows it as needing review. A demo where
   every field always resolves would never show that state, and that state is the honest
   behaviour of this pipeline on a real bundle.
@@ -1068,7 +1068,7 @@ than glancing:
 1. **The Honest limits block in the Evidence drawer.** Opened deliberately, read
    deliberately. Limit 5 was rewritten: it used to say every viewer carries a label, which
    is no longer true, so it now says the whole thing once instead. The cortex is a template
-   surface on fsaverage5, the shape is fitted to the chart rather than reconstructed, every
+   surface on fsaverage6, the shape is fitted to the chart rather than reconstructed, every
    colour is model output, and the vessels are from an atlas.
 2. **The footer of a printed summary.** Invisible on screen, on every printed page. This
    is the version that leaves the building and the one most likely to reach somebody who
@@ -1164,3 +1164,115 @@ now. It costs nothing: the mesh query is parameterless and never goes stale, and
 viewer on the same screen has already fetched it. Two different Schaefer parcels can still
 share one plain name, so a tract with both ends in one parcel reads "within left back
 parietal" rather than "X to X", which looks like a bug even when it is not.
+
+## Gemini replaces Anthropic
+
+Every model call in the backend goes to Gemini now. There were two of them: the call-time
+phrasing in `agent/llm.py`, and the document extraction in `ingest/extract.py`. The shape
+of both is unchanged, including the thing that matters most about them, which is that a
+failure is always a fallback and never an error a patient or a clinician sees.
+
+- **Called over plain REST with httpx, not through a client library.** There is one request
+  shape in `llm.py` and the whole file is a page long, so a dependency that has to be
+  installed before the backend starts would buy nothing. `anthropic` is out of
+  `requirements.txt` and out of the optional-package list in `checklist.py`, and nothing
+  replaced it: the LLM can no longer be unavailable because of a missing import, only
+  because of a blank key or `MOCK_LLM`.
+- **`GEMINI_API_KEY` or `GOOGLE_API_KEY`.** The first is what the Gemini docs tell you to
+  set and the second is what a Google Cloud console download calls the same thing. Either
+  flips `MOCK_LLM` to 0.
+- **`GEMINI_MODEL` is not checked against a list of valid ids, which supersedes the
+  decision at "CLAUDE_MODEL was set to a model that does not exist".** That check existed
+  because a wrong id 404s silently. The reasoning still holds and the implementation does
+  not: Google shipped `gemini-3.5`, `3.6`, `3.7` and `3.8` flash ids while this was being
+  written, and a name list in `config.py` would have rejected all four for being newer
+  than the list. A name check cannot tell a model that does not exist from one released
+  last week, so it no longer tries. The one thing it can still tell is that a
+  `claude-sonnet-5` left in `.env` will never answer a Gemini request, so a non-Gemini id
+  is still replaced with the default and still records why in `MODEL_NOTE`.
+- **`make check` calls the model for real instead.** This is what actually replaced the
+  name check, and it is strictly better: `llm.probe` spends one tiny completion and the
+  LLM row then says `live on <model>`, or names the reason it is not. A row that says live
+  because a key is non-empty is the exact failure the old check was reaching for.
+- **A 429 is reported as its own state, not as a failure.** It is the one answer that
+  proves the setup is right: the request was understood, accepted, and turned away for
+  quota. Nothing is misconfigured and nothing needs changing, so `make check` says
+  `rate limited` and says that lines are templates until it resets. This is not a corner
+  case. The free tier is 20 requests a day on `gemini-3.8-flash`, which one ingest run and
+  a few phrased lines will finish, and the symptom without this is a demo that looks
+  configured and phrases nothing.
+- **Thinking is off for phrasing and on for extraction.** `thinkingBudget: 0` on the flash
+  ids, because a scripted line said in other words is not reasoning and a patient is
+  waiting. Extraction leaves it on: reading ten documents and working out which is the
+  most recent is reasoning, and nobody is on the phone. 2.5 Pro cannot turn thinking off
+  at all, so it is sent no budget rather than one the API would reject.
+- **Thought parts are dropped by their `thought` flag.** They arrive in the same `parts`
+  list as the answer and they also carry `text`, so joining the list naively puts the
+  model's reasoning in front of a spoken line, and in front of the JSON the extractor is
+  about to parse. This is the one real difference in reply handling between the two APIs
+  and it fails quietly in both places it can fail.
+- **Structured output is constrained decoding plus pydantic, not one or the other.** The
+  extractor sends the schema as `responseJsonSchema` and validates the reply with
+  `Extraction.model_validate` anyway. If a model id rejects a schema that nested, it falls
+  back to plain JSON mode with the schema written into the prompt, which is a weaker
+  constraint and the same validation. Pydantic is the gate either way, so a malformed
+  reply is a fallback to the regex pass rather than something that reaches the database.
+  `title` and `default` are stripped from the schema before it is sent: they carry no
+  instruction, and `default` invites the model to return the default instead of reading
+  the document.
+- **Measured, not assumed.** On the flagship ten-document pack, `gemini-2.5-flash` fills
+  21 of 21 readable fields with none below the review line, and 20 of them match the
+  answer key exactly. The 21st is `ct_finding`, where it quoted one sentence of the CT
+  conclusion instead of all three: still copied verbatim from the right file, still true,
+  just shorter than the key. `occupation` is the field that only exists on a scanned
+  image, and it reads it, so the vision path works and the one deliberate gap in the pack
+  behaves as designed.
+
+## The brain viewer, merged from the Creao+Gemini branch
+
+That branch is one commit past the point it forked from, `04d3dbf`, "Added brain model and
+gemini integration". This branch was eight commits past the same point, and both had
+rewritten the same files, so the brain half of it was a three-way merge rather than a copy.
+Twelve of the fifteen files merged with no conflict and are that branch's code verbatim.
+The three that conflicted are the only places a judgement was made, and in each one a
+straight copy would have deleted something this branch added afterwards.
+
+- **The look is theirs, wholesale.** Light stage instead of the dark hologram, an opaque
+  cortex coloured by lobe in one blue family, impact severity drawn as graded bands in the
+  fragment shader, drifting sparkles, no bloom and no vignette, labels only under the
+  pointer and much larger. `ImpactMarker` is gone from the scene: the shader draws the
+  impact on the surface now, through `uImpactGlow` and `uRadius`, rather than floating a
+  ring in front of it. The component file is still there and still exported; nothing in the
+  scene mounts it.
+- **`Scene.tsx` keeps the vessels.** That branch has no `Vessels.tsx` and no `<Vessels>`
+  block, so taking its file would have silently removed the vessel layer from the viewer
+  while leaving the button that toggles it. Verified by rendering it: the arteries still
+  draw over the cortex.
+- **`BrainViewer.tsx` keeps `bare` and `fill`, and keeps the chips deleted.** That branch
+  has no `bare` prop; this one has ten references to it and `Home.tsx` passes it, so a copy
+  would have put a border and a corner radius around the landing page's full-bleed canvas.
+  It also still shows the "fsaverage surface" and "Synthetic shape" chips, which the commit
+  before this one deleted on purpose. See "Polish pass, step 1". Re-adding them would have
+  undone that one commit later, and the comment explaining the deletion is still sitting
+  directly above the code.
+- **`regionData.ts` keeps the range mapping, takes the week tracking.** Their ramp divides
+  by the maximum. That is the exact thing the test named "shows structure in a narrow field
+  instead of a wall of red" exists to prevent: a diffuse field of 0.12 to 0.17 maps onto the
+  top third of the ramp and lights the whole cortex. So the `lo` to `top` span stays. What
+  their version gets right is reading both ends at the week being shown rather than at week
+  0, so the ramp follows the recovery instead of staying pinned to the injury, and that is
+  taken. The glow cap stays too: its original reason was the bloom pass, which is now gone,
+  but the new shader multiplies glow through two smoothsteps and a tone curve, so an
+  uncapped 1.0 still flattens the worst regions into one white patch.
+- **fsaverage6, 81924 vertices, which supersedes "fsaverage5, 20484 vertices".** Four times
+  the vertices for a visibly smoother cortex and crisper parcel edges. It costs: `mesh.json`
+  goes from 1.5 MB to 6.1 MB, and the browser downloads all of it before the brain appears.
+  That is the whole of the trade and it was made deliberately.
+- **Three places that commit missed.** It changed `mesh.py`, `models.py`, `shape.py`,
+  `types.ts` and the two fixtures, but not: `intervention.py`, where `HEMI_VERTS = 10242` is
+  compared against the mesh's own label count, so every receptor would have failed that
+  check and fallen back from the fsaverage surface to the MNI152 volume without saying so;
+  and `checklist.py` and `finalcheck.py`, which both compare `source == "fsaverage5"` and
+  would have reported a real fsaverage6 mesh as a procedural stand-in. `templates.py` keeps
+  its `fsa5` strings on purpose: those are enigmatoolbox's own identifiers for a parcel to
+  parcel conversion that never touches the viewer mesh.

@@ -52,33 +52,37 @@ def first(*names: str) -> str:
     return ""
 
 
-# Model ids that actually exist. A wrong one does not fail loudly: `llm.ask` falls back
-# to its template on any error, so the key looks live, every call 404s, and nothing is
-# ever phrased by the model. Checking the name here turns that into a visible warning.
-MODELS = [
-    "claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-haiku-4-5",
-    "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-]
-DEFAULT_MODEL = "claude-sonnet-5"
+# Ids worth suggesting when the configured one is not a Gemini model at all. This is a
+# handful of examples for an error message, deliberately not an allow list: Google shipped
+# six new Gemini ids while this backend was being written, and a list in here would reject
+# a model that exists for the sin of being newer than the list. `make check` pings the API
+# for the real answer, which is the only answer that is ever current.
+EXAMPLE_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-flash-latest"]
+DEFAULT_MODEL = "gemini-2.5-flash"
 MODEL_NOTE = ""
 
 
 def pick_model() -> str:
-    """The model id to call, falling back to a real one when the configured id is not.
+    """The model id to call, replacing it only when it is not a Gemini id at all.
 
-    Records why in MODEL_NOTE so `make check` can say so rather than leaving a key that
-    looks live but 404s on every request.
+    A name check cannot tell a model that does not exist from one released last week, so
+    it does not try. The one thing it can tell is that `claude-sonnet-5` is never going to
+    answer a Gemini request, and a CLAUDE_MODEL left in .env from before this backend
+    moved to Gemini is the likely way to get here. That one is replaced, because the
+    failure mode otherwise is silent: `llm.ask` falls back to its template on any error,
+    so the key looks live, every call 404s, and nothing is ever phrased by the model.
+
+    The reason lands in MODEL_NOTE so `make check` can say so out loud.
     """
     global MODEL_NOTE
-    want = (os.environ.get("CLAUDE_MODEL") or "").strip()
+    want = (os.environ.get("GEMINI_MODEL") or "").strip()
     if not want:
         return DEFAULT_MODEL
-    if want in MODELS:
+    if want.startswith("gemini-"):
         return want
-    MODEL_NOTE = (f"CLAUDE_MODEL is {want}, which is not a model that exists, so "
-                  f"{DEFAULT_MODEL} is being used instead. Valid ids: "
-                  + ", ".join(MODELS[:4]) + ".")
+    MODEL_NOTE = (f"GEMINI_MODEL is {want}, which is not a Gemini model, so "
+                  f"{DEFAULT_MODEL} is being used instead. Try one of: "
+                  + ", ".join(EXAMPLE_MODELS) + ".")
     return DEFAULT_MODEL
 
 
@@ -122,7 +126,12 @@ class Cfg:
     # Demo mode. With MOCK_RIG=1 a call can be driven from generated frames instead of a
     # phone, which is how the whole flow runs on a laptop. On by default.
     mock_rig: bool = field(default_factory=lambda: on("MOCK_RIG", "1"))
-    mock_llm: bool = field(default_factory=lambda: flag("MOCK_LLM", ["ANTHROPIC_API_KEY"]))
+    # Either key name works. GEMINI_API_KEY is what the Gemini docs tell you to set;
+    # GOOGLE_API_KEY is what a Google Cloud console download calls the same thing.
+    mock_llm: bool = field(
+        default_factory=lambda: flag("MOCK_LLM", ["GEMINI_API_KEY"])
+        and flag("MOCK_LLM", ["GOOGLE_API_KEY"])
+    )
     # Photon credentials are PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET now. The old
     # PHOTON_API_KEY still counts so an existing .env keeps working.
     mock_photon: bool = field(
@@ -144,10 +153,11 @@ class Cfg:
     offline: bool = field(default_factory=lambda: os.environ.get("OFFLINE", "0") not in ("0", ""))
     use_sbi: bool = field(default_factory=lambda: os.environ.get("USE_SBI", "0") not in ("0", ""))
 
-    # The brief asks for a default of claude-sonnet-5-5, which is not a model that
-    # exists and would 404. The nearest real one is claude-sonnet-5. See DECISIONS.md.
-    claude_model: str = field(default_factory=lambda: pick_model())
-    anthropic_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
+    # Gemini is called over plain REST with httpx, so it needs no extra package. That is
+    # also why there is no SDK to be missing: the only way the LLM is unavailable is a
+    # blank key or MOCK_LLM. See DECISIONS.md.
+    gemini_model: str = field(default_factory=lambda: pick_model())
+    gemini_key: str = field(default_factory=lambda: first("GEMINI_API_KEY", "GOOGLE_API_KEY"))
     photon_key: str = field(default_factory=lambda: os.environ.get("PHOTON_API_KEY", ""))
     photon_url: str = field(default_factory=lambda: os.environ.get("PHOTON_BASE_URL", ""))
     photon_project: str = field(default_factory=lambda: os.environ.get("PHOTON_PROJECT_ID", ""))

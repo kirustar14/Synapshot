@@ -70,7 +70,7 @@ validation, the real nine point calibration fit, the real feature pipeline and t
 filter update. The only thing it skips is the phone.
 
 Or open **Add patient** and press **Use sample patient files**. That reads the ten
-document pack `make sample` wrote, extracts the record from it with Claude (or with the
+document pack `make sample` wrote, extracts the record from it with Gemini (or with the
 built-in extractor when there is no key), builds the twin and fits the first forecast,
 and shows you each step as it happens, including the file it could not read.
 
@@ -125,7 +125,7 @@ Until this passes, timing measures are not measurements.
 
 | Step | Command | What it does |
 |---|---|---|
-| 1 | `make mesh` | fsaverage5 pial and inflated, 20484 vertices, with a Schaefer-100 label on every one. Cached, so nothing else refetches it. |
+| 1 | `make mesh` | fsaverage6 pial and inflated, 81924 vertices, with a Schaefer-100 label on every one. Cached, so nothing else refetches it. |
 | 2 | `make seed` | 50 synthetic cohort patients, 12 weeks of EnKF each, the NumPyro population fit, then the six demo patients. Prints coverage and the parameter recovery table. |
 | 3 | `make voices` | Every spoken line as an mp3 through ElevenLabs. Lines whose text has not changed are left alone. Without a key the page uses the browser's own speech synthesis. |
 | 4 | `make models` | The MediaPipe face landmarker the phone runs, into `web/public/models/`. |
@@ -182,7 +182,7 @@ full mock mode. Set `MOCK_X=0` to force a real path. See `.env.example` for all 
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | empty | The spoken lines. Without them the browser speaks. |
 | `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET` | empty | iMessage. Also needs `make imessage`. |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | empty | The SMS fallback for when iMessage cannot deliver. |
-| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | empty / `claude-sonnet-5` | Reading the documents, the phrasing and the summaries. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | empty / `gemini-2.5-flash` | Reading the documents, the phrasing and the summaries. `GOOGLE_API_KEY` works too. |
 | `KEEP_AUDIO` | `0` | Keep the uploaded recordings after measuring them. For debugging only. |
 | `REGIONAL_LOADINGS` | `0` | Give each signal its own damage level from the regions that drive it. |
 | `OFFLINE` | `0` | `1` skips every loader that could touch the network and runs on the modelled template. |
@@ -201,7 +201,7 @@ Twelve minutes, no keys, nothing to install beyond `make mesh && make seed && ma
 2. **A stable patient.** Six signals, each with an 80 percent band and the weekly
    observations inside it. `coverage` is the share of one-step-ahead observations that
    landed inside the band, computed before each update.
-3. **The brain.** The twin viewer: a real fsaverage5 cortex that glows where the model says
+3. **The brain.** The twin viewer: a real fsaverage6 cortex that glows where the model says
    the damage is, a week scrubber from 0 to 12, the five most affected regions as callouts
    in plain language, and the impact marker where the head was hit. Drag the
    personalization slider and watch the template morph into this patient.
@@ -280,7 +280,7 @@ Read this before showing anyone a number.
 - **The model fits real FC at r = 0.205.** The brain template is real: Schaefer-100
   centroids and labels from nilearn, HCP diffusion and resting state connectivity from the
   ENIGMA toolbox, an E:I map from Allen Human Brain Atlas gene expression, and the
-  fsaverage5 surface with the parcellation's own CBIG vertex labels. The model's predicted
+  fsaverage6 surface with the parcellation's own CBIG vertex labels. The model's predicted
   functional connectivity correlates with real HCP functional connectivity at r = 0.205
   with nothing tuned beyond the global coupling. Published whole brain fits reach 0.3 to 0.5
   with per subject tuning, so this is in the right direction and not yet competitive.

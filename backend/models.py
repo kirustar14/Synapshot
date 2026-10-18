@@ -314,8 +314,8 @@ class Twin(BaseModel):
 class Mesh(BaseModel):
     """The cortical surface the viewer renders. Flat arrays, millimetres, origin centred."""
 
-    space: Literal["fsaverage5", "procedural"]
-    source: Literal["fsaverage5", "procedural"]
+    space: Literal["fsaverage6", "procedural"]
+    source: Literal["fsaverage6", "procedural"]
     verts: int
     pial: list[float]
     inflated: list[float]

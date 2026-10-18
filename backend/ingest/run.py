@@ -184,7 +184,7 @@ def waiting_on(key: str, state: dict, files: list[tuple[str, bytes]]) -> str:
         docs = state.get("docs") or []
         pages = len([d for d in docs if d.kind != "none"]) or len(files)
         if llm.live():
-            return (f"asking Claude to read {pages} documents. This is the slow step and "
+            return (f"asking Gemini to read {pages} documents. This is the slow step and "
                     "can take up to a minute.")
         return "using the built-in extractor. No API key is set, so nothing is sent anywhere."
     if key == "twin":
@@ -209,10 +209,10 @@ def _do(key: str, files: list[tuple[str, bytes]], state: dict) -> dict:
     if key == "extract":
         got, info = extract.run(state["docs"])
         state["extraction"], state["info"] = got, info
-        # The model id is already "claude-sonnet-5", so "Claude claude-sonnet-5" reads
+        # The model id is already "gemini-2.5-flash", so "Gemini gemini-2.5-flash" reads
         # as a stutter. Show the family and the version, which is the part that matters.
-        name = str(info.get("model") or "").removeprefix("claude-").replace("-", " ")
-        how = {"model": f"Claude {name}".strip(),
+        name = str(info.get("model") or "").removeprefix("gemini-").replace("-", " ")
+        how = {"model": f"Gemini {name}".strip(),
                "template": "the built-in extractor",
                "none": "the built-in extractor"}.get(str(info.get("how")), "the extractor")
         why = f". {info['why']}" if info.get("why") else ""

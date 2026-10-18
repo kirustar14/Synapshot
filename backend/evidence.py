@@ -210,7 +210,7 @@ def ingest_score() -> dict | None:
 
     # Switching the model off has to be done on the resolved config, not on the
     # environment: `cfg.mock_llm` is a dataclass field read once at import, so setting
-    # MOCK_LLM here would do nothing and this panel would quietly report Claude's score
+    # MOCK_LLM here would do nothing and this panel would quietly report Gemini's score
     # under a label that says "with no API key".
     from .config import cfg
     from .ingest import extract as extractmod

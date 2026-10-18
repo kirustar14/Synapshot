@@ -30,6 +30,6 @@ numpyro
 # mss
 # sounddevice
 # Comms and LLM
-# anthropic
+# Gemini needs nothing here: it is called over REST with httpx, which is required above.
 # twilio
 # sbi                # optional upgrade for twin/surrogate.py behind USE_SBI=1

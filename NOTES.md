@@ -67,18 +67,24 @@ fifteen check preflight. Working, and about to become legacy.
 | clinic call | mock, script logged | four Twilio keys, or the ElevenLabs agent |
 | `cubnm` | not installed | falls back to ENIGMA HCP, which is already real |
 | `sbi` | not installed | optional emulator upgrade behind `USE_SBI` |
-| LLM | **live** on the model id in `.env` | see the warning below |
+| LLM | **live** on Gemini, model id from `GEMINI_MODEL` | see the warning below |
 
 Everything else is real: nilearn, enigmatoolbox, mediapipe, cv2, faster_whisper,
-parselmouth, librosa, mss, sounddevice, anthropic, twilio, numpyro are all installed, and
-the atlases are fetched rather than modelled.
+parselmouth, librosa, mss, sounddevice, twilio, numpyro are all installed, and the atlases
+are fetched rather than modelled. Gemini needs no package: it is called over REST with
+httpx, so there is nothing to install and nothing to be missing.
 
-**One warning.** `.env` sets `CLAUDE_MODEL` to a model id that does not exist, and
-`ANTHROPIC_API_KEY` is present, so `MOCK_LLM` is off and every live model call 404s. It
-degrades silently because `llm.ask` falls back to the template on any error, so nothing
-breaks, but nothing is phrased by the model either. The valid current ids are
-`claude-opus-5`, `claude-sonnet-5`, `claude-fable-5` and `claude-haiku-4-5-20251001`.
-`.env.example` will carry a valid default. Only the owner can change `.env`.
+**One warning: the free tier is a daily quota, and it is small.** A free `GEMINI_API_KEY`
+gets 20 requests a day on `gemini-3.8-flash`, which one run of the ingest and a handful of
+phrased lines will finish. It degrades silently by design: a 429 is transient, so
+`llm.ask` falls back to the template, nothing breaks, and nothing is phrased by the model
+either. `make check` is the way to see it, because it calls the model for real and says
+`rate limited` rather than `live` when the quota is gone.
+
+`gemini-2.5-flash`, the default, has a much larger free daily allowance than the 3.x flash
+ids and is what this should be left on unless there is a reason to move. The id in use
+comes from `GEMINI_MODEL`, which may be set in the shell as well as in `.env`; the shell
+wins, which is worth knowing when `make check` names a model `.env` does not mention.
 
 ## Route list as found
 
@@ -120,7 +126,7 @@ mount /stimulus                               mount /ui
 
 **Spec 1, the 3D brain.** Nothing of it exists. There is no mesh at all: the twin serves
 100 region centroids and the frontend is expected to draw spheres inside a shell. Missing:
-`backend/data/mesh.py`, `make mesh`, fsaverage5 pial and inflated surfaces, per-vertex
+`backend/data/mesh.py`, `make mesh`, fsaverage6 pial and inflated surfaces, per-vertex
 Schaefer labels, per-vertex border flags, lobe tags, surface-recomputed region centroids
 (the current ones are nilearn volume centres of mass, which do not sit on a surface),
 `backend/twin/shape.py`, per-region `damage_lo`, `damage_hi`, `recovery` and `network`,

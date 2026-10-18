@@ -31,11 +31,11 @@ def real() -> list[dict]:
     out = []
 
     got = meshmod.mesh()
-    out.append(line(GREEN if got["source"] == "fsaverage5" else MOCK,
+    out.append(line(GREEN if got["source"] == "fsaverage6" else MOCK,
                     f"Cortical surface: {got['source']}, {got['verts']} vertices",
-                    "real fsaverage5 with Schaefer-100 labels, checked name for name "
+                    "real fsaverage6 with Schaefer-100 labels, checked name for name "
                     "against the connectome's own order"
-                    if got["source"] == "fsaverage5" else "procedural stand-in"))
+                    if got["source"] == "fsaverage6" else "procedural stand-in"))
 
     rec = intervention.receptors()
     nreal = len(rec.get("tracers") or {})
@@ -90,9 +90,9 @@ def real() -> list[dict]:
                     "pre-generated mp3s, nothing is spoken live"
                     if not cfg.mock_eleven else "the page uses browser speech synthesis"))
 
-    model = (cfg.anthropic_key and not cfg.mock_llm)
+    model = (cfg.gemini_key and not cfg.mock_llm)
     out.append(line(GREEN if model else MOCK, "Document extraction",
-                    f"Claude {cfg.claude_model.removeprefix('claude-')} with a strict "
+                    f"Gemini {cfg.gemini_model.removeprefix('gemini-')} with a strict "
                     "schema, falling back to the built-in extractor"
                     if model else "the built-in extractor, no key set"))
 
@@ -142,9 +142,10 @@ def removed() -> list[dict]:
              "it sat beside the measurement path adding risk and no measurement"),
         line(GONE, "ElevenLabs speech to text",
              "faster_whisper runs locally and the patient's audio never leaves the machine"),
-        line(GONE, "Fetch.ai, Gemini, Maps, PLANNER, EXPLAIN, NOTIFY_ON_MATCH",
+        line(GONE, "Fetch.ai, Maps, PLANNER, EXPLAIN, NOTIFY_ON_MATCH",
              "none were on the demo path. Keys for services the app never calls are a "
-             "liability, not a feature"),
+             "liability, not a feature. Gemini used to be on this list and no longer is: "
+             "it is the model behind every phrased line and the document extraction"),
     ]
 
 

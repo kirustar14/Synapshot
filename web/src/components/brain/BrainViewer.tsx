@@ -202,7 +202,7 @@ export default function BrainViewer(props: BrainViewerProps) {
 
   const readout = v.hovered ?? v.selected;
   const def = LAYER_BY_ID[layer];
-  const placeholder = !!mesh.data && mesh.data.source !== "fsaverage5";
+  const placeholder = !!mesh.data && mesh.data.source !== "fsaverage6";
   const stageHeight = height ?? (compact ? 300 : 460);
 
   if (mesh.isLoading || twin.isLoading) return <Loading label="Loading the cortical surface" />;
@@ -226,10 +226,10 @@ export default function BrainViewer(props: BrainViewerProps) {
   return (
     <div
       className={cn(
-        "workspace-visual relative overflow-hidden bg-[#070e12]",
+        "workspace-visual relative overflow-hidden bg-[#e4e4e0]",
         // `bare` is the landing page, where the canvas is the whole frame. A border and
         // a corner radius there draw a box around what is meant to be the background.
-        !bare && "rounded-xl border border-[#1e3a44]",
+        !bare && "rounded-xl border border-[#c9c9c4]",
         big && "fixed inset-4 z-50",
       )}
       style={big ? undefined : bare || fill ? { height: "100%" } : { height: stageHeight }}
@@ -240,7 +240,7 @@ export default function BrainViewer(props: BrainViewerProps) {
         camera={{ fov: 34, near: 1, far: 4000, position: [-240, 90, -160] }}
         style={{ touchAction: "pan-y" }}
       >
-        <color attach="background" args={["#070e12"]} />
+        <color attach="background" args={["#e4e4e0"]} />
         <Scene
           cortex={cortex}
           mesh={mesh.data}
@@ -263,7 +263,7 @@ export default function BrainViewer(props: BrainViewerProps) {
 
       <div
         className="pointer-events-none absolute inset-0"
-        style={{ boxShadow: v.hologram ? "inset 0 0 140px 40px rgba(2,10,14,0.85)" : "none" }}
+        style={{ boxShadow: "none" }}
         aria-hidden
       />
 

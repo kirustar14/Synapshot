@@ -32,6 +32,7 @@ attribute float aRegion;
 attribute float aImpactDist;
 attribute float aBorder;
 attribute float aTemplateDiff;
+attribute vec3 aLobeCol;
 
 uniform float uInflate;
 uniform float uAtrophy;
@@ -48,6 +49,7 @@ uniform sampler2D uVals0;
 
 varying vec4 vVal;
 varying vec4 vVal0;
+varying vec3 vLobe;
 varying float vBorder;
 varying float vDiff;
 varying float vSulc;
@@ -74,6 +76,7 @@ void main() {
 
   vVal = val;
   vVal0 = val0;
+  vLobe = aLobeCol;
   vBorder = aBorder;
   vDiff = aTemplateDiff;
   vSulc = length(aInflated - position);
@@ -102,6 +105,8 @@ uniform float uAlpha;
 uniform float uMotion;
 uniform float uWave;
 uniform float uWaveOn;
+uniform float uImpactGlow;
+uniform float uRadius;
 uniform float uBorderOn;
 uniform float uGhostOn;
 uniform float uScanY;
@@ -114,6 +119,7 @@ uniform int uLayer;
 
 varying vec4 vVal;
 varying vec4 vVal0;
+varying vec3 vLobe;
 varying float vBorder;
 varying float vDiff;
 varying float vSulc;
@@ -130,7 +136,8 @@ void main() {
   float lam = clamp(dot(n, normalize(vec3(0.35, 0.55, 0.75))) * 0.5 + 0.55, 0.0, 1.0);
   float fres = pow(1.0 - ndv, 4.0);
   float sulc = smoothstep(uSulcLo, uSulcHi, vSulc);
-  vec3 base = vec3(0.60, 0.565, 0.53) * (0.22 + 0.78 * lam) * (1.0 - 0.62 * sulc);
+  // Each lobe has its own blue-family colour, lit and darkened in the folds.
+  vec3 base = vLobe * 1.2 * (0.55 + 0.45 * lam) * (1.0 - 0.7 * sulc);
 
   float pos = vVal.r;
   float glow = vVal.g;
@@ -142,14 +149,18 @@ void main() {
   float jitter = 1.0 + uMotion * 0.05 * sin(uTime * 11.0 + vDiff * 6.0);
   float shimmer = shim * uMotion * (0.45 + 0.55 * sin(uTime * 5.5 + vWorld.x * 0.5 + vWorld.z * 0.4));
 
-  vec3 col = mix(base, lit, clamp(glow * 0.85, 0.0, 1.0));
-  vec3 emis = lit * glow * uGlow * pulse * jitter;
+  // In hologram mode the grey base is dimmed and the region colour takes over, so regions
+  // read as different colours instead of one pale wash.
+  vec3 col = mix(base, lit, smoothstep(0.1, 0.6, glow) * 0.92);
+  vec3 emis = lit * smoothstep(0.1, 0.7, glow) * 0.5 * uGlow * pulse * jitter;
+  // A slow bioluminescent pulse in the lobe's own colour.
+  emis += vLobe * (0.03 + 0.04 * uMotion * sin(uTime * 1.2 + vWorld.y * 0.08 + vWorld.x * 0.05)) * (1.0 - 0.5 * sulc);
   emis += lit * shimmer * 0.55;
-  emis += ramp(uLayer, vVal0.r) * vVal0.g * uGhostOn * 0.16;
-  emis += uRim * fres * (0.2 + 0.55 * uHolo);
+  emis += ramp(uLayer, vVal0.r) * vVal0.g * uGhostOn * 0.04;
+  emis += uRim * fres * (0.1 + 0.3 * uHolo);
 
   float line = pow(clamp(vBorder, 0.0, 1.0), 12.0);
-  emis += uRim * line * uBorderOn * (0.22 + 0.8 * hi);
+  emis += uRim * line * uBorderOn * (0.1 + 0.8 * hi);
 
   float cont = smoothstep(0.9, 1.0, abs(sin(vDiff * 4.0)));
   emis += uRim * cont * 0.06 * uHolo;
@@ -160,22 +171,42 @@ void main() {
   float wave = exp(-sq((vImpact - uWave) / 10.0)) * uWaveOn;
   emis += vec3(1.0, 0.55, 0.25) * wave * 1.1;
 
-  col += hi * 0.12;
-  emis += lit * hi * 0.45;
+  // The hovered or selected region has to be unmistakable: its own colour pushed hard, plus a
+  // white lift, while the rest of the cortex stays as it was.
+  // Severity of the impact, graded by distance from the point of impact. Four soft bands so
+  // the levels read: faint crimson at the edge, then red, then bright red, then a
+  // light red core. The bands are blended, not hard rings.
+  float hit = exp(-sq(vImpact) / (2.0 * uRadius * uRadius * 0.55)) * uImpactGlow;
+  vec3 sev = mix(vec3(0.4, 0.0, 0.05), vec3(0.8, 0.02, 0.06), smoothstep(0.08, 0.35, hit));
+  sev = mix(sev, vec3(1.0, 0.05, 0.1), smoothstep(0.35, 0.65, hit));
+  sev = mix(sev, vec3(1.0, 0.25, 0.3), smoothstep(0.7, 0.95, hit));
+  col = mix(col, sev, smoothstep(0.04, 0.5, hit) * 0.6);
+  emis += sev * hit * 0.45;
+
+  col += hi * 0.25;
+  emis += lit * hi * 1.1 + vec3(1.0) * hi * 0.35;
 
   // Hologram blending is additive with a source factor of one, so the alpha channel plays no
   // part and every bit of brightness is spelled out here. body is how solid this fragment
   // reads: thin facing the camera, thick at the silhouette, thick again where a region is lit.
   float body = clamp(uAlpha + fres * 0.45 + glow * 0.45, 0.0, 1.2);
   // Unlit cortex goes cool and dim in hologram mode so a lit region keeps its own colour.
-  vec3 cool = mix(vec3(0.5, 0.74, 0.85), vec3(1.0), clamp(glow * 1.4, 0.0, 1.0));
+  vec3 cool = vec3(1.0);
   vec3 holo = col * cool * body * 0.9 + emis;
   vec3 solid = col * (0.95 + 0.5 * glow) + emis * 0.45;
   // A soft knee on the hologram branch. Without it a layer that lights the whole cortex, the
   // activity map for instance, clips to white and every region looks the same.
   holo = holo / (1.0 + holo * 0.45);
-  vec3 rgb = mix(solid, holo, uHolo) * uDim;
+  vec3 rgb = mix(solid, holo, uHolo * 0.15) * uDim;
+  // A touch of gamma deepens the blues so the surface reads as dark water lit from within.
+  rgb = pow(max(rgb, vec3(0.0)), vec3(1.0));
+#ifdef BACK_PASS
+  rgb *= 0.55;
   gl_FragColor = vec4(rgb, 1.0);
+#else
+  // Slightly translucent, so the far side of the folds shows faintly through.
+  gl_FragColor = vec4(rgb, 0.9);
+#endif
 }
 `;
 

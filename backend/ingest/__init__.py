@@ -1,6 +1,6 @@
 """Turning a pile of clinical documents into a patient record, with its receipts.
 
-Three pieces: `read` gets text (or an image) out of each file, `extract` asks Claude for a
+Three pieces: `read` gets text (or an image) out of each file, `extract` asks Gemini for a
 strict schema and falls back to a regex extractor when there is no key, and `run` drives
 the five visible steps the Add patient screen shows while it happens.
 

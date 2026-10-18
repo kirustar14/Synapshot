@@ -8,7 +8,7 @@ works on clean text is not a pipeline that works. They have no text layer, so py
 the regex extractor get nothing out of them at all.
 
 One field is reachable only through them: her sport is stated on the scanned referral
-letter and nowhere else. With a key, Claude reads the image and gets it. Without one, that
+letter and nowhere else. With a key, Gemini reads the image and gets it. Without one, that
 field comes back at confidence zero and the workspace shows it as needing review. Every
 other field is in at least one typeset PDF, so the pack scores 21 of 21 either way apart
 from that one. That gap is the point of the scans and it is deliberate.
@@ -486,7 +486,7 @@ def main() -> int:
     print("")
     print(f"  {len(got['files'])} documents. Two of them are scans with no text layer.")
     print("  Her sport is on the scanned referral letter and nowhere else, so without an")
-    print("  ANTHROPIC_API_KEY that one field shows as needing review. That is deliberate.")
+    print("  GEMINI_API_KEY that one field shows as needing review. That is deliberate.")
     print("")
     print("  Next: make seed, then open Add patient and press Use sample patient files.")
     print("")

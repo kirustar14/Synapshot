@@ -1,10 +1,11 @@
 """Pulling the schema out of a document bundle.
 
-Two extractors behind one function. `model()` asks Claude for the schema and the SDK
-validates the reply against it, so a malformed answer is a retry rather than something
-that reaches the database. `template()` is a regex pass that runs when there is no key,
-when the call fails, and when the model declines: it finds far fewer fields, and it says
-so by giving every field it did find a confidence of 0.75 and leaving the rest at 0.
+Two extractors behind one function. `model()` asks Gemini for the schema, constrains
+decoding to it and then validates the reply with pydantic anyway, so a malformed answer is
+a retry rather than something that reaches the database. `template()` is a regex pass that
+runs when there is no key, when the call fails, and when the model declines: it finds far
+fewer fields, and it says so by giving every field it did find a confidence of 0.75 and
+leaving the rest at 0.
 
 The fallback is not there to be impressive. It is there so `make sample && make dev` works
 on a laptop with no key at all and the screen tells the truth about which extractor ran.
@@ -20,7 +21,10 @@ from .schema import APOE, BDNF, Extraction, Med, empty
 # Bigger than the call-time budget in llm.py: nobody is waiting on a phone here, and a
 # ten document bundle is a lot of tokens to read.
 TIMEOUT_S = 180.0
-MAX_TOKENS = 8000
+# Thinking tokens are spent out of maxOutputTokens, and thinking is left on here, so this
+# has to cover the reasoning as well as a schema with twenty-two provenanced fields in it.
+# Being generous costs nothing: it is a ceiling, not a reservation.
+MAX_TOKENS = 32000
 RETRIES = 1
 
 SYSTEM = """You read clinical documents and return structured data. You are not a clinician
@@ -56,61 +60,137 @@ def prompt(docs: list[read.Doc]) -> str:
     )
 
 
-def content(docs: list[read.Doc]) -> list[dict]:
-    """The user content blocks: the text prompt, then each scanned page as an image."""
-    blocks: list[dict] = [{"type": "text", "text": prompt(docs)}]
+def parts(docs: list[read.Doc]) -> list[dict]:
+    """The user parts: the text prompt, then each scanned page as inline image data."""
+    out: list[dict] = [{"text": prompt(docs)}]
     for doc in docs:
         if doc.kind != "image":
             continue
-        blocks.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": doc.media_type, "data": doc.b64()},
-        })
-    return blocks
+        out.append({"inlineData": {"mimeType": doc.media_type, "data": doc.b64()}})
+    return out
+
+
+# Keywords Gemini accepts in a response schema. Pydantic also emits `title` and `default`
+# on every field, which carry no instruction and are dropped: the request is already large
+# with ten documents in it, and `default` in particular invites the model to return the
+# default instead of reading the document.
+KEEP = {
+    "type", "description", "enum", "properties", "required", "items", "anyOf",
+    "$ref", "$defs", "minimum", "maximum", "nullable",
+}
+
+
+def _prune(node):
+    """A JSON Schema with only the keywords Gemini reads, recursively."""
+    if isinstance(node, list):
+        return [_prune(n) for n in node]
+    if not isinstance(node, dict):
+        return node
+    out = {}
+    for key, val in node.items():
+        # $defs and properties are maps of name to schema, so their keys are field names
+        # and must not be filtered against KEEP.
+        if key in ("$defs", "properties"):
+            out[key] = {k: _prune(v) for k, v in val.items()}
+        elif key in KEEP:
+            out[key] = _prune(val)
+    return out
+
+
+def schema() -> dict:
+    """The extraction schema as Gemini wants to be given it."""
+    return _prune(Extraction.model_json_schema())
+
+
+def body(docs: list[read.Doc], strict: bool) -> dict:
+    """One generateContent request.
+
+    `strict` asks Gemini to constrain decoding to the schema, which is what makes a
+    malformed reply impossible rather than unlikely. Some model ids reject a schema this
+    nested with a 400, so `model()` can drop back to plain JSON mode with the schema
+    written into the prompt instead. Either way the reply is validated by pydantic before
+    it goes anywhere, which is the check that actually matters.
+
+    Thinking is left on, unlike the call-time wrapper in llm.py. Reading ten documents and
+    working out which one is most recent is reasoning, and nobody is on the phone here.
+    """
+    ask = parts(docs)
+    gen: dict = {"maxOutputTokens": MAX_TOKENS, "temperature": 0.0,
+                 "responseMimeType": "application/json"}
+    if strict:
+        gen["responseJsonSchema"] = schema()
+    else:
+        import json
+
+        ask = [{"text": "Return JSON matching this schema exactly:\n"
+                        + json.dumps(schema())}, *ask]
+    return {
+        "systemInstruction": {"parts": [{"text": SYSTEM}]},
+        "contents": [{"role": "user", "parts": ask}],
+        "generationConfig": gen,
+    }
 
 
 def model(docs: list[read.Doc]) -> tuple[Extraction | None, dict]:
-    """Ask Claude for the schema. Returns None and a reason on any failure.
+    """Ask Gemini for the schema. Returns None and a reason on any failure.
 
-    The SDK validates the reply against the pydantic model, so what comes back either
-    fits the schema or raises. Adaptive thinking is on: reading ten documents and deciding
-    which one is most recent is reasoning, not phrasing.
+    Pydantic validates the reply, so what reaches the database either fits the schema or
+    has been rejected here in favour of the regex pass. A half-parsed record is never
+    patched up: see `run` for why.
     """
-    info: dict = {"how": "model", "model": cfg.claude_model}
+    import json
+
+    import httpx
+
+    info: dict = {"how": "model", "model": cfg.gemini_model}
     if not llm.live():
-        return None, {**info, "how": "none", "why": "no ANTHROPIC_API_KEY, or MOCK_LLM is on"}
+        return None, {**info, "how": "none", "why": "no GEMINI_API_KEY, or MOCK_LLM is on"}
 
+    url = f"{llm.API}/{cfg.gemini_model}:generateContent"
+    headers = {"x-goog-api-key": cfg.gemini_key}
+    why = "the model did not answer"
+    # Attempt 1 constrains decoding to the schema. Attempt 2 drops that constraint, which
+    # is the retry that matters: a 400 here is nearly always the schema, not the documents.
+    for strict in (True, False):
+        for _ in range(RETRIES + 1):
+            try:
+                resp = httpx.post(url, json=body(docs, strict), headers=headers,
+                                  timeout=TIMEOUT_S)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                why = f"{type(exc).__name__.lower()} after {TIMEOUT_S:.0f}s"
+                continue
+            except Exception as exc:
+                return None, {**info, "how": "template", "why": str(exc)[:160]}
+
+            got = llm.reply(resp)
+            if got.get("error") == "refusal":
+                return None, {**info, "how": "template", "why": "the model declined to answer"}
+            if got.get("error"):
+                why = got["error"]
+                break                  # a 400 will not fix itself, go change the request
+            if not got.get("text"):
+                why = f"HTTP {resp.status_code} from gemini"
+                continue
+
+            try:
+                return Extraction.model_validate(json.loads(got["text"])), {
+                    **info, "model": got.get("model"), "strict": strict,
+                    **_usage(resp),
+                }
+            except Exception as exc:
+                why = f"the reply did not fit the schema: {str(exc)[:120]}"
+
+    return None, {**info, "how": "template", "why": why}
+
+
+def _usage(resp) -> dict:
+    """Token counts out of a response, for the build log. Absent is fine."""
     try:
-        import anthropic
+        got = resp.json().get("usageMetadata") or {}
     except Exception:
-        return None, {**info, "how": "none", "why": "the anthropic SDK is not installed"}
-
-    try:
-        client = anthropic.Anthropic(api_key=cfg.anthropic_key, timeout=TIMEOUT_S,
-                                     max_retries=RETRIES)
-        resp = client.messages.parse(
-            model=cfg.claude_model,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM,
-            thinking={"type": "adaptive"},
-            output_format=Extraction,
-            messages=[{"role": "user", "content": content(docs)}],
-        )
-    except anthropic.APIStatusError as exc:
-        return None, {**info, "how": "template", "why": f"HTTP {exc.status_code} {exc.type}"}
-    except Exception as exc:
-        return None, {**info, "how": "template", "why": str(exc)[:160]}
-
-    if resp.stop_reason == "refusal":
-        return None, {**info, "how": "template", "why": "the model declined to answer"}
-    got = resp.parsed_output
-    if got is None:
-        return None, {**info, "how": "template", "why": "the reply did not contain the schema"}
-
-    usage = getattr(resp, "usage", None)
-    return got, {**info, "model": resp.model,
-                 "input_tokens": getattr(usage, "input_tokens", None),
-                 "output_tokens": getattr(usage, "output_tokens", None)}
+        return {}
+    return {"input_tokens": got.get("promptTokenCount"),
+            "output_tokens": got.get("candidatesTokenCount")}
 
 
 # ---------------------------------------------------------------- the fallback

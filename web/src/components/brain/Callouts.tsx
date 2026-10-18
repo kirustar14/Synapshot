@@ -32,22 +32,20 @@ function anchor(points: Float32Array, id: number, lift: number): [number, number
 export function Callouts({ mesh, twin, points, ranked, values, layer, hovered, selected, onPick }: Props) {
   const def = LAYER_BY_ID[layer];
   const shown = useMemo(() => {
-    const ids = ranked.map((r) => r.id);
-    for (const extra of [selected, hovered]) {
-      if (extra !== null && extra !== undefined && !ids.includes(extra)) ids.push(extra);
-    }
+    // Labels only appear for the region under the pointer.
+    const ids = hovered !== null && hovered !== undefined ? [hovered] : [];
     return ids.map((id) => ({
       id,
       label: regionLabel(mesh, twin, id),
       from: [points[id * 3], points[id * 3 + 1], points[id * 3 + 2]] as [number, number, number],
-      to: anchor(points, id, 34),
+      to: anchor(points, id, 6),
     }));
-  }, [ranked, selected, hovered, mesh, twin, points]);
+  }, [hovered, mesh, twin, points]);
 
   return (
     <>
       {shown.map((c) => {
-        const on = c.id === selected || c.id === hovered;
+        const on = true;
         const color = rampColor(def.stops, values.pos[c.id]);
         return (
           <group key={c.id}>
@@ -61,19 +59,19 @@ export function Callouts({ mesh, twin, points, ranked, values, layer, hovered, s
               depthTest={false}
               renderOrder={15}
             />
-            <Html position={c.to} center zIndexRange={[12, 2]} pointerEvents="auto">
+            <Html position={c.to} style={{ transform: "translateY(-130%)" }} center zIndexRange={[12, 2]} pointerEvents="none">
               <button
                 type="button"
                 onClick={() => onPick(c.id === selected ? null : c.id)}
-                className={`pointer-events-auto whitespace-nowrap rounded-full border px-2 py-1 text-[10px] font-bold backdrop-blur-sm transition-colors ${
+                className={`pointer-events-auto whitespace-nowrap rounded-full border px-3.5 py-2 text-[15px] font-bold shadow-lg backdrop-blur-sm transition-colors ${
                   on
                     ? "border-white/70 bg-black/80 text-white"
                     : "border-cyan-200/35 bg-black/60 text-cyan-50 hover:border-white/60"
                 }`}
               >
-                <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: color }} aria-hidden />
+                <span className="mr-2 inline-block h-3 w-3 rounded-full align-middle" style={{ background: color }} aria-hidden />
                 {c.label.plain}
-                <span className="ml-1 font-mono opacity-75">{values.format(values.raw[c.id])}</span>
+                <span className="ml-2 font-mono opacity-80">{values.format(values.raw[c.id])}</span>
               </button>
             </Html>
           </group>

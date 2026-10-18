@@ -1,9 +1,8 @@
 // Everything inside the Canvas. One frame driver owns the clock, the tweens, the scan sweep,
 // the injury replay and the camera, so no React render ever writes a uniform.
 
-import { Grid, OrbitControls } from "@react-three/drei";
+import { Grid, OrbitControls, Sparkles } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -11,7 +10,6 @@ import type { Vessel } from "@/api/client";
 import type { Mesh as MeshPayload, Shape, Twin } from "@/api/types";
 import { Callouts } from "./Callouts";
 import { CortexMesh } from "./CortexMesh";
-import { ImpactMarker } from "./ImpactMarker";
 import { Tracts } from "./Tracts";
 import { Vessels, type Focus } from "./Vessels";
 import { TRACT_SLOTS, makeScalarTexture, makeTractTexture, makeValueTexture, type CortexBuild } from "./geometry";
@@ -125,6 +123,7 @@ export function Scene(props: SceneProps) {
 
   useEffect(() => {
     cortexU.uRadius.value = shape?.impact?.radius ?? 25;
+    cortexU.uImpactGlow.value = shape?.impact?.point ? 1 : 0;
     cortexU.uAtrophy.value = shape?.atrophy ?? 0;
     const s = shape?.scale ?? [1, 1, 1];
     (cortexU.uScale.value as THREE.Vector3).set(s[0], s[1], s[2]);
@@ -207,8 +206,8 @@ export function Scene(props: SceneProps) {
     cortexU.uMotion.value = motion;
     tractU.uMotion.value = motion;
     cortexU.uHolo.value = v.hologram ? 1 : 0;
-    cortexU.uGlow.value = v.hologram ? 0.85 : 0.5;
-    cortexU.uAlpha.value = compact ? 0.2 : 0.16;
+    cortexU.uGlow.value = v.hologram ? 0.55 : 0.5;
+    cortexU.uAlpha.value = compact ? 0.95 : 0.9;
     cortexU.uBorderOn.value = v.borders ? 1 : 0;
     cortexU.uGhostOn.value = v.ghost && weekRef.current > 0.3 ? 1 : 0;
     cortexU.uScanOn.value = v.hologram && !v.reduceMotion ? 1 : 0;
@@ -348,9 +347,9 @@ export function Scene(props: SceneProps) {
             showFoci={v.foci}
           />
         )}
-        {shape?.impact?.point && (
-          <ImpactMarker point={shape.impact.point} radius={shape.impact.radius || 25} motion={!v.reduceMotion} wave={waveRef} />
-        )}
+        {/* ImpactMarker is gone. The impact is drawn in the cortex shader now, as graded
+            severity bands around the point driven by uImpactGlow and uRadius, which sits
+            on the surface instead of floating a ring in front of it. */}
         {points && v.callouts && !compact && (
           <Callouts
             mesh={mesh}
@@ -366,14 +365,21 @@ export function Scene(props: SceneProps) {
         )}
       </group>
 
+      {!compact && !v.reduceMotion && (
+        <>
+          <Sparkles count={220} scale={cortex.radius * 6} size={4} speed={0.35} opacity={0.75} color="#3a8fb8" noise={0.6} />
+          <Sparkles count={90} scale={cortex.radius * 5} size={7} speed={0.2} opacity={0.5} color="#7a63d6" noise={1.2} />
+        </>
+      )}
+
       {!compact && (
         <Grid
           position={[0, -cortex.radius * 1.05, 0]}
           args={[cortex.radius * 7, cortex.radius * 7]}
           cellSize={cortex.radius / 5}
           sectionSize={cortex.radius}
-          cellColor="#1d4350"
-          sectionColor="#2f7c8c"
+          cellColor="#c4c4be"
+          sectionColor="#a9a9a2"
           fadeDistance={cortex.radius * 7}
           fadeStrength={1.6}
           infiniteGrid
@@ -394,12 +400,6 @@ export function Scene(props: SceneProps) {
         onStart={() => syncId && v.claimCamera(syncId)}
       />
 
-      {v.hologram && (
-        <EffectComposer enabled multisampling={compact ? 0 : 2}>
-          <Bloom mipmapBlur intensity={compact ? 0.55 : 0.75} luminanceThreshold={0.72} luminanceSmoothing={0.2} radius={0.4} />
-          <Vignette offset={0.26} darkness={compact ? 0.5 : 0.78} />
-        </EffectComposer>
-      )}
     </>
   );
 }

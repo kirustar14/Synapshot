@@ -24,7 +24,8 @@ OPTIONAL = {
     "faster_whisper": "speech transcription, falls back to the scripted transcript",
     "parselmouth": "jitter, shimmer, HNR and CPP",
     "librosa": "spectral extras",
-    "anthropic": "natural phrasing and summaries, falls back to templates",
+    # Gemini needs no package of its own: it is called over REST with httpx, which is a
+    # hard requirement, so there is no optional import to be missing for the LLM.
     "reportlab": "the flagship patient's PDF documents, needed by make sample",
     "pypdf": "reading text out of an uploaded PDF",
     "numpyro": "the hierarchical population fit, falls back to weighted least squares",
@@ -133,6 +134,30 @@ def twin_check() -> list[dict]:
     return out
 
 
+def llm_line() -> dict:
+    """The LLM row, proven by one real call rather than by the key being non-empty.
+
+    A bad model id is a fallback, not a failure: every line still comes out, as a template.
+    That is exactly why it gets checked for real here. The alternative is a row that says
+    live because a key is set, while nothing has ever been phrased by a model.
+    """
+    from .agent import llm
+
+    if cfg.mock_llm:
+        return line(MOCK, "LLM", "template lines, set GEMINI_API_KEY for natural phrasing")
+    got = llm.probe()
+    if got["ok"]:
+        detail = f"live on {cfg.gemini_model}, {got['why']}"
+    elif got.get("quota"):
+        # Rate limited is configured correctly, so it is not a FAIL, but it is not phrasing
+        # anything either. MOCK with the reason spelled out is the truthful row.
+        detail = f"{cfg.gemini_model} is rate limited: {got['why']}"
+    else:
+        detail = f"{cfg.gemini_model} did not answer: {got['why']}, so every line is a template"
+    note = f" {config.MODEL_NOTE}" if config.MODEL_NOTE else ""
+    return line(GREEN if got["ok"] and not config.MODEL_NOTE else MOCK, "LLM", detail + note)
+
+
 def mock_check() -> list[dict]:
     """What is running on a fallback, and what it would take to make it real."""
     return [
@@ -140,11 +165,7 @@ def mock_check() -> list[dict]:
              "a call can be driven from a generated session with no phone, set MOCK_RIG=0 "
              "to require a real one" if cfg.mock_rig
              else "off, every call has to come from a real phone"),
-        # A bad model id is a fallback, not a failure: a real one is substituted and the
-        # LLM still works. The detail says so loudly rather than exiting non-zero.
-        line(MOCK if (cfg.mock_llm or config.MODEL_NOTE) else GREEN, "LLM",
-             "template lines, set ANTHROPIC_API_KEY for natural phrasing"
-             if cfg.mock_llm else (config.MODEL_NOTE or f"live on {cfg.claude_model}")),
+        llm_line(),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"
@@ -306,10 +327,10 @@ def webcall_check() -> list[dict]:
 
     if meshmod.path_json().exists():
         got = meshmod.mesh()
-        real = got["source"] == "fsaverage5"
+        real = got["source"] == "fsaverage6"
         out.append(line(GREEN if real else MOCK,
                         f"mesh: {got['source']}, {got['verts']} vertices",
-                        "real fsaverage5 surface with Schaefer-100 labels" if real
+                        "real fsaverage6 surface with Schaefer-100 labels" if real
                         else "procedural stand-in, set OFFLINE=0 and run make mesh"))
     else:
         out.append(line(RED, "mesh", "not built, run make mesh"))

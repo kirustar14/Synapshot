@@ -368,7 +368,7 @@ def test_the_extraction_score_is_the_one_without_a_key(client):
 
     This caught a real bug: setting MOCK_LLM in the environment at request time does
     nothing, because the config resolves it once at import, so the panel was quietly
-    reporting Claude's score under a label that said otherwise.
+    reporting Gemini's score under a label that said otherwise.
     """
     got = client.get("/api/evidence").json()
     row = next((n for n in got["numbers"] if "extraction" in n["name"].lower()), None)

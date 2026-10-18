@@ -3,7 +3,7 @@
 The headline test scores the extraction against `expected.json`, which is written by the
 same generator that writes the documents, so the answer key and the pack cannot drift
 apart. Everything here runs with MOCK_LLM on, which means it is the built-in extractor
-being measured, not Claude: the number that matters for CI is the one the demo gets on a
+being measured, not Gemini: the number that matters for CI is the one the demo gets on a
 laptop with no key.
 """
 

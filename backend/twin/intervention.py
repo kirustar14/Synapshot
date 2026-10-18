@@ -64,7 +64,7 @@ TRACER = {
 
 SIM_S = 20.0        # one short run per side of the comparison
 GAIN_LO, GAIN_HI = -0.5, 0.5
-HEMI_VERTS = 10242  # fsaverage5 per hemisphere, which is what the parcellation is on
+HEMI_VERTS = 40962  # fsaverage6 per hemisphere, which is what the parcellation is on
 
 
 def _zed(arr: np.ndarray) -> np.ndarray:
@@ -130,7 +130,7 @@ def _volume_map(source: str, desc: str, regions: int) -> np.ndarray | None:
 
 
 def _surface_map(source: str, desc: str) -> np.ndarray | None:
-    """One annotation, on fsaverage5 vertices, left hemisphere then right, or None.
+    """One annotation, on fsaverage6 vertices, left hemisphere then right, or None.
 
     Preferred where it exists: the parcellation here is a surface parcellation, and
     neuromaps warns that several of these volumes should only be used for subcortical
@@ -177,25 +177,28 @@ def _surface_map(source: str, desc: str) -> np.ndarray | None:
 
 
 def _downsample(vals: np.ndarray) -> np.ndarray | None:
-    """A 164k fsaverage map at fsaverage5's 10242 vertices.
+    """A 164k fsaverage map at fsaverage6's 40962 vertices.
 
     neuromaps resamples surfaces by shelling out to Connectome Workbench, which is a
     separate install and is not here. It does not need to be: FreeSurfer builds its
     fsaverage surfaces by recursive icosahedral subdivision, so the vertex ordering is
-    nested and fsaverage5's 10242 vertices are exactly the first 10242 of fsaverage7's
-    163842, in the same order. That was checked against both spheres neuromaps ships, and
-    the largest angle between a vertex and its counterpart is 0.04 degrees, which is float
-    noise.
+    nested and fsaverage6's 40962 vertices are exactly the first 40962 of fsaverage7's
+    163842, in the same order. The same nesting is what made this work at fsaverage5's
+    10242, and it holds at every level of the subdivision for the same reason. That was
+    checked against both spheres neuromaps ships, and the largest angle between a vertex
+    and its counterpart is 0.04 degrees, which is float noise.
 
     So this takes the value at each vertex rather than area-averaging the way
     wb_command's ADAP_BARY_AREA would. The difference matters for a sharp map; these are
-    smooth PET maps that are then averaged over about a hundred vertices per parcel, where
+    smooth PET maps that are then averaged over several hundred vertices per parcel, where
     a subsample of a smooth field is an unbiased estimate of its parcel mean.
     """
     if vals.size < HEMI_VERTS:
         return None
-    if vals.size not in (163842, 40962, HEMI_VERTS):
-        # Not an fsaverage density. Subsampling an unknown ordering would be guessing.
+    # The fsaverage densities at or above fsaverage6. Anything smaller cannot be
+    # subsampled up to it and is already rejected above; anything else is not an
+    # fsaverage density at all, and subsampling an unknown ordering would be guessing.
+    if vals.size not in (163842, HEMI_VERTS):
         return None
     return vals[:HEMI_VERTS]
 

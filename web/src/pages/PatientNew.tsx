@@ -281,7 +281,7 @@ export default function PatientNew() {
             <div className="mt-4 border-t pt-4">
               <p className="text-sm font-bold">{done.name}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {done.fields} fields read by {done.how === "model" ? "Claude" : "the built-in extractor"}.
+                {done.fields} fields read by {done.how === "model" ? "Gemini" : "the built-in extractor"}.
               </p>
 
               {done.needs_review.length > 0 && (

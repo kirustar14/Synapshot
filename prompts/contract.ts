@@ -117,7 +117,7 @@ export interface Twin {
 // ---------------------------------------------------------------- mesh, shape, receptors, what-if
 
 export interface Mesh {
-  space: "fsaverage5";
+  space: "fsaverage6";
   pial: number[];        // flat [x,y,z,...] in mm, centred on the origin
   inflated: number[];    // same length and order as pial
   faces: number[];       // flat [a,b,c,...] into the vertex arrays
@@ -126,7 +126,7 @@ export interface Mesh {
   networks: string[];      // 100 entries: Vis, SomMot, DorsAttn, SalVentAttn, Limbic, Cont, Default
   border: number[];        // per vertex, 1 when a neighbour has a different label, else 0
   lobes: string[];         // 100 entries, plain-English area tag per region, approximate
-  source: "fsaverage5" | "procedural";
+  source: "fsaverage6" | "procedural";
 }
 
 export interface Shape {

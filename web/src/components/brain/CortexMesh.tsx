@@ -20,20 +20,14 @@ interface Props {
 function makeMaterial(uniforms: Uniforms, back: boolean): THREE.ShaderMaterial {
   // The back pass is the same shader at a fraction of the brightness, so the depth you see
   // through the cortex never competes with the front surface.
-  const frag = CORTEX_FRAG.replace(
-    "  vec3 rgb = mix(solid, holo, uHolo) * uDim;",
-    `  vec3 rgb = mix(solid, holo, uHolo) * uDim;
-#ifdef BACK_PASS
-  rgb *= 0.3;
-#endif`,
-  );
+  const frag = CORTEX_FRAG;
   return new THREE.ShaderMaterial({
     uniforms,
     vertexShader: CORTEX_VERT,
     fragmentShader: frag,
     defines: back ? { BACK_PASS: "" } : {},
     side: back ? THREE.BackSide : THREE.FrontSide,
-    transparent: true,
+    transparent: !back,
     // Depth writes are on for a reason. A folded cortex crosses a view ray a dozen times, and
     // with additive blending every one of those sheets would stack into a white blob. Writing
     // depth keeps it to the nearest back face and the nearest front face, which is the depth
@@ -49,8 +43,10 @@ function makeMaterial(uniforms: Uniforms, back: boolean): THREE.ShaderMaterial {
 
 /** Switches a material between the hologram look and flat anatomical shading. */
 function applyLook(mat: THREE.ShaderMaterial, hologram: boolean) {
-  mat.transparent = hologram;
-  mat.blending = hologram ? THREE.CustomBlending : THREE.NormalBlending;
+  // Opaque in both looks now. The hologram look keeps its glow in the shader but no longer
+  // blends additively, so the cortex reads as a solid surface instead of a see-through one.
+  void hologram;
+  mat.blending = THREE.NormalBlending;
   mat.needsUpdate = true;
 }
 
@@ -95,7 +91,8 @@ export function CortexMesh({ geometry, uniforms, hologram, labels, onHover, onPi
 
   return (
     <>
-      {hologram && <mesh geometry={geometry} material={back} renderOrder={1} />}
+      
+      <mesh geometry={geometry} material={back} renderOrder={1} />
       <mesh
         geometry={geometry}
         material={front}

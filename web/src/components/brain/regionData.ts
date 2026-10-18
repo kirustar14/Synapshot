@@ -36,6 +36,12 @@ export interface LayerValues {
   scaleTop?: number;
   /** What the dark end means. Set when the ramp spans a range rather than starting at 0. */
   scaleLo?: number;
+  /**
+   * The largest raw value in the field, which is not the same as `scaleTop` when the ramp
+   * windows out an outlier. Anything between the two is clamped to the bright end, so a
+   * legend printing `scaleTop` as "the worst region" would be wrong by exactly this gap.
+   */
+  scaleMax?: number;
 }
 
 export interface LayerCtx {
@@ -117,14 +123,33 @@ export function layerValues(id: LayerId, ctx: LayerCtx): LayerValues {
     // structure visible, which is the useful thing, and it is explicitly a relative map.
     // `scaleLo` and `scaleTop` are both reported so the legend can say what the two ends
     // actually are rather than implying 0 to 1.
-    let top = 0;
-    let lo = Infinity;
-    for (const r of regions) {
-      const v = r.damage?.[0] ?? 0;
-      top = Math.max(top, v);
-      lo = Math.min(lo, v);
-    }
-    if (!Number.isFinite(lo)) lo = 0;
+    //
+    // Both ends are read at the week being shown, not at week 0. The ramp follows the
+    // recovery instead of staying pinned to the injury, which is what makes the later
+    // weeks readable: by week 12 the whole field has shrunk, and a ramp still scaled to
+    // week 0 renders all of it as uniformly dark.
+    //
+    // The top end is the 98th percentile, not the maximum, and that matters more than it
+    // sounds. A real field has one region clearly worst and then a cluster packed just
+    // under it: on the flagship patient the gap from first to second is 0.024, which is
+    // larger than the whole spread from second to twelfth. Scaling to the maximum spends
+    // a fifth of the ramp on that one gap and leaves the entire cluster around the impact
+    // sitting at 0.74 to 0.80, which is orange. So the regions a clinician is looking at,
+    // the ones with damage within one percent of the worst, were the one thing on the
+    // screen that did not read as damaged. A percentile puts the cluster at the top of
+    // the ramp together and clamps the outlier, which is the normal way to window a
+    // medical image and is what freeview and FSL do by default.
+    //
+    // The low end stays the true minimum. The bottom of this distribution is dense, so it
+    // has no outlier to be dragged by, and keeping it exact preserves the property the
+    // rest of this function leans on: the least damaged region sits at exactly 0.
+    const sorted = regions
+      .map((r) => atWeek(r.damage, week))
+      .sort((a, b) => a - b);
+    const lo = sorted.length ? sorted[0] : 0;
+    const top = sorted.length
+      ? sorted[Math.min(sorted.length - 1, Math.round(0.98 * (sorted.length - 1)))]
+      : 0;
     // A floor on the span, so a perfectly even field is not amplified into noise. Below
     // this the differences between regions are smaller than the filter's own spread.
     const span = Math.max(0.02, top - lo);
@@ -132,12 +157,22 @@ export function layerValues(id: LayerId, ctx: LayerCtx): LayerValues {
       const v = atWeek(regions[i]?.damage, week);
       out.raw[i] = v;
       out.pos[i] = clamp01((v - lo) / span);
-      // Glow is capped well under 1. The bloom pass multiplies this, and anything near
-      // the top blows the surface out to white and loses every parcel boundary with it.
-      out.glow[i] = 0.55 * clamp01(Math.pow((v - lo) / span, 1.8));
+      // Spans the full 0 to 1, very slightly eased. This has to match the knee in the
+      // fragment shader, which fades a region in over `smoothstep(0.1, 0.6, glow)`: that
+      // curve expects glow to use its whole range. The old cap of 0.55 with an exponent
+      // of 1.8 was for the bloom pass, and stacking it under the new knee put the median
+      // region at a colour mix of 0.001 and lit only the single worst one, which is not a
+      // damage map. Nothing here protects against a blown-out highlight any more because
+      // nothing needs to: bloom is gone, and the shader's own tone curve is the limit.
+      //
+      // What keeps this honest is the `lo` subtraction above, not a ceiling on the glow.
+      // The least damaged region sits at exactly 0 and keeps its lobe colour however bad
+      // the patient is, so a diffuse field still reads as a gradient rather than a wall.
+      out.glow[i] = clamp01(Math.pow((v - lo) / span, 1.1));
     }
     out.scaleLo = lo;
     out.scaleTop = top;
+    out.scaleMax = sorted.length ? sorted[sorted.length - 1] : 0;
     out.format = (v) => v.toFixed(3);
     return out;
   }
