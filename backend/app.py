@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -39,6 +40,11 @@ app = FastAPI(title="UNNAMED", version="0.1.0", lifespan=lifespan)
 # The frontend is served from this same origin, so in live mode nothing needs a cross
 # origin grant and the only allowed origin is the public URL itself. Mock mode stays open
 # so a separate `npm run dev` on another port can talk to it.
+# The mesh is about 1.5 MB of JSON and the twin payload is not small either, so every
+# response over a kilobyte is compressed. On a phone over a tunnel this is the
+# difference between a usable page and a slow one.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 ORIGINS = [cfg.public_url] if (cfg.mode() == "live" and cfg.public_url) else ["*"]
 app.add_middleware(
     CORSMiddleware,
