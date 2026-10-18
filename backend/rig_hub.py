@@ -367,10 +367,9 @@ def run_call(pid: str, week: int | None = None) -> dict:
     cid = store_checkin(pid, week, got, res)
     out = demo.assimilate(pid, week, pipeline.observables(res["values"]), res["channel"])
     from .agent import summary
-    from .comms import photon
+    from .comms import notify as texter
 
-    photon.post_call(pid, str(row["name"]), got["patient_note"])
-    summary.store_patient_note(pid, got["patient_note"])
+    texter.send(pid, "post_call", body=got["patient_note"])
     if out["alerts"]:
         from .comms import clinic_call
 

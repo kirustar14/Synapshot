@@ -82,7 +82,7 @@ def live_call(pid: str, week: int) -> dict:
 def run_with_hub(hub, pid: str, week: int) -> dict:
     """Drive the dialog with a hub, then store everything it produced."""
     from backend.agent import dialog, summary
-    from backend.comms import photon
+    from backend.comms import notify as texter
     from backend.features import pipeline
 
     row = db.patient(pid)
@@ -93,8 +93,7 @@ def run_with_hub(hub, pid: str, week: int) -> dict:
     res = got["pipeline"]
     cid = rig_hub.store_checkin(pid, week, got, res)
     upd = demo.assimilate(pid, week, pipeline.observables(res["values"]), res["channel"])
-    photon.post_call(pid, str(row["name"]), got["patient_note"])
-    summary.store_patient_note(pid, got["patient_note"])
+    texter.send(pid, "post_call", body=got["patient_note"])
     if upd["alerts"]:
         from backend.comms import clinic_call
 

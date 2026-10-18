@@ -15,7 +15,8 @@ create table if not exists patients (
   fc_fit real, coverage real, drift_z real,
   twin_built integer default 0, template_only integer default 0,
   low_fidelity integer default 0, synthetic integer default 1,
-  last_call text, created text, seed integer, d0 real, truth text, state text, note text
+  last_call text, created text, seed integer, d0 real, truth text, state text, note text,
+  phone text
 );
 create table if not exists events (
   id text primary key, patient_id text, kind text, time text, payload text
@@ -43,7 +44,8 @@ create table if not exists consents (
   genetic integer, time text, withdrawn integer default 0
 );
 create table if not exists messages (
-  id text primary key, patient_id text, dir text, body text, time text
+  id text primary key, patient_id text, dir text, body text, time text,
+  channel text default 'mock', kind text
 );
 create table if not exists uploads (
   id text primary key, patient_id text, kind text, file text, status text, sets text,
@@ -61,6 +63,24 @@ create index if not exists ix_msg_pat on messages(patient_id);
 _CONN: sqlite3.Connection | None = None
 
 
+# Columns added after the first release. `create table if not exists` leaves an existing
+# database alone, so these are added by hand on open rather than by dropping the file.
+ADDED = [
+    ("messages", "channel", "text default 'mock'"),
+    ("messages", "kind", "text"),
+    ("patients", "phone", "text"),
+]
+
+
+def migrate(cur: sqlite3.Connection) -> None:
+    """Add any column this build needs that an older database does not have."""
+    for table, col, decl in ADDED:
+        have = {r["name"] for r in cur.execute(f"pragma table_info({table})").fetchall()}
+        if col not in have:
+            cur.execute(f"alter table {table} add column {col} {decl}")
+    cur.commit()
+
+
 def conn() -> sqlite3.Connection:
     """Open the database once, create the schema if needed."""
     global _CONN
@@ -70,6 +90,7 @@ def conn() -> sqlite3.Connection:
         _CONN.row_factory = sqlite3.Row
         _CONN.executescript(SCHEMA)
         _CONN.commit()
+        migrate(_CONN)
     return _CONN
 
 
@@ -184,10 +205,16 @@ def event(pid: str, kind: str, payload: dict | None = None) -> str:
     return eid
 
 
-def message(pid: str, direction: str, body: str) -> str:
-    """Append a message in either direction."""
+def message(pid: str, direction: str, body: str, channel: str = "mock", kind: str = "") -> str:
+    """Append a message in either direction, recording which transport carried it.
+
+    `channel` is one of imessage, sms or mock. It is never guessed: an SMS is labelled
+    sms even when the patient reads it in the Messages app, because the whole point of
+    the iMessage transport is that it really is iMessage.
+    """
     mid = new_id("msg")
-    put("messages", {"id": mid, "patient_id": pid, "dir": direction, "body": body, "time": now()})
+    put("messages", {"id": mid, "patient_id": pid, "dir": direction, "body": body,
+                     "time": now(), "channel": channel, "kind": kind})
     return mid
 
 

@@ -375,11 +375,16 @@ class ScenarioResult(BaseModel):
 
 
 class Message(BaseModel):
-    """One iMessage in or out."""
+    """One message in or out, with the transport that actually carried it.
+
+    `channel` is never guessed. An SMS says sms even though it lands in the same app.
+    """
 
     dir: Literal["out", "in"]
     body: str
     time: str
+    channel: Literal["imessage", "sms", "mock"] = "mock"
+    kind: str | None = None
 
 
 class Check(BaseModel):
@@ -560,3 +565,129 @@ class Health(BaseModel):
 
     ok: bool = True
     mode: Literal["mock", "live"] = Field(default="mock")
+
+
+# ---------------------------------------------------------------- the web call
+
+class CallBody(BaseModel):
+    """Body of POST /api/calls."""
+
+    patient_id: str | None = None
+    send: bool = False
+    week: int | None = None
+
+
+class CallStart(BaseModel):
+    """Response of POST /api/calls. The url is what the patient opens."""
+
+    token: str
+    url: str
+    expires: str
+    sent: bool = False
+    channel: str | None = None
+
+
+class ScriptStep(BaseModel):
+    """One screen of the call."""
+
+    id: str
+    say: str
+    audio: str | None = None
+    task: str
+    minutes: float
+    tier: Literal["A", "B", "safety", "gate", "none"]
+    block: Literal["A", "B"] | None = None
+    params: dict = Field(default_factory=dict)
+
+
+class CallScript(BaseModel):
+    """Everything the page needs to run the whole check-in."""
+
+    consent: list[str]
+    steps: list[ScriptStep]
+    voice_base: str
+    symptom_items: list[str]
+    redflag_items: list[str]
+    words: list[str]
+    passage: str
+    picture: Literal["kitchen"]
+    fluency_seconds: int
+
+
+class RedflagBody(BaseModel):
+    """Body of POST /api/call/{token}/redflags."""
+
+    answers: dict[str, bool] = Field(default_factory=dict)
+
+
+class RedflagResult(BaseModel):
+    """What the backend decided about the safety screen. The page never decides."""
+
+    stop: bool
+    say: str
+    audio: str | None = None
+
+
+class SymptomBody(BaseModel):
+    """Body of POST /api/call/{token}/symptoms."""
+
+    scores: dict[str, float] = Field(default_factory=dict)
+    phase: Literal["baseline", "rerate"] = "baseline"
+
+
+class SymptomResult(BaseModel):
+    """Whether to shorten the call and which steps to skip."""
+
+    jump: bool
+    short: bool
+    skip: list[str] = Field(default_factory=list)
+
+
+class LiveBody(BaseModel):
+    """Body of POST /api/call/{token}/live, posted about every 200 ms."""
+
+    t: float = 0.0
+    gaze: Point = Point(x=0.5, y=0.5)
+    target: Point = Point(x=0.5, y=0.5)
+    quality: Quality = Quality(face=False, dist=False, light=False, fps=0.0)
+    pursuit_gain: float | None = None
+    step: str = ""
+    line: RigLine | None = None
+
+
+class FinishBody(BaseModel):
+    """Body of POST /api/call/{token}/finish."""
+
+    aborted: bool = False
+
+
+class CallStatus(BaseModel):
+    """Response of GET /api/call/{token}/status."""
+
+    state: Literal["waiting", "in_call", "stopped", "processing", "done", "failed"]
+    call_id: str | None = None
+    summary: str | None = None
+    error: str | None = None
+
+
+class VoiceLine(BaseModel):
+    """One generated line for the demo console voices panel."""
+
+    id: str
+    text: str
+    hash: str
+    file: str
+    exists: bool
+    duration_s: float | None = None
+    stale: bool = False
+    error: str | None = None
+
+
+class Voices(BaseModel):
+    """Response of GET /api/voices."""
+
+    base: str
+    live: bool
+    model: str
+    lines: list[VoiceLine]
+    note: str

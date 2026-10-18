@@ -38,13 +38,43 @@ def num(name: str, default: float) -> float:
         return default
 
 
+def on(name: str, default: str = "0") -> bool:
+    """A plain on or off switch from env."""
+    return (os.environ.get(name) or default) not in ("0", "", "false", "False", "no")
+
+
+def first(*names: str) -> str:
+    """The first of these environment variables that has a value."""
+    for name in names:
+        val = os.environ.get(name)
+        if val:
+            return val
+    return ""
+
+
+def phones(name: str = "DEMO_PHONES") -> list[str]:
+    """The allow list of numbers that may be texted in live mode.
+
+    Nothing is sent to a number outside this list, ever. People on it have agreed to be
+    texted, and that is the only reason a number is in there.
+    """
+    raw = os.environ.get(name) or ""
+    return [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+
+
 @dataclass
 class Cfg:
     """Resolved configuration for the whole backend."""
 
     mock_rig: bool = field(default_factory=lambda: flag("MOCK_RIG", ["RIG_FACETIME_NUMBER"]))
     mock_llm: bool = field(default_factory=lambda: flag("MOCK_LLM", ["ANTHROPIC_API_KEY"]))
-    mock_photon: bool = field(default_factory=lambda: flag("MOCK_PHOTON", ["PHOTON_API_KEY"]))
+    # Photon credentials are PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET now. The old
+    # PHOTON_API_KEY still counts so an existing .env keeps working.
+    mock_photon: bool = field(
+        default_factory=lambda: flag("MOCK_PHOTON", ["PHOTON_PROJECT_ID"])
+        and flag("MOCK_PHOTON", ["PHOTON_API_KEY"])
+    )
+    mock_eleven: bool = field(default_factory=lambda: flag("MOCK_ELEVEN", ["ELEVENLABS_API_KEY"]))
     mock_twilio: bool = field(
         default_factory=lambda: flag(
             "MOCK_TWILIO",
@@ -67,10 +97,34 @@ class Cfg:
     anthropic_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     photon_key: str = field(default_factory=lambda: os.environ.get("PHOTON_API_KEY", ""))
     photon_url: str = field(default_factory=lambda: os.environ.get("PHOTON_BASE_URL", ""))
+    photon_project: str = field(default_factory=lambda: os.environ.get("PHOTON_PROJECT_ID", ""))
+    photon_secret: str = field(default_factory=lambda: os.environ.get("PHOTON_PROJECT_SECRET", ""))
     twilio_sid: str = field(default_factory=lambda: os.environ.get("TWILIO_ACCOUNT_SID", ""))
     twilio_token: str = field(default_factory=lambda: os.environ.get("TWILIO_AUTH_TOKEN", ""))
-    twilio_from: str = field(default_factory=lambda: os.environ.get("TWILIO_FROM", ""))
+    # Spec file 2 names it TWILIO_PHONE_NUMBER. TWILIO_FROM was the old name and still works.
+    twilio_from: str = field(default_factory=lambda: first("TWILIO_PHONE_NUMBER", "TWILIO_FROM"))
     clinic_number: str = field(default_factory=lambda: os.environ.get("CLINIC_NUMBER", ""))
+
+    # ElevenLabs. Voice lines, the optional speech to text backend and the clinic call.
+    eleven_key: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", ""))
+    eleven_voice: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_VOICE_ID", ""))
+    eleven_agent: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_AGENT_ID", ""))
+    eleven_phone: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_PHONE_NUMBER_ID", ""))
+    eleven_tts_model: str = field(
+        default_factory=lambda: os.environ.get("ELEVENLABS_TTS_MODEL") or "eleven_multilingual_v2"
+    )
+    eleven_stt_model: str = field(
+        default_factory=lambda: os.environ.get("ELEVENLABS_STT_MODEL") or "scribe_v1"
+    )
+
+    # The web call. CALL_MODE=facetime keeps the old rig path alive.
+    call_mode: str = field(default_factory=lambda: (os.environ.get("CALL_MODE") or "web").lower())
+    public_url: str = field(default_factory=lambda: (os.environ.get("PUBLIC_URL") or "").rstrip("/"))
+    demo_phones: list[str] = field(default_factory=phones)
+    keep_audio: bool = field(default_factory=lambda: on("KEEP_AUDIO"))
+    asr: str = field(default_factory=lambda: (os.environ.get("ASR") or "whisper").lower())
+    live_agent: bool = field(default_factory=lambda: on("LIVE_AGENT"))
+    regional_loadings: bool = field(default_factory=lambda: on("REGIONAL_LOADINGS"))
 
     facetime_number: str = field(default_factory=lambda: os.environ.get("RIG_FACETIME_NUMBER", ""))
     mic_device: str = field(default_factory=lambda: os.environ.get("MIC_DEVICE", "BlackHole 2ch"))
@@ -90,7 +144,28 @@ class Cfg:
 
     def mode(self) -> str:
         """'mock' when anything is mocked, else 'live'."""
-        return "mock" if (self.mock_rig or self.mock_llm or self.mock_photon or self.mock_twilio) else "live"
+        mocked = (self.mock_rig or self.mock_llm or self.mock_photon or self.mock_twilio
+                  or self.mock_eleven)
+        return "mock" if mocked else "live"
+
+    def web_call(self) -> bool:
+        """True when the patient opens a web page instead of answering a FaceTime call."""
+        return self.call_mode != "facetime"
+
+    def base_url(self) -> str:
+        """The URL a texted link must use. PUBLIC_URL in live mode, else the local base.
+
+        iOS will not open the camera over plain http, so a localhost link cannot work on
+        a phone. `make tunnel` prints how to get an https one.
+        """
+        return self.public_url or self.api_base
+
+    def may_text(self, number: str) -> bool:
+        """Whether a number may be texted. Only numbers on the DEMO_PHONES allow list."""
+        want = "".join(ch for ch in str(number) if ch.isdigit())
+        if not want:
+            return False
+        return any("".join(ch for ch in p if ch.isdigit()) == want for p in self.demo_phones)
 
     def cache_dir(self) -> Path:
         """Disk cache for DMF fits and the surrogate table."""

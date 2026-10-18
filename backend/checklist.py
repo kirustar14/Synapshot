@@ -9,7 +9,7 @@ import importlib
 import json
 
 from . import db, models
-from .config import cfg
+from .config import ROOT, cfg
 from .twin import population
 
 GREEN = "PASS"
@@ -34,6 +34,17 @@ OPTIONAL = {
 }
 
 ROUTES = [
+    # spec file 1: the mesh, the shape, the receptors and the what-if
+    ("GET", "/api/mesh"), ("GET", "/api/patients/{pid}/shape"), ("GET", "/api/receptors"),
+    ("POST", "/api/patients/{pid}/intervention"),
+    # spec file 2: the web call
+    ("POST", "/api/calls"), ("GET", "/api/call/{token}/script"),
+    ("POST", "/api/call/{token}/consent"), ("POST", "/api/call/{token}/redflags"),
+    ("POST", "/api/call/{token}/symptoms"), ("POST", "/api/call/{token}/live"),
+    ("POST", "/api/call/{token}/frames"), ("POST", "/api/call/{token}/audio/{task}"),
+    ("POST", "/api/call/{token}/finish"), ("GET", "/api/call/{token}/status"),
+    ("GET", "/api/voices"), ("POST", "/api/voices/{step_id}/regenerate"),
+    # the original contract
     ("GET", "/api/health"), ("GET", "/api/patients"), ("POST", "/api/patients"),
     ("GET", "/api/patients/{pid}"), ("GET", "/api/patients/{pid}/forecast"),
     ("GET", "/api/patients/{pid}/twin"), ("POST", "/api/patients/{pid}/scenarios"),
@@ -139,11 +150,15 @@ def mock_check() -> list[dict]:
              "template lines, set ANTHROPIC_API_KEY for natural phrasing"
              if cfg.mock_llm else f"live on {cfg.claude_model}"),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
-             "written to the messages table, set PHOTON_API_KEY to send"
+             "written to the messages table, set PHOTON_PROJECT_ID and "
+             "PHOTON_PROJECT_SECRET to send"
              if cfg.mock_photon else "live"),
         line(MOCK if cfg.mock_twilio else GREEN, "clinic call",
              "script logged, set the four Twilio keys to dial"
              if cfg.mock_twilio else f"live to {cfg.clinic_number}"),
+        line(MOCK if cfg.mock_eleven else GREEN, "ElevenLabs voices",
+             "no key, the page uses the browser's own speech synthesis"
+             if cfg.mock_eleven else f"live, {cfg.eleven_tts_model}"),
         line(MOCK if cfg.offline else GREEN, "template atlases",
              "offline, using the fallback template, set OFFLINE=0 to fetch the real atlas"
              if cfg.offline else "fetching real atlases"),
@@ -199,6 +214,136 @@ def models_check() -> list[dict]:
     return [line(GREEN if len(names) > 25 else RED, f"{len(names)} contract models defined", "")]
 
 
+def webcall_check() -> list[dict]:
+    """Everything the web call needs: the URL, the voices, ffmpeg, the model, the tunnel."""
+    import shutil
+    import urllib.error
+    import urllib.request
+
+    out = []
+
+    # The link the patient taps. iOS will not open the camera over plain http.
+    url = cfg.public_url
+    if not url:
+        out.append(line(MOCK, "PUBLIC_URL", "not set, so links point at "
+                                            f"{cfg.api_base} and cannot work on a phone"))
+    elif not url.startswith("https://"):
+        out.append(line(RED, "PUBLIC_URL is not https",
+                        "iOS needs https to open the camera, run make tunnel"))
+    else:
+        try:
+            with urllib.request.urlopen(f"{url}/api/health", timeout=8) as resp:
+                ok = resp.status < 400
+            out.append(line(GREEN if ok else RED, "PUBLIC_URL is https and answering", url))
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            out.append(line(MOCK, "PUBLIC_URL is https but not reachable",
+                            f"{url}, {str(exc)[:80]}. Start the tunnel and make dev"))
+
+    out.append(line(GREEN if cfg.web_call() else MOCK, f"CALL_MODE is {cfg.call_mode}",
+                    "the patient opens a web page" if cfg.web_call()
+                    else "the old FaceTime rig path, set CALL_MODE=web for the new flow"))
+
+    # ElevenLabs. One cheap authenticated GET. The key is never printed, only used.
+    if not cfg.eleven_key:
+        out.append(line(MOCK, "ElevenLabs key", "not set, the page uses browser speech synthesis"))
+    else:
+        try:
+            req = urllib.request.Request("https://api.elevenlabs.io/v1/user/subscription",
+                                         headers={"xi-api-key": cfg.eleven_key})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                live = resp.status < 300
+            out.append(line(GREEN if live else RED, "ElevenLabs key accepted",
+                            f"model {cfg.eleven_tts_model}"))
+        except urllib.error.HTTPError as exc:
+            out.append(line(RED, "ElevenLabs key rejected", f"HTTP {exc.code}"))
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            out.append(line(MOCK, "ElevenLabs not reachable", str(exc)[:80]))
+    out.append(line(GREEN if cfg.eleven_voice else MOCK, "ELEVENLABS_VOICE_ID",
+                    "set" if cfg.eleven_voice else "not set, no mp3 can be generated"))
+
+    # Generated voice lines.
+    from .agent import voices
+
+    want = voices.lines()
+    have = voices.audio_map()
+    missing = [row["id"] for row in want if row["id"] not in have]
+    out.append(line(GREEN if not missing else MOCK,
+                    f"{len(have)} of {len(want)} voice lines generated",
+                    "every line has an mp3" if not missing else
+                    f"{len(missing)} fall back to browser speech, run make voices"))
+
+    # ffmpeg is a hard requirement for the uploaded audio.
+    from .calls import audio as callaudio
+
+    out.append(line(GREEN if callaudio.have_ffmpeg() else RED, "ffmpeg",
+                    "present, uploaded audio can be decoded" if callaudio.have_ffmpeg()
+                    else "MISSING, every speech measure would be lost. brew install ffmpeg"))
+
+    # The face landmarker the phone runs.
+    model = ROOT / "web" / "public" / "models" / "face_landmarker.task"
+    out.append(line(GREEN if model.exists() else RED, "MediaPipe face landmarker",
+                    f"{model.stat().st_size // 1024} KB at web/public/models/"
+                    if model.exists() else "missing, run make models"))
+
+    # The built frontend.
+    dist = ROOT / "web" / "dist" / "index.html"
+    out.append(line(GREEN if dist.exists() else RED, "web/dist built",
+                    "served at /" if dist.exists() else "run make web"))
+
+    # A tunnel tool, so the phone can reach this machine over https.
+    tool = next((t for t in ("cloudflared", "ngrok") if shutil.which(t)), "")
+    out.append(line(GREEN if tool else MOCK, "tunnel tool",
+                    f"{tool} is installed, run make tunnel for the steps" if tool
+                    else "neither cloudflared nor ngrok found. brew install cloudflared"))
+
+    # Twilio, the SMS fallback and the clinic call.
+    have_twilio = all([cfg.twilio_sid, cfg.twilio_token, cfg.twilio_from])
+    out.append(line(GREEN if have_twilio else MOCK, "Twilio credentials",
+                    f"set, SMS fallback live from {cfg.twilio_from}" if have_twilio
+                    else "not all set, SMS falls back to mock"))
+    out.append(line(GREEN if cfg.clinic_number else MOCK, "CLINIC_NUMBER",
+                    "set" if cfg.clinic_number else "not set, the clinic call is logged only"))
+
+    # The mesh the viewer renders.
+    from .data import mesh as meshmod
+
+    if meshmod.path_json().exists():
+        got = meshmod.mesh()
+        real = got["source"] == "fsaverage5"
+        out.append(line(GREEN if real else MOCK,
+                        f"mesh: {got['source']}, {got['verts']} vertices",
+                        "real fsaverage5 surface with Schaefer-100 labels" if real
+                        else "procedural stand-in, set OFFLINE=0 and run make mesh"))
+    else:
+        out.append(line(RED, "mesh", "not built, run make mesh"))
+
+    return out
+
+
+def comms_check() -> list[dict]:
+    """Which transport a text would actually go out on, and who may be texted."""
+    from .comms import notify as texter
+
+    got = texter.status()
+    out = [
+        line(GREEN if got["imessage"] else MOCK, "iMessage",
+             "live through the sidecar" if got["imessage"]
+             else "mock. Needs PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET plus "
+                  "make imessage"),
+        line(GREEN if got["sms"] else MOCK, "SMS fallback",
+             "live" if got["sms"] else "mock"),
+    ]
+    sdk = got["sidecar"]
+    out.append(line(GREEN if sdk.get("installed") else MOCK, "iMessage sidecar packages",
+                    f"spectrum_cloud={sdk.get('spectrum_cloud')}, "
+                    f"imessage_kit={sdk.get('imessage_kit')}" if sdk.get("installed")
+                    else "not installed, run make imessage"))
+    out.append(line(GREEN if got["allow_list"] else MOCK,
+                    f"DEMO_PHONES holds {got['allow_list']} number(s)",
+                    "nothing is ever sent to a number outside this list"))
+    return out
+
+
 def run() -> dict:
     """Every section of the checklist."""
     sections = {
@@ -206,6 +351,8 @@ def run() -> dict:
         "Seeded data": data_check(),
         "Twin and cohort": twin_check(),
         "Modes": mock_check(),
+        "The web call": webcall_check(),
+        "Comms": comms_check(),
         "Template sources": source_check(),
         "Optional packages": package_check(),
     }

@@ -1,7 +1,8 @@
 """Alert rules over the posterior, the drift z and the call quality."""
 
 from . import db
-from .comms import clinic_call, photon
+from .comms import clinic_call
+from .comms import notify as texter
 
 DRIFT_Z = 2.0        # drift z above this counts as a drifting week
 DRIFT_WEEKS = 2      # consecutive drifting weeks needed to raise the alert
@@ -25,12 +26,8 @@ def create(pid: str, kind: str, trigger: str, notify: bool = True) -> dict:
         called = bool(clinic_call.call(pid, text).get("ok"))
 
     if notify and kind in TEXTS:
-        if kind == "red_flag":
-            photon.emergency(pid, name)
-        elif kind == "low_quality":
-            photon.send("", f"Hi {name.split()[0]}, the video on that call was too dark or too far away to measure properly. We will try again next week, no action needed.", pid)
-        else:
-            photon.send("", f"Hi {name.split()[0]}, we missed you this week. Reply with a day that works and we will call then.", pid)
+        kinds = {"red_flag": "emergency", "low_quality": "low_quality"}
+        texter.send(pid, kinds.get(kind, "missed_call"))
 
     db.put("alerts", {
         "id": aid, "patient_id": pid, "type": kind, "trigger": trigger,

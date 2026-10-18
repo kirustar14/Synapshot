@@ -19,3 +19,4 @@ web/dist/
 web/node_modules/
 web/public/models/*.task
 .pytest_cache/
+.gstack/

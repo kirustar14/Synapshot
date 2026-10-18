@@ -1,111 +1,105 @@
-"""Photon iMessage agent wrapper. Mock mode writes to the messages table instead.
+"""iMessage through the Node sidecar. Mock mode records the message and sends nothing.
 
-The real SDK is looked up at runtime under a few plausible names, because the hackpack
-version is whatever is installed on the day. Nothing here raises if it is absent.
+The two iMessage SDKs are TypeScript only, so the actual send happens in
+`backend/comms/node/send.mjs` and this module is the thin Python side of it. The sidecar
+tries Spectrum Cloud first and the local Messages app second, and reports which one
+worked so the UI can say iMessage honestly rather than guessing.
+
+Credentials are handed over in the child's environment, never on its command line.
 """
 
 import json
-import re
-import urllib.error
-import urllib.request
+import subprocess
+from pathlib import Path
 
 from .. import db
 from ..config import cfg
 
+HERE = Path(__file__).resolve().parent
+SIDECAR = HERE / "node" / "send.mjs"
+TIMEOUT_S = 45
 HANDLERS: list = []
 
 
 def available() -> bool:
-    """True when a real Photon transport is configured."""
-    return bool(not cfg.mock_photon and (cfg.photon_key or cfg.photon_url))
+    """True when a real iMessage transport is configured and not mocked."""
+    if cfg.mock_photon:
+        return False
+    return bool(cfg.photon_project and cfg.photon_secret) or bool(cfg.photon_key or cfg.photon_url)
 
 
-MODULES = ["photon", "photon_sdk", "photonsdk", "photon_messages"]
-CLASSES = ["Client", "Photon", "PhotonClient", "Agent"]
-SENDERS = ["send_message", "send_text", "send", "message", "imessage"]
+def _env() -> dict:
+    """The child environment: the credentials and nothing else that matters."""
+    import os
+
+    out = dict(os.environ)
+    out["PHOTON_PROJECT_ID"] = cfg.photon_project
+    out["PHOTON_PROJECT_SECRET"] = cfg.photon_secret
+    return out
 
 
-def _sdk():
-    """The Photon client object, or None.
-
-    The hackpack SDK is whatever version is installed on the day, so the class and the
-    send method are discovered by introspection rather than hard coded.
-    """
-    for mod in MODULES:
-        try:
-            got = __import__(mod, fromlist=["*"])
-        except Exception:
-            continue
-        for attr in CLASSES:
-            cls = getattr(got, attr, None)
-            if cls is None:
-                continue
-            for kwargs in ({"api_key": cfg.photon_key}, {"token": cfg.photon_key}, {}):
-                try:
-                    return cls(**kwargs)
-                except Exception:
-                    continue
-    return None
-
-
-def _send_via(client, to: str, body: str) -> bool:
-    """Call whichever send method the installed SDK actually exposes."""
-    for name in SENDERS:
-        fn = getattr(client, name, None)
-        if not callable(fn):
-            continue
-        for args, kwargs in (((), {"to": to, "body": body}), ((), {"to": to, "text": body}),
-                             ((to, body), {}), ((), {"recipient": to, "message": body})):
-            try:
-                fn(*args, **kwargs)
-                return True
-            except TypeError:
-                continue
-            except Exception:
-                return False
-    return False
+def _run(job: dict, args: list[str] | None = None) -> dict:
+    """Run the sidecar once and read its one line of JSON."""
+    if not SIDECAR.exists():
+        return {"ok": False, "error": "the sidecar is missing at backend/comms/node/send.mjs"}
+    cmd = ["node", str(SIDECAR), *(args or [])]
+    try:
+        got = subprocess.run(cmd, input=json.dumps(job), capture_output=True, text=True,
+                             timeout=TIMEOUT_S, env=_env(), check=False, cwd=str(HERE / "node"))
+    except FileNotFoundError:
+        return {"ok": False, "error": "node is not installed, so iMessage cannot be used"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"the sidecar did not answer in {TIMEOUT_S} s"}
+    line = (got.stdout or "").strip().splitlines()
+    if not line:
+        return {"ok": False, "error": (got.stderr or "the sidecar said nothing").strip()[:300]}
+    try:
+        return json.loads(line[-1])
+    except ValueError:
+        return {"ok": False, "error": "the sidecar did not return JSON"}
 
 
 def docs() -> dict:
-    """What the installed SDK looks like, for the preflight and the README."""
-    client = _sdk()
-    if client is None:
-        return {"installed": False, "methods": [], "doc": ""}
-    methods = [n for n in dir(client) if not n.startswith("_") and callable(getattr(client, n, None))]
+    """What the sidecar can actually do here, for make check and the preflight."""
+    if not SIDECAR.exists():
+        return {"installed": False, "reason": "sidecar missing"}
+    got = _run({}, ["--probe"])
     return {
-        "installed": True,
-        "klass": type(client).__name__,
-        "methods": methods,
-        "senders": [n for n in SENDERS if n in methods],
-        "doc": (type(client).__doc__ or "").strip()[:400],
+        "installed": bool(got.get("spectrum") or got.get("kit")),
+        "spectrum_cloud": bool(got.get("spectrum")),
+        "imessage_kit": bool(got.get("kit")),
+        "credentials": bool(got.get("credentials")),
+        "platform": got.get("platform"),
+        "node": got.get("node"),
+        "hint": "cd backend/comms/node && npm install   enables the real transports",
     }
 
 
-def send(to: str, body: str, pid: str | None = None) -> dict:
-    """Send an iMessage. Always logs to the messages table so the UI can show it."""
-    if pid:
-        db.message(pid, "out", body)
+def send(to: str, body: str, pid: str | None = None, kind: str = "") -> dict:
+    """Send one iMessage. Returns the channel that actually carried it.
+
+    Nothing is sent to a number outside DEMO_PHONES, and `channel` is only ever
+    "imessage" when a real iMessage transport reported success.
+    """
     if not available():
-        return {"ok": True, "how": "mock", "to": to, "body": body}
+        if pid:
+            db.message(pid, "out", body, channel="mock", kind=kind)
+        return {"ok": True, "channel": "mock", "how": "mock", "to": to}
 
-    client = _sdk()
-    if client is not None:
-        if _send_via(client, to, body):
-            return {"ok": True, "how": "sdk", "to": to}
-        return {"ok": False, "how": "sdk", "error": "no usable send method on the installed SDK"}
+    if not to:
+        return {"ok": False, "channel": "none", "error": "no number to send to"}
+    if not cfg.may_text(to):
+        return {"ok": False, "channel": "none",
+                "error": "that number is not in DEMO_PHONES, so nothing was sent"}
 
-    if cfg.photon_url:
-        req = urllib.request.Request(
-            cfg.photon_url.rstrip("/") + "/messages",
-            data=json.dumps({"to": to, "body": body}).encode(),
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {cfg.photon_key}"},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                return {"ok": resp.status < 300, "how": "http", "to": to}
-        except (urllib.error.URLError, TimeoutError) as exc:
-            return {"ok": False, "how": "http", "error": str(exc)}
-    return {"ok": False, "how": "none", "error": "no transport"}
+    got = _run({"to": to, "body": body})
+    if got.get("ok"):
+        if pid:
+            db.message(pid, "out", body, channel="imessage", kind=kind)
+        return {"ok": True, "channel": "imessage", "how": got.get("how"), "to": to}
+    return {"ok": False, "channel": "none", "how": got.get("how"),
+            "error": str(got.get("error") or "the sidecar failed")[:300],
+            "tried": got.get("tried", [])}
 
 
 def on_message(handler) -> None:
@@ -114,16 +108,22 @@ def on_message(handler) -> None:
 
 
 def incoming(pid: str, body: str) -> dict:
-    """Handle a reply: log it, parse a symptom score, honour STOP, run handlers."""
-    db.message(pid, "in", body)
+    """Handle a reply: log it, parse a symptom score, honour STOP, run the handlers."""
+    import re
+
+    db.message(pid, "in", body, channel="imessage", kind="reply")
     out = {"pid": pid, "body": body, "score": None, "stopped": False}
 
     if body.strip().upper() == "STOP":
         row = db.consent_for(pid)
         if row:
-            db.patch("consents", row["token"], {"withdrawn": 1, "calls": 0, "ai": 0, "recording": 0, "genetic": 0}, key="token")
+            db.patch("consents", row["token"],
+                     {"withdrawn": 1, "calls": 0, "ai": 0, "recording": 0, "genetic": 0},
+                     key="token")
         db.event(pid, "consent_withdrawn", {"via": "imessage"})
-        send("", "Understood. We have stopped the calls and texts. Your clinician has been told.", pid)
+        from . import notify
+
+        notify.send(pid, "withdrawn")
         out["stopped"] = True
         return out
 
@@ -138,22 +138,6 @@ def incoming(pid: str, body: str) -> dict:
         except Exception:
             continue
     return out
-
-
-def consent_request(pid: str, name: str, token: str, to: str = "") -> dict:
-    """Ask for consent with a link to the consent page."""
-    link = f"{cfg.api_base}/consent/{token}"
-    return send(to, f"Hi {name.split()[0]}, this is the UNNAMED study assistant. Before anything else, please read and answer four consent questions here: {link}", pid)
-
-
-def heads_up(pid: str, name: str, when: str = "tomorrow at 10am", to: str = "") -> dict:
-    """Tell the patient a call is coming."""
-    return send(to, f"Hi {name.split()[0]}, your weekly check-in call is {when}. It takes about 14 minutes. Somewhere quiet with good light works best. Reply STOP to stop.", pid)
-
-
-def midweek_check(pid: str, name: str, to: str = "") -> dict:
-    """Midweek symptom check, reply parsed 0 to 10."""
-    return send(to, f"Hi {name.split()[0]}, quick midweek check. On a scale of 0 to 10, how are your symptoms overall today? Just reply with the number.", pid)
 
 
 def midweek_due(pid: str, days: int = 3) -> bool:
@@ -172,28 +156,15 @@ def midweek_due(pid: str, days: int = 3) -> bool:
 
 def run_midweek(days: int = 3) -> list[dict]:
     """Text every consented patient who is due a midweek symptom check."""
+    from . import notify
+
     out = []
     for row in db.patients():
         con = db.consent_for(row["id"])
         if con is None or int(con["withdrawn"] or 0) or not int(con["calls"] or 0):
             continue
         if midweek_due(row["id"], days):
-            got = midweek_check(row["id"], str(row["name"]))
-            out.append({"patient_id": row["id"], "ok": got.get("ok", False)})
+            got = notify.send(row["id"], "midweek")
+            out.append({"patient_id": row["id"], "ok": got.get("ok", False),
+                        "channel": got.get("channel")})
     return out
-
-
-def post_call(pid: str, name: str, body: str, to: str = "") -> dict:
-    """Send the plain language summary after a call."""
-    return send(to, body, pid)
-
-
-def emergency(pid: str, name: str, to: str = "") -> dict:
-    """Red flag text. Says to get help now and nothing else."""
-    return send(
-        to,
-        f"{name.split()[0]}, based on what you told me, please stop the call and get medical help now. "
-        "Call your local emergency number or go to the nearest emergency department. "
-        "If someone is with you, tell them now. Your clinician is being called.",
-        pid,
-    )

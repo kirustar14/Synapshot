@@ -150,6 +150,14 @@ def run(session: dict, prev: dict | None = None, age: int = 30, sex: str = "M", 
     frames = session.get("frames") or []
     t, lum = flash.lum_of(frames)
     block = flash.test_block(t, lum, session.get("flashes") or [])
+
+    # A web call measures the camera lag itself and applies a spread gate the FaceTime
+    # path never needed, so when the session carries that result it wins.
+    cam = session.get("camera")
+    if cam:
+        block = {**block, "flash_ok": bool(cam["flash_ok"]), "found": int(cam["found"]),
+                 "sd_ms": cam["sd_ms"], "latency_s": cam["latency_s"], "why": cam["why"]}
+
     cal = gz.fit(frames, session.get("calib") or [])
 
     vals, traces = eye_values(session, cal["beta"], block["flash_ok"])
@@ -164,7 +172,7 @@ def run(session: dict, prev: dict | None = None, age: int = 30, sex: str = "M", 
     vals["blink_rate"] = bl["blink_rate"]
     vals["blink_dur"] = bl["blink_dur"]
     smile = blink.expression(frames, "mouthSmileLeft") if cfg.reach else {"t": [], "v": []}
-    brow = blink.expression(frames, "browInnerUp") if cfg.reach else {"t": [], "v": []}
+    brow = brow_trace(frames) if cfg.reach else {"t": [], "v": []}
     if smile["v"]:
         vals["smile_mean"] = float(np.mean(smile["v"]))
     if brow["v"]:
@@ -194,6 +202,22 @@ def run(session: dict, prev: dict | None = None, age: int = 30, sex: str = "M", 
         "speech_how": sp.get("how", "none"),
         "steps": [w["kind"] for w in windows(session.get("stim") or [])],
     }
+
+
+BROW_KEYS = ["browInnerUp", "browDownLeft"]
+
+
+def brow_trace(frames: list[dict]) -> dict:
+    """The brow trace from whichever blendshape the capture path supplied.
+
+    The rig reported brow raising and the browser reports brow lowering, so the two are
+    not comparable week to week. Both are exploratory and labelled as such.
+    """
+    for key in BROW_KEYS:
+        got = blink.expression(frames, key)
+        if any(abs(v) > 1e-9 for v in got["v"]):
+            return got
+    return blink.expression(frames, BROW_KEYS[0])
 
 
 def feature_list(vals: dict, prev: dict | None, flash_ok: bool) -> list[dict]:

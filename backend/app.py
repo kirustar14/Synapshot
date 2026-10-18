@@ -5,18 +5,24 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
 from . import db, demo, models, rig_hub
-from .agent import summary
+from .agent import safety, summary
+from .agent import summary as agent_summary
+from .calls import audio as callaudio
+from .calls import run as callrun
+from .calls import script as callscript
+from .calls import sessions
 from .comms import photon
 from .config import ROOT, cfg
 from .data import upload
 from .features import sem as semmod
+from .features import webframes
 from .twin import attribution, build, counterfactual, forecast as fcast, population
 
 
@@ -29,9 +35,14 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="UNNAMED", version="0.1.0", lifespan=lifespan)
+
+# The frontend is served from this same origin, so in live mode nothing needs a cross
+# origin grant and the only allowed origin is the public URL itself. Mock mode stays open
+# so a separate `npm run dev` on another port can talk to it.
+ORIGINS = [cfg.public_url] if (cfg.mode() == "live" and cfg.public_url) else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -426,9 +437,19 @@ def post_build_twin(pid: str) -> dict:
 
 @app.get("/api/patients/{pid}/messages", response_model=list[models.Message])
 def get_messages(pid: str) -> list[dict]:
-    """The iMessage thread for a patient."""
+    """The message thread for a patient, each row saying which transport carried it."""
     need(pid)
-    return [{"dir": m["dir"], "body": m["body"], "time": m["time"]} for m in db.messages(pid)]
+    out = []
+    for m in db.messages(pid):
+        try:
+            chan = str(m["channel"] or "mock")
+            kind = m["kind"]
+        except (IndexError, KeyError):
+            chan, kind = "mock", None
+        out.append({"dir": m["dir"], "body": m["body"], "time": m["time"],
+                    "channel": chan if chan in ("imessage", "sms", "mock") else "mock",
+                    "kind": kind})
+    return out
 
 
 @app.post("/api/patients/{pid}/note")
@@ -523,13 +544,36 @@ def demo_drift(body: models.DemoBody) -> dict:
 
 @app.post("/api/demo/trigger-call")
 def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
-    """Run a call now, on the real rig when it is configured, else the mock."""
+    """Start a call now.
+
+    In web mode with a real transport, create a session and text the link, then wait for
+    the patient to open it. In web mock mode, run a generated web session through the real
+    ingest and the real pipeline, so the whole web path is exercised with no phone at all.
+    In facetime mode, the old rig path runs unchanged.
+    """
     pid = body.patient_id or ""
     need(pid)
-    got = rig_hub.start_call(pid)
-    del tasks
-    return {"ok": bool(got.get("ok")), "patient_id": pid, "started": got.get("started", False),
-            "mock": cfg.mock_rig, "error": got.get("error")}
+
+    if not cfg.web_call():
+        got = rig_hub.start_call(pid)
+        del tasks
+        return {"ok": bool(got.get("ok")), "patient_id": pid, "mode": "facetime",
+                "started": got.get("started", False), "mock": cfg.mock_rig,
+                "error": got.get("error")}
+
+    start = sessions.create(pid)
+    if photon.available() or cfg.mode() == "live":
+        from .comms import notify as texter
+
+        sent = texter.send(pid, "call_link", link=start["url"])
+        return {"ok": True, "patient_id": pid, "mode": "web", "started": True,
+                "token": start["token"], "url": start["url"],
+                "channel": sent.get("channel", "mock"), "waiting": True}
+
+    tasks.add_task(callrun.mock_call, start["token"])
+    return {"ok": True, "patient_id": pid, "mode": "web", "started": True,
+            "token": start["token"], "url": start["url"], "channel": "mock",
+            "waiting": False, "note": "a generated web session is running through the real pipeline"}
 
 
 # ---------------------------------------------------------------- consent and stretch
@@ -665,12 +709,25 @@ async def ws_stimulus(ws: WebSocket) -> None:
 
 # ---------------------------------------------------------------- pages
 
-@app.get("/", response_model=None)
-def root():
-    """A pointer to the things a person might want to open."""
+# The built frontend. One origin for the API, the voices and the page, so there is no
+# CORS to get wrong and one HTTPS URL to put on a phone.
+WEB_DIR = ROOT / "web" / "dist"
+VOICE_DIR = cfg.data_dir / "voice"
+VOICE_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/voice", StaticFiles(directory=str(VOICE_DIR)), name="voice")
+if (WEB_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(WEB_DIR / "assets")), name="assets")
+
+
+def index_or_json():
+    """The built index.html, or a pointer list when the frontend has not been built."""
+    page = WEB_DIR / "index.html"
+    if page.exists():
+        return FileResponse(str(page))
     return JSONResponse({
         "ok": True,
         "mode": cfg.mode(),
+        "web": "not built yet, run make web",
         "api": "/api/health",
         "docs": "/docs",
         "ui": "/ui/",
@@ -679,22 +736,268 @@ def root():
     })
 
 
+@app.get("/", response_model=None)
+def root():
+    """The clinician app, or a pointer list before the frontend is built."""
+    return index_or_json()
+
+
 @app.get("/consent/{token}", response_model=None)
 def consent_page(token: str):
     """The consent page the text links to."""
-    page = STIM_DIR / "consent.html"
-    if page.exists():
-        return FileResponse(str(page))
+    if (WEB_DIR / "index.html").exists():
+        return index_or_json()
     got = db.consent(token)
     if got is None:
         raise HTTPException(404, "unknown consent link")
     return JSONResponse(get_consent(token))
 
 
+@app.get("/call/{token}", response_model=None)
+def call_page(token: str):
+    """The page the patient opens from the text. The app reads the token from the path."""
+    if (WEB_DIR / "index.html").exists():
+        return index_or_json()
+    row = sessions.get(token)
+    if row is None:
+        raise HTTPException(404, "unknown link")
+    return JSONResponse({"ok": True, "state": row["state"],
+                         "web": "not built yet, run make web"})
+
+
 @app.get("/api/photon/status")
 def photon_status() -> dict:
     """Which iMessage transport is live, and what the installed SDK looks like."""
-    return {"available": photon.available(), "mock": cfg.mock_photon, "sdk": photon.docs()}
+    from .comms import notify as texter
+
+    return {"available": photon.available(), "mock": cfg.mock_photon, "sdk": photon.docs(),
+            **texter.status()}
+
+
+# ---------------------------------------------------------------- the web call
+
+def call_row(token: str, want_consent: bool = True):
+    """A usable session for this token, or the right error.
+
+    404 for unknown, 410 for expired, 409 once the call has stopped or finished, and 403
+    until the three required consents are in.
+    """
+    row = sessions.live(token)
+    if row is None:
+        if sessions.expired(token):
+            raise HTTPException(410, "this link has expired, ask your clinic for a new one")
+        raise HTTPException(404, "unknown link")
+    if row["state"] in ("stopped", "done", "failed"):
+        raise HTTPException(409, f"this check-in is already {row['state']}")
+    if want_consent and not sessions.consent_ok(row):
+        raise HTTPException(403, "consent has not been given yet")
+    return row
+
+
+def limit(token: str, request: Request, per: int = sessions.RATE_MAX) -> None:
+    """Rate limit a session route by token and by client address."""
+    who = request.client.host if request.client else "unknown"
+    if not sessions.rate_ok(f"t:{token}", per) or not sessions.rate_ok(f"ip:{who}", per * 2):
+        raise HTTPException(429, "too many requests, slow down")
+
+
+@app.post("/api/calls", response_model=models.CallStart)
+def post_calls(body: models.CallBody) -> dict:
+    """Create a call session and, when asked, text the patient the link."""
+    pid = body.patient_id or ""
+    need(pid)
+    got = sessions.create(pid, body.week)
+    if body.send:
+        from .comms import notify as texter
+
+        sent = texter.send(pid, "call_link", link=got["url"])
+        got = {**got, "sent": True, "channel": sent.get("channel", "mock")}
+    return got
+
+
+@app.get("/api/call/{token}/script", response_model=models.CallScript)
+def get_call_script(token: str) -> dict:
+    """The script the page runs. Marks the session opened."""
+    row = call_row(token, want_consent=False)
+    sessions.open_session(token)
+    from .agent import voices
+
+    short = bool(row["short"])
+    return callscript.payload(short=short, audio=voices.audio_map())
+
+
+@app.post("/api/call/{token}/consent")
+def post_call_consent(token: str, body: models.ConsentBody) -> dict:
+    """Store the four consent answers. No task runs until the first three are true."""
+    row = call_row(token, want_consent=False)
+    sessions.patch(token, {"consent": db.enc(body.model_dump())})
+    db.patch("consents", str(db.consent_for(row["patient_id"])["token"]) if db.consent_for(row["patient_id"]) else "",
+             {"calls": int(body.calls), "ai": int(body.ai), "recording": int(body.recording),
+              "genetic": int(body.genetic), "time": db.now()}, key="token")
+    db.event(row["patient_id"], "consent", {**body.model_dump(), "via": "web call"})
+    return {"ok": True, "ready": sessions.consent_ok(sessions.get(token)), **body.model_dump()}
+
+
+@app.post("/api/call/{token}/redflags", response_model=models.RedflagResult)
+def post_call_redflags(token: str, body: models.RedflagBody) -> dict:
+    """Run the safety screen. The backend decides, never the page.
+
+    A clinician must confirm this question list before any use outside the team.
+    """
+    row = call_row(token)
+    pid = str(row["patient_id"])
+    answers = {k: bool(v) for k, v in (body.answers or {}).items()}
+    got = safety.screen(answers)
+    sessions.patch(token, {"redflags": db.enc(answers)})
+
+    from .agent import voices
+
+    audio = voices.audio_map()
+    if got["stop"]:
+        alertmod.red_flag(pid, answers, notify=True)
+        pat = db.patient(pid)
+        from .comms import clinic_call
+
+        clinic_call.call(pid, agent_summary.clinician_text(str(pat["name"]), int(row["week"] or 0),
+                                                           None, got["flags"]))
+        sessions.set_state(token, "stopped", finished=db.now())
+        db.event(pid, "call_red_flag", {"week": int(row["week"] or 0), "flags": got["flags"]})
+        name = audio.get("emergency")
+        return {"stop": True, "say": got["say"],
+                "audio": f"/voice/{name}" if name else None}
+    name = audio.get("clear")
+    return {"stop": False, "say": got["say"], "audio": f"/voice/{name}" if name else None}
+
+
+@app.post("/api/call/{token}/symptoms", response_model=models.SymptomResult)
+def post_call_symptoms(token: str, body: models.SymptomBody) -> dict:
+    """Store the symptom scores and say which blocks to skip."""
+    row = call_row(token)
+    scores = {k: float(v) for k, v in (body.scores or {}).items()}
+    have = db.dec(row["symptoms"], {}) or {}
+    merged = {**have.get("symptoms", {}), **scores}
+
+    jump = 0.0
+    if body.phase == "rerate" and have.get("symptoms"):
+        jump = float(sum(merged.values()) - sum(have["symptoms"].values()))
+    short = bool(safety.short_version(merged, jump))
+    sessions.patch(token, {
+        "symptoms": db.enc({**have, "symptoms": merged, "jump": jump}),
+        "short": int(short or bool(row["short"])),
+    })
+    skip = callscript.SHORT_DROP if (short or bool(row["short"])) else []
+    return {"jump": bool(jump >= 10.0), "short": bool(short or row["short"]), "skip": list(skip)}
+
+
+@app.post("/api/call/{token}/live")
+def post_call_live(token: str, body: models.LiveBody, request: Request) -> dict:
+    """Fire and forget live telemetry, forwarded to the R1 console as a RigEvent."""
+    row = sessions.live(token)
+    if row is None:
+        raise HTTPException(404, "unknown link")
+    limit(token, request, per=sessions.RATE_MAX * 2)
+    rig_hub.STATE.update({"running": True, "pid": row["patient_id"],
+                          "week": int(row["week"] or 0), "step": body.step})
+    rig_hub.frame_event(
+        body.step,
+        (body.gaze.x, body.gaze.y),
+        (body.target.x, body.target.y),
+        body.quality.model_dump(),
+        body.pursuit_gain,
+        body.line.model_dump() if body.line else None,
+    )
+    if body.line and body.line.text:
+        sessions.store_chunk(token, body.step, "line",
+                             {"who": body.line.who, "text": body.line.text, "t": body.t / 1000.0})
+    return {"ok": True}
+
+
+@app.post("/api/call/{token}/frames")
+def post_call_frames(token: str, body: webframes.FramesBody, request: Request) -> dict:
+    """One chunk of measurements for one task. Never video, only numbers."""
+    call_row(token)
+    limit(token, request)
+    try:
+        webframes.check_frames(body.frames, body.meta)
+        webframes.check_stim(body.stim)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+    if body.frames:
+        sessions.store_chunk(token, body.task, "frames",
+                             [f.model_dump() for f in body.frames])
+    if body.stim:
+        sessions.store_chunk(token, body.task, "stim",
+                             [s.model_dump(exclude_none=True) for s in body.stim])
+    meta = db.dec(sessions.get(token)["meta"], {}) or {}
+    meta.update(body.meta.model_dump())
+    sessions.patch(token, {"meta": db.enc(meta)})
+    return {"ok": True, "frames": len(body.frames), "stim": len(body.stim)}
+
+
+@app.post("/api/call/{token}/audio/{task}")
+async def post_call_audio(token: str, task: str, request: Request,
+                          file: UploadFile = File(...)) -> dict:
+    """One task recording. Decoded to 16 kHz mono wav and deleted after the features."""
+    call_row(token)
+    limit(token, request, per=30)
+    data = await file.read()
+    try:
+        got = callaudio.ingest(token, task, data, file.content_type or "")
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return {"ok": True, **{k: v for k, v in got.items() if k != "wav"}}
+
+
+@app.post("/api/call/{token}/finish")
+def post_call_finish(token: str, body: models.FinishBody, tasks: BackgroundTasks) -> dict:
+    """End the call and run the pipeline in the background."""
+    row = sessions.live(token)
+    if row is None:
+        raise HTTPException(404, "unknown link")
+    if row["state"] in ("done", "processing"):
+        return {"ok": True, "call_id": row["call_id"], "state": row["state"]}
+    sessions.set_state(token, "processing")
+    tasks.add_task(callrun.finish, token, bool(body.aborted))
+    return {"ok": True, "call_id": None, "state": "processing"}
+
+
+@app.get("/api/call/{token}/status", response_model=models.CallStatus)
+def get_call_status(token: str) -> dict:
+    """Where the call is up to. The wrap screen polls this until it says done."""
+    row = sessions.get(token)
+    if row is None:
+        raise HTTPException(404, "unknown link")
+    out = {"state": str(row["state"] or "waiting")}
+    if row["call_id"]:
+        out["call_id"] = str(row["call_id"])
+    if row["summary"]:
+        out["summary"] = str(row["summary"])
+    if row["error"]:
+        out["error"] = str(row["error"])
+    return out
+
+
+@app.get("/api/voices", response_model=models.Voices)
+def get_voices() -> dict:
+    """Every script line, its hash, and whether its mp3 exists."""
+    from .agent import voices
+
+    return voices.payload()
+
+
+@app.post("/api/voices/{step_id}/regenerate")
+def post_voice_regenerate(step_id: str) -> dict:
+    """Regenerate one line's mp3."""
+    from .agent import voices
+
+    known = {row["id"] for row in voices.lines()}
+    if step_id not in known:
+        raise HTTPException(404, f"no script line {step_id}")
+    got = voices.build(force=True, only=step_id)
+    return {"ok": not got["failed"], "line": got["lines"].get(step_id, {}), "live": got["live"]}
 
 
 @app.get("/api/summary/{pid}/{week}")
@@ -702,6 +1005,25 @@ def get_summary(pid: str, week: int) -> dict:
     """Both summaries for one week, the patient text and the clinician update."""
     need(pid)
     return summary.for_checkin(pid, int(week))
+
+
+RESERVED = ("api", "voice", "ui", "stimulus", "docs", "redoc", "openapi.json", "ws", "assets")
+
+
+@app.get("/{path:path}", response_model=None)
+def spa(path: str):
+    """Serve the single page app for any client side route.
+
+    Registered last so every real route wins. Anything under a reserved prefix that got
+    this far is a genuine 404 rather than a page the app should try to render.
+    """
+    head = path.split("/", 1)[0]
+    if head in RESERVED:
+        raise HTTPException(404, f"no route /{path}")
+    asset = WEB_DIR / path
+    if path and asset.is_file() and WEB_DIR in asset.resolve().parents:
+        return FileResponse(str(asset))
+    return index_or_json()
 
 
 def main() -> None:

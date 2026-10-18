@@ -1,0 +1,13 @@
+{
+  "name": "unnamed-imessage-sidecar",
+  "private": true,
+  "type": "module",
+  "description": "Sends one iMessage, called from backend/comms/photon.py. Optional: without these packages the whole system falls back to Twilio SMS and then to mock.",
+  "scripts": {
+    "probe": "node send.mjs --probe"
+  },
+  "optionalDependencies": {
+    "spectrum-ts": "^12.11.0",
+    "@photon-ai/imessage-kit": "^3.0.0"
+  }
+}
