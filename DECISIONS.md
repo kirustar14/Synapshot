@@ -615,3 +615,38 @@ this phase was the master prompt header, then spec file 1, then 2, then 3, then 
 - **CORS closes in live mode.** The frontend is served from the same origin, so with
   `PUBLIC_URL` set and nothing mocked the only allowed origin is that URL. Mock mode stays
   open so a separate `npm run dev` on another port still works.
+
+### Things found while verifying, and what was done about them
+
+- **The call token was in the access log.** Verified against a running server: uvicorn
+  logs the whole request path, and the token lives in the path, so every request a
+  patient made wrote their only credential out in clear text. With that token you can
+  read their script, post measurements as them and read their summary. `backend/logs.py`
+  installs a filter that rewrites those paths to keep six characters, which is enough to
+  match a session to a stored row and useless to anyone who finds the log. Verified after:
+  zero occurrences. The in-app events already only recorded a tail.
+- **The inbound reply loop was write only.** `notify()` could send the midweek symptom
+  check and `photon.incoming` could parse a 0 to 10 reply and honour STOP, but nothing
+  ever called the second one, so a reply had nowhere to land.
+  `POST /api/messages/inbound` is now the single entry point for both a real transport's
+  webhook and the demo console. Spectrum Cloud signs its webhooks and verifying that
+  signature is the one piece still to do before this is exposed publicly.
+- **An inbound row claimed to be iMessage when nothing live delivered it.** The outbound
+  side already refused to guess; the inbound side was hardcoded. It now applies the same
+  rule, so a reply in mock mode says mock.
+- **CLAUDE_MODEL was set to a model that does not exist.** `claude-sonnet-5-5` is not a
+  model id. Because `llm.ask` falls back to its template on any error, the key looked
+  live, every request 404ed, and nothing was ever phrased by the model. Nothing failed
+  loudly so nothing had noticed. `config.pick_model` now checks the id against the ones
+  that exist, substitutes `claude-sonnet-5`, and records why so `make check` says so. The
+  LLM is now genuinely live: a real call returns model text.
+- **Responses over a kilobyte are compressed.** The mesh is 1.5 MB of JSON and loads on
+  every twin page view. Measured: mesh 1545851 to 498908 bytes, twin 134143 to 48102.
+- **Auth0 is the optional login from spec file 4.** With neither variable set there is no
+  login and nothing in the tree changes. Only the clinician routes sit behind it, because
+  a patient must be able to open a texted link with no account.
+- **Photon's mini-app API exists but is not used.** The installed `spectrum-ts` iMessage
+  provider does export a `customizedMiniApp` content type, so buttons and forms inside
+  the thread are genuinely available. The midweek check still uses plain reply parsing:
+  it is a reach item, the parsing path is already tested end to end, and a mini-app that
+  only works on one transport would need the plain path kept anyway as the fallback.
