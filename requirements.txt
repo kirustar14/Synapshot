@@ -11,12 +11,18 @@ websockets
 httpx
 pytest
 
+# Needed by the quick start. `make mesh` builds the real cortex with nilearn (without it you get a
+# lumpy stand-in brain), `make sample` writes the demo PDFs with reportlab, and uploaded PDFs are
+# read with pypdf.
+nilearn
+reportlab
+pypdf
+
 # Recommended. Population layer falls back to a Laplace approximation without it.
 numpyro
 
 # Optional. Every one of these is wrapped in a try block with a fallback.
 # Templates and brain maps
-# nilearn
 # cubnm              # needs GSL and a compiler, usually fails on a laptop, see DECISIONS.md
 # enigmatoolbox
 # neuromaps
