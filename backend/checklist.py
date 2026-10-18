@@ -370,7 +370,7 @@ def main() -> int:
     db.conn()
     got = run()
     print("")
-    print("  UNNAMED final checklist")
+    print("  Synapshot final checklist")
     print("  " + "=" * 74)
     for title, rows in got["sections"].items():
         print(f"\n  {title}")

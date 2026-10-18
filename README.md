@@ -1,4 +1,4 @@
-# UNNAMED
+# Synapshot
 
 A personal brain twin for traumatic brain injury.
 
@@ -9,6 +9,47 @@ weeks of recovery with uncertainty bands, an ensemble Kalman filter updates that
 after every call, and a drift alert goes to a clinician when reality leaves the band.
 
 Every patient in this repository is synthetic.
+
+---
+
+## Hackathon tracks
+
+### Best use of Sentry
+
+Both halves report to Sentry (`unnamed-backend`, FastAPI, and `unnamed-web`, React). Set
+`SENTRY_DSN` in `.env` and `VITE_SENTRY_DSN` in `web/.env.local`; without them Sentry is off.
+
+| Product | Where | What it showed us |
+|---|---|---|
+| Errors | `backend/observability.py`, `web/src/lib/sentry.ts` | Call failures used to be swallowed into a `failed` session state. They are now captured with patient and week tags. |
+| Tracing | spans in `backend/calls/run.py` | Each check-in is broken into audio, transcription, assembly, feature pipeline, store, ensemble Kalman update and notify. The feature pipeline is the slow step (32 to 531 ms, about 5x slower after drift), not the twin update (20 to 55 ms). |
+| Logs | stdlib logging forwarded at INFO | Call finished, call failed and drift alert lines, each linked to its trace. |
+| Profiling | continuous, attached to traces | Hotspots inside the slow feature pipeline span. |
+| Session Replay | the clinician app and the phone call page | Every replay masks all text and blocks all media, because the call page shows the patient's camera. |
+
+**The bug Sentry found.** `UNNAMED-BACKEND-2`: *database disk image is malformed* on
+`/api/patients/{pid}/twin`. The file passed `integrity_check`, so it was not corruption. One SQLite
+connection was shared by every FastAPI worker thread with no lock, and the clinician app loads the
+twin, shape and forecast in parallel. Sixteen parallel requests reproduced it (500s and false 404s);
+a lock around every statement in `backend/db.py` fixed it.
+
+Call tokens are a patient's only credential and they live in the URL, so every event, transaction,
+breadcrumb and log is passed through the same mask as `backend/logs.py` before it leaves the
+machine.
+
+### Best designed hack
+
+Designed in Paper first (the *Clinic app · polish* page of the team Paper file), then built:
+
+- **Say what matters first.** The patient list opens with who needs a look today, in words. Each
+  patient page opens with a plain-English status ("Recovery has slipped outside the forecast")
+  and the one action that follows from it.
+- **One encoding for drift everywhere.** A dot on a track against the pale forecast band, red only
+  past the alert threshold, always with the number beside it so colour is never the only signal.
+- **Fewer boxes.** Surfaces float on a tinted ground with one soft shadow instead of outlines;
+  secondary actions are soft fills, so the primary action is the only solid button on a screen.
+- **Built for the person on the phone.** On the patient's call page, *Read this to me* comes before
+  the consent text, because reading is tiring after a head injury.
 
 ---
 

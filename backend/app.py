@@ -41,7 +41,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="UNNAMED", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Synapshot", version="0.1.0", lifespan=lifespan)
 
 # The mesh is about 1.5 MB of JSON and the twin payload is not small either, so every
 # response over a kilobyte is compressed. Measured: the mesh goes to 499 KB and the twin

@@ -12,7 +12,7 @@ SYMPTOMS = ["headache", "pressure", "neck_pain", "nausea", "dizziness", "blurred
 STEPS = [
     {
         "id": "consent",
-        "say": "Hi, this is the UNNAMED check-in assistant. Before we start: this call is "
+        "say": "Hi, this is the Synapshot check-in assistant. Before we start: this call is "
                "recorded and measured, you can stop any time by saying stop, and I am not a "
                "clinician. First, seven quick safety questions.",
         "task": "consent_and_red_flags",
