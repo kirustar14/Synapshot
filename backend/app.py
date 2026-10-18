@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
-from . import db, demo, live, logs, models
+from . import db, demo, live, logs, models, observability, telemetry, tiger
 from .agent import creao, safety, summary
 from .calls import audio as callaudio
 from .calls import run as callrun
@@ -26,11 +26,18 @@ from .ingest import schema as ingest_schema
 from .twin import attribution, build, counterfactual, forecast as fcast, population
 
 
+# Before the app exists, so the FastAPI integration instruments it. A no-op without
+# SENTRY_DSN in .env.
+observability.init()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Open the database and mask call tokens in the access log."""
     db.conn()
     logs.install()
+    # Idempotent and cheap on a database that is already set up. A no-op on plain sqlite.
+    tiger.bootstrap()
     yield
 
 
@@ -691,6 +698,24 @@ def get_percentile(pid: str) -> dict:
     return tl.percentile(pid)
 
 
+@app.get("/api/pulse")
+def get_pulse(bench: bool = False, minutes: int = 60, hours: int = 48) -> dict:
+    """The live telemetry read path, backed by the continuous aggregate when there is one.
+
+    `bench=1` runs the measured raw table against aggregate comparison. It is opt in and
+    deliberately not something a page load does: a page load must not be a load test.
+    """
+    # A dashboard read is also the natural moment to publish the buffered samples. It is
+    # one batched insert at most, and it means the chart is never five seconds stale while
+    # claiming to be live.
+    telemetry.flush()
+    got = tiger.pulse(minutes=max(5, min(int(minutes), 1440)),
+                      hours=max(1, min(int(hours), 24 * 30)))
+    if bench:
+        got["bench"] = tiger.bench(minutes=max(5, min(int(minutes), 1440)))
+    return got
+
+
 @app.get("/api/cohort", response_model=models.Cohort)
 def get_cohort() -> dict:
     """The population layer results. Seeds on demand when cohort.json is missing."""
@@ -831,7 +856,7 @@ def get_latest_update(pid: str) -> dict | None:
     need(pid)
     rows = db.rows(
         "select * from events where patient_id=? and kind='call_update' "
-        "order by time desc, rowid desc limit 1", (pid,))
+        "order by time desc limit 1", (pid,))
     if not rows:
         return None
     return db.dec(rows[0]["payload"], {}) or None
@@ -1145,6 +1170,10 @@ def post_call_live(token: str, body: models.LiveBody, request: Request) -> dict:
     if body.line and body.line.text:
         sessions.store_chunk(token, body.step, "line",
                              {"who": body.line.who, "text": body.line.text, "t": body.t / 1000.0})
+    # The same payload that feeds the console also feeds the time-series table. It is
+    # buffered and written in batches, so this is not one insert per post.
+    telemetry.observe(token, str(row["patient_id"]), body.quality, body.gaze, body.target,
+                      body.pursuit_gain)
     return {"ok": True}
 
 
@@ -1168,6 +1197,7 @@ def post_call_frames(token: str, body: webframes.FramesBody, request: Request) -
     meta = db.dec(sessions.get(token)["meta"], {}) or {}
     meta.update(body.meta.model_dump())
     sessions.patch(token, {"meta": db.enc(meta)})
+    telemetry.observe_frame(token, str(sessions.get(token)["patient_id"]), len(body.frames), len(body.stim))
     return {"ok": True, "frames": len(body.frames), "stim": len(body.stim)}
 
 
@@ -1196,6 +1226,7 @@ def post_call_finish(token: str, body: models.FinishBody, tasks: BackgroundTasks
     if row["state"] in ("done", "processing"):
         return {"ok": True, "call_id": row["call_id"], "state": row["state"]}
     sessions.set_state(token, "processing")
+    telemetry.flush(token)
     tasks.add_task(callrun.finish, token, bool(body.aborted))
     return {"ok": True, "call_id": None, "state": "processing"}
 

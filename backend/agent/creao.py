@@ -89,7 +89,7 @@ def pseudonym(pid: str) -> str:
 def facts(pid: str, week: int) -> dict:
     """The de-identified inputs for one week. No name, no phone, no free text."""
     row = db.patient(pid)
-    chk = db.one("select * from checkins where patient_id=? and week=? order by date desc, rowid desc limit 1",
+    chk = db.one("select * from checkins where patient_id=? and week=? order by date desc limit 1",
                  (pid, week))
     got = None
     if chk is not None:
@@ -148,7 +148,7 @@ def mock_output(role: str, pid: str, week: int, inputs: dict) -> dict:
         level = "escalate" if ("red_flag" in flags or z >= 2) else "watch" if (z >= 1 or moved) else "routine"
         return {"level": level, "reasons": reasons or ["Nothing moved beyond its expected range."]}
     if role == "briefing":
-        chk = db.one("select * from checkins where patient_id=? and week=? order by date desc, rowid desc limit 1",
+        chk = db.one("select * from checkins where patient_id=? and week=? order by date desc limit 1",
                      (pid, week))
         got = None
         if chk is not None:
@@ -390,7 +390,7 @@ def _readable(out: dict, key: str) -> dict:
 
 def _rows(pipeline: str) -> dict:
     """The stage rows of one pipeline, by role."""
-    return {r["kind"]: r for r in db.rows("select * from agent_runs where pipeline=? order by created, rowid", (pipeline,))}
+    return {r["kind"]: r for r in db.rows("select * from agent_runs where pipeline=? order by created", (pipeline,))}
 
 
 def _out(row) -> dict:
@@ -482,7 +482,7 @@ def start(pid: str, week: int) -> dict:
     """Start the pipeline by running the triage agent. Returns at once, never waits for it."""
     recent = db.one(
         "select pipeline from agent_runs where patient_id=? and week=? and kind='triage' "
-        "order by created desc, rowid desc limit 1", (pid, week))
+        "order by created desc limit 1", (pid, week))
     if recent is not None and recent["pipeline"]:
         view = _view(recent["pipeline"])
         if view and view["status"] == "running" and time.time() - _epoch(view["created"]) < DEDUPE_S:
@@ -495,7 +495,7 @@ def start(pid: str, week: int) -> dict:
 def latest(pid: str) -> dict | None:
     """The newest pipeline for a patient, advanced first if it is still going."""
     row = db.one("select pipeline from agent_runs where patient_id=? and kind='triage' "
-                 "order by created desc, rowid desc limit 1", (pid,))
+                 "order by created desc limit 1", (pid,))
     if row is None or not row["pipeline"]:
         return None
     advance(row["pipeline"])

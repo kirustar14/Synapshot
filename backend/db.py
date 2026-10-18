@@ -1,143 +1,228 @@
-"""Sqlite with plain SQL and helper functions. No ORM, no models, just rows."""
+"""One small SQL layer, two dialects.
+
+sqlite is the default so a laptop with no network is a complete system. Set
+DATABASE_URL and every call goes to Postgres instead, with the TimescaleDB extension
+used for the telemetry stream. The helper names never changed: `put`, `patch`, `run`,
+`rows`, `one`, `conn`. Call sites do not know which engine is behind them.
+
+Rows are dict-like in both drivers, so `row["name"]` keeps working.
+"""
 
 import json
 import sqlite3
+import threading
 import time
 import uuid
 from pathlib import Path
 
 from .config import cfg
+from .schema import DDL_PG, DDL_SQLITE, SQLITE_ADDED
 
-SCHEMA = """
-create table if not exists patients (
-  id text primary key, name text, age integer, sex text, week integer,
-  injury text, alleles text, biomarkers text, params text, contraction text,
-  fc_fit real, coverage real, drift_z real,
-  twin_built integer default 0, template_only integer default 0,
-  low_fidelity integer default 0, synthetic integer default 1,
-  last_call text, created text, seed integer, d0 real, truth text, state text, note text,
-  phone text
-);
-create table if not exists events (
-  id text primary key, patient_id text, kind text, time text, payload text
-);
-create table if not exists checkins (
-  id text primary key, patient_id text, week integer, date text, duration_s real,
-  steps text, channel text, features text, gaze text, traces text, transcript text,
-  unusable integer default 0
-);
-create table if not exists observations (
-  id text primary key, patient_id text, week integer, key text, value real, sem real
-);
-create table if not exists parameters (
-  id text primary key, patient_id text, week integer, payload text, time text
-);
-create table if not exists forecasts (
-  id text primary key, patient_id text, week integer, payload text, time text
-);
-create table if not exists alerts (
-  id text primary key, patient_id text, type text, trigger text, time text,
-  called integer default 0, acked integer default 0
-);
-create table if not exists consents (
-  token text primary key, patient_id text, calls integer, ai integer, recording integer,
-  genetic integer, time text, withdrawn integer default 0
-);
-create table if not exists messages (
-  id text primary key, patient_id text, dir text, body text, time text,
-  channel text default 'mock', kind text
-);
-create table if not exists uploads (
-  id text primary key, patient_id text, kind text, file text, status text, sets text,
-  note text, synthetic integer default 1, time text
-);
-create table if not exists twin_inputs (
-  id text primary key, patient_id text, payload text, time text
-);
-create table if not exists agent_runs (
-  id text primary key, patient_id text, week integer, kind text, status text,
-  creao_run_id text, thread_id text, mock integer default 0, inputs text,
-  result text, error text, created text, updated text, pipeline text
-);
-create index if not exists ix_agent_runs_pat on agent_runs(patient_id);
-create index if not exists ix_checkins_pat on checkins(patient_id, week);
-create index if not exists ix_obs_pat on observations(patient_id, week);
-create index if not exists ix_alerts_pat on alerts(patient_id);
-create index if not exists ix_msg_pat on messages(patient_id);
-"""
+# Tables that are written with `put`. The value is the conflict target. Everything here
+# is owned by this codebase, so the names are constants rather than user input.
+PRIMARY_KEY = {
+    "patients": "id",
+    "events": "id",
+    "checkins": "id",
+    "observations": "id",
+    "parameters": "id",
+    "forecasts": "id",
+    "alerts": "id",
+    "consents": "token",
+    "messages": "id",
+    "uploads": "id",
+    "twin_inputs": "id",
+    "call_sessions": "token",
+    "call_frames": "id",
+    "clinics": "id",
+    "clinicians": "id",
+    "clinician_sessions": "token_hash",
+    "assignments": "id",
+    "tiger_bootstrap": "name",
+    "metric_samples": None,
+    "agent_runs": "id",
+}
 
-_CONN: sqlite3.Connection | None = None
+WIPE = (
+    "patients", "events", "checkins", "observations", "parameters", "forecasts",
+    "alerts", "consents", "messages", "uploads", "twin_inputs", "call_sessions",
+    "call_frames", "assignments", "metric_samples", "agent_runs",
+)
+
+_CONN = None
+_POOL = None
+_SCHEMA_READY = False
+_PG_ERROR = ""
+
+# One connection is shared by every FastAPI worker thread (check_same_thread=False), and
+# the clinician app fires its twin, shape, forecast and mesh requests in parallel. Without
+# a lock two threads used the same connection at once and one of them read a half-moved
+# page: Sentry caught it as "database disk image is malformed" on /api/patients/{pid}/twin
+# (UNNAMED-BACKEND-2) while the file itself passed integrity_check. Every statement now
+# holds this lock. Reentrant, because conn() itself runs statements on first open.
+LOCK = threading.RLock()
 
 
-# Columns added after the first release. `create table if not exists` leaves an existing
-# database alone, so these are added by hand on open rather than by dropping the file.
-ADDED = [
-    ("messages", "channel", "text default 'mock'"),
-    ("messages", "kind", "text"),
-    ("patients", "phone", "text"),
-    # Facts read off the documents that the model does not consume: occupation, the
-    # medication list, the symptoms the notes name. They belong on the patient because
-    # the left rail and the Treatment tab show them, and they are deliberately not in
-    # `injury` or `biomarkers`, which are model inputs.
-    ("patients", "chart", "text"),
-    # What really happened to an outbound message. `status` is one of sent, delivered,
-    # failed or mock; `provider_id` is the id the transport gave back, so delivery can be
-    # polled later; `detail` is the real error text. Accepted is not delivered, and
-    # without somewhere to record the difference the UI can only guess.
-    ("messages", "status", "text default 'sent'"),
-    ("messages", "provider_id", "text"),
-    ("messages", "space_id", "text"),
-    ("messages", "detail", "text"),
-    # When the provider confirmed delivery, not when we sent it. Null on everything that
-    # was only ever accepted, which is most of them.
-    ("messages", "delivered_at", "text"),
-    # Which pipeline a CREAO run belongs to, so the three roles of one pipeline can be
-    # read back together. Added rather than built into the table so a database created
-    # before the agents existed picks it up on the next open.
-    ("agent_runs", "pipeline", "text"),
-]
+def is_pg() -> bool:
+    """True when DATABASE_URL is set, so Postgres is the system of record."""
+    return bool(cfg.database_url)
 
 
-def migrate(cur: sqlite3.Connection) -> None:
-    """Add any column this build needs that an older database does not have."""
-    for table, col, decl in ADDED:
-        have = {r["name"] for r in cur.execute(f"pragma table_info({table})").fetchall()}
-        if col not in have:
-            cur.execute(f"alter table {table} add column {col} {decl}")
-    cur.commit()
+def dialect() -> str:
+    """'postgres' or 'sqlite', for the status endpoints and the logs."""
+    return "postgres" if is_pg() else "sqlite"
 
 
-def conn() -> sqlite3.Connection:
-    """Open the database once, create the schema if needed."""
+def _sqlite() -> sqlite3.Connection:
+    """The one shared connection. Callers hold LOCK; conn() is the public door."""
     global _CONN
     if _CONN is None:
         Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
         _CONN = sqlite3.connect(str(cfg.db_path), check_same_thread=False)
         _CONN.row_factory = sqlite3.Row
-        _CONN.executescript(SCHEMA)
-        _CONN.commit()
-        migrate(_CONN)
     return _CONN
 
 
-def now() -> str:
-    """Current time as an ISO second string."""
-    return time.strftime("%Y-%m-%dT%H:%M:%S")
+def _pool():
+    global _POOL
+    if _POOL is None:
+        try:
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
+        except ImportError as exc:  # pragma: no cover - depends on the install
+            raise RuntimeError(
+                "DATABASE_URL is set but psycopg is not installed. "
+                "Run: pip install 'psycopg[binary,pool]'"
+            ) from exc
+        _POOL = ConnectionPool(
+            cfg.database_url,
+            min_size=1,
+            max_size=4,
+            kwargs={"row_factory": dict_row},
+            open=True,
+            timeout=15,
+        )
+    return _POOL
+
+
+def q(sql: str) -> str:
+    """Translate the sqlite placeholder style to the Postgres one."""
+    return sql.replace("?", "%s") if is_pg() else sql
+
+
+class _Facade:
+    """The shape existed before the Postgres path, so keep it.
+
+    Only three call sites opened the raw connection: the lifespan, the seed script and
+    the call-table setup. They need `execute`, `executescript` and `commit`, nothing else.
+    """
+
+    def execute(self, sql: str, args: tuple = ()):
+        if is_pg():
+            with _pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(q(sql), args)
+                return cur
+        with LOCK:
+            cur = _sqlite().execute(sql, args)
+            _sqlite().commit()
+            return cur
+
+    def executescript(self, script: str) -> None:
+        if is_pg():
+            with _pool().connection() as conn, conn.cursor() as cur:
+                for statement in _statements(script):
+                    cur.execute(statement)
+            return
+        with LOCK:
+            _sqlite().executescript(script)
+            _sqlite().commit()
+
+    def commit(self) -> None:
+        if not is_pg():
+            with LOCK:
+                _sqlite().commit()
+
+
+_CONN_FACADE = _Facade()
+
+
+def _statements(script: str) -> list[str]:
+    """Split a DDL script into statements without a parser."""
+    return [part.strip() for part in script.split(";") if part.strip()]
+
+
+def _migrate_sqlite(conn: sqlite3.Connection) -> None:
+    """Add any column this build needs that an older database does not have."""
+    for table, col, decl in SQLITE_ADDED:
+        have = {r["name"] for r in conn.execute(f"pragma table_info({table})").fetchall()}
+        if col not in have:
+            conn.execute(f"alter table {table} add column {col} {decl}")
+    conn.commit()
+
+
+def _bootstrap() -> None:
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+    if is_pg():
+        with _pool().connection() as conn, conn.cursor() as cur:
+            for statement in _statements(DDL_PG):
+                cur.execute(statement)
+            # The only ALTER needed on an existing Postgres database.
+            cur.execute("alter table patients add column if not exists clinic_id text")
+        _SCHEMA_READY = True
+        return
+    conn = _sqlite()
+    conn.executescript(DDL_SQLITE)
+    conn.commit()
+    _migrate_sqlite(conn)
+    _SCHEMA_READY = True
+
+
+def conn() -> sqlite3.Connection | _Facade:
+    """Open the database once and make sure the schema is there."""
+    _bootstrap()
+    return _CONN_FACADE if is_pg() else _sqlite()
+
+
+def setup() -> None:
+    """Public bootstrap, used by scripts and tests that need the schema without a query."""
+    _bootstrap()
+
+
+def close() -> None:
+    """Close what was opened. Tests use this between databases."""
+    global _CONN, _POOL, _SCHEMA_READY
+    if _CONN is not None:
+        _CONN.close()
+        _CONN = None
+    if _POOL is not None:
+        _POOL.close()
+        _POOL = None
+    _SCHEMA_READY = False
 
 
 def weeks_ago(weeks: float, hour: int = 10) -> str:
     """A timestamp that many weeks back, at a plausible hour of the day.
 
     Seeded history has to be spread out. A patient on week seven whose seven check-ins all
-    carry today's date has no timeline, no "last call" that means anything, and a month
-    calendar with one dot on it. Live calls still use `now`; this is only for building a
-    past that is supposed to have happened.
+    carry today's date has no timeline and a month calendar with one dot on it. Live calls
+    still use `now`; this is only for building a past that is supposed to have happened.
     """
     import datetime as _dt
 
     when = _dt.datetime.now() - _dt.timedelta(weeks=float(weeks))
-    return when.replace(hour=hour, minute=12, second=0, microsecond=0).isoformat(
-        timespec="seconds")
+    return when.replace(hour=hour, minute=12, second=0, microsecond=0).isoformat(timespec="seconds")
+
+
+def now() -> str:
+    """Current time as an ISO string.
+
+    Microseconds matter: before this, a rescore and a rebuild in the same second tied on
+    `time` and the tie was broken by rowid, which Postgres does not have. The contract
+    already accepts an ISO timestamp and the UI parses it without help.
+    """
+    return time.strftime("%Y-%m-%dT%H:%M:%S") + f".{int(time.time() * 1e6) % 1_000_000:06d}"
 
 
 def new_id(prefix: str) -> str:
@@ -160,29 +245,96 @@ def dec(raw, default=None):
         return default
 
 
-def run(sql: str, args: tuple = ()) -> sqlite3.Cursor:
+def run(sql: str, args: tuple = ()):
     """Execute and commit."""
-    cur = conn().execute(sql, args)
-    conn().commit()
-    return cur
+    _bootstrap()
+    if is_pg():
+        with _pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(q(sql), args)
+            return cur
+    with LOCK:
+        cur = _sqlite().execute(sql, args)
+        _sqlite().commit()
+        return cur
 
 
-def rows(sql: str, args: tuple = ()) -> list[sqlite3.Row]:
+def autocommit(sql: str, args: tuple = ()) -> list:
+    """Run one statement outside a transaction.
+
+    A few TimescaleDB calls refuse to run inside a transaction block, notably
+    `refresh_continuous_aggregate`. Everything else should keep using `run`.
+    """
+    _bootstrap()
+    if is_pg():
+        import psycopg
+
+        with psycopg.connect(cfg.database_url, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(q(sql), args)
+                try:
+                    return list(cur.fetchall())
+                except psycopg.ProgrammingError:
+                    return []
+    return list(run(sql, args).fetchall())
+
+
+def rows(sql: str, args: tuple = ()) -> list:
     """All rows of a query."""
-    return list(conn().execute(sql, args).fetchall())
+    _bootstrap()
+    if is_pg():
+        with _pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(q(sql), args)
+            return list(cur.fetchall())
+    with LOCK:
+        return list(_sqlite().execute(sql, args).fetchall())
 
 
 def one(sql: str, args: tuple = ()):
     """First row of a query or None."""
-    return conn().execute(sql, args).fetchone()
+    _bootstrap()
+    if is_pg():
+        with _pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(q(sql), args)
+            return cur.fetchone()
+    with LOCK:
+        return _sqlite().execute(sql, args).fetchone()
 
 
 def put(table: str, row: dict) -> str:
     """Insert or replace a row given as a dict, returning its id."""
+    if table not in PRIMARY_KEY:
+        raise KeyError(f"put() does not know the primary key of {table}")
     keys = list(row)
-    sql = f"insert or replace into {table} ({','.join(keys)}) values ({','.join('?' * len(keys))})"
+    cols = ",".join(keys)
+    marks = ",".join("?" * len(keys))
+    if is_pg():
+        pk = PRIMARY_KEY[table]
+        if pk is None:
+            raise KeyError(f"{table} is append only, use insert_many()")
+        updates = ",".join(f"{k}=excluded.{k}" for k in keys if k != pk)
+        sql = f"insert into {table} ({cols}) values ({marks}) on conflict ({pk})"
+        sql += f" do update set {updates}" if updates else " do nothing"
+    else:
+        sql = f"insert or replace into {table} ({cols}) values ({marks})"
     run(sql, tuple(row[k] for k in keys))
-    return str(row.get("id") or row.get("token") or "")
+    return str(row.get("id") or row.get("token") or row.get("token_hash") or "")
+
+
+def insert_many(table: str, keys: list[str], values: list[tuple]) -> int:
+    """Bulk insert append-only rows. Returns how many were sent."""
+    if not values:
+        return 0
+    _bootstrap()
+    marks = ",".join("?" * len(keys))
+    sql = f"insert into {table} ({','.join(keys)}) values ({marks})"
+    if is_pg():
+        with _pool().connection() as conn, conn.cursor() as cur:
+            cur.executemany(q(sql), values)
+        return len(values)
+    with LOCK:
+        _sqlite().executemany(sql, values)
+        _sqlite().commit()
+    return len(values)
 
 
 def patch(table: str, ident: str, fields: dict, key: str = "id") -> None:
@@ -198,12 +350,12 @@ def patient(pid: str):
     return one("select * from patients where id=?", (pid,))
 
 
-def patients() -> list[sqlite3.Row]:
+def patients() -> list:
     """All patients, newest first."""
     return rows("select * from patients order by created desc")
 
 
-def checkins(pid: str) -> list[sqlite3.Row]:
+def checkins(pid: str) -> list:
     """Check-ins for a patient, oldest first."""
     return rows("select * from checkins where patient_id=? order by week", (pid,))
 
@@ -213,14 +365,14 @@ def checkin(cid: str):
     return one("select * from checkins where id=?", (cid,))
 
 
-def alerts(pid: str | None = None) -> list[sqlite3.Row]:
+def alerts(pid: str | None = None) -> list:
     """Alerts, optionally for one patient, newest first."""
     if pid:
         return rows("select * from alerts where patient_id=? order by time desc", (pid,))
     return rows("select * from alerts order by time desc")
 
 
-def messages(pid: str) -> list[sqlite3.Row]:
+def messages(pid: str) -> list:
     """Messages for a patient, oldest first."""
     return rows("select * from messages where patient_id=? order by time", (pid,))
 
@@ -236,13 +388,15 @@ def observations(pid: str) -> list[dict]:
 def add_observation(pid: str, week: int, key: str, value: float, sem: float) -> None:
     """Store one observation, replacing any earlier value for that week and key."""
     run("delete from observations where patient_id=? and week=? and key=?", (pid, week, key))
-    put("observations", {"id": new_id("obs"), "patient_id": pid, "week": int(week), "key": key, "value": float(value), "sem": float(sem)})
+    put("observations", {"id": new_id("obs"), "patient_id": pid, "week": int(week),
+                         "key": key, "value": float(value), "sem": float(sem)})
 
 
 def event(pid: str, kind: str, payload: dict | None = None) -> str:
     """Append an event."""
     eid = new_id("ev")
-    put("events", {"id": eid, "patient_id": pid, "kind": kind, "time": now(), "payload": enc(payload or {})})
+    put("events", {"id": eid, "patient_id": pid, "kind": kind, "time": now(),
+                   "payload": enc(payload or {})})
     return eid
 
 
@@ -251,13 +405,10 @@ def message(pid: str, direction: str, body: str, channel: str = "mock", kind: st
             detail: str = "") -> str:
     """Append a message in either direction, recording what really happened to it.
 
-    `channel` is one of imessage, sms or mock. It is never guessed: an SMS is labelled
-    sms even when the patient reads it in the Messages app, because the whole point of
-    the iMessage transport is that it really is iMessage.
-
-    `status` is the honest one. A provider accepting a message is not the same as a phone
-    receiving it, so a fresh send is `sent` and only becomes `delivered` when the provider
-    says so. `failed` carries the reason in `detail`.
+    `channel` is one of imessage, sms or mock and is never guessed. `status` is the honest
+    one: a provider accepting a message is not the same as a phone receiving it, so a fresh
+    send is `sent` and only becomes `delivered` when the provider says so. `failed` carries
+    the reason in `detail`.
     """
     mid = new_id("msg")
     put("messages", {"id": mid, "patient_id": pid, "dir": direction, "body": body,
@@ -275,15 +426,17 @@ def message_status(mid: str, status: str, detail: str = "") -> None:
 def latest_forecast(pid: str):
     """Most recent stored forecast row or None.
 
-    rowid breaks the tie: `time` is second granularity, and a rescore followed by a
-    rebuild inside the same second would otherwise serve whichever row sqlite felt like.
+    `time` now carries microseconds, so the id is only a stability tie-break. Before
+    this, two rows written in the same second could tie and a stale forecast could win.
     """
-    return one("select * from forecasts where patient_id=? order by week desc, time desc, rowid desc limit 1", (pid,))
+    return one("select * from forecasts where patient_id=? order by week desc, time desc, id desc limit 1",
+               (pid,))
 
 
 def latest_params(pid: str):
     """Most recent stored parameter row or None."""
-    return one("select * from parameters where patient_id=? order by week desc, time desc, rowid desc limit 1", (pid,))
+    return one("select * from parameters where patient_id=? order by week desc, time desc, id desc limit 1",
+               (pid,))
 
 
 def consent(token: str):
@@ -296,17 +449,45 @@ def consent_for(pid: str):
     return one("select * from consents where patient_id=?", (pid,))
 
 
-def uploads(pid: str) -> list[sqlite3.Row]:
+def uploads(pid: str) -> list:
     """Upload rows for a patient."""
     return rows("select * from uploads where patient_id=? order by time", (pid,))
 
 
 def twin_inputs(pid: str):
     """Stored twin input bundle or None."""
-    return one("select * from twin_inputs where patient_id=? order by time desc, rowid desc limit 1", (pid,))
+    return one("select * from twin_inputs where patient_id=? order by time desc, id desc limit 1",
+               (pid,))
 
 
 def wipe() -> None:
-    """Delete every row in every table. Used by the demo reset only."""
-    for table in ("patients", "events", "checkins", "observations", "parameters", "forecasts", "alerts", "consents", "messages", "uploads", "twin_inputs", "agent_runs"):
+    """Delete every row in every table that a demo reset rebuilds.
+
+    Clinicians, clinics and sessions survive on purpose: resetting the demo data must
+    not sign everybody out. Assignments are rebuilt from the fresh patient ids.
+    """
+    if is_pg():
+        run(f"truncate table {', '.join(WIPE)}")
+        return
+    for table in WIPE:
         run(f"delete from {table}")
+
+
+def metric_insert(rows: list[tuple]) -> int:
+    """Append (time, patient_id, token, metric, value, quality) samples."""
+    return insert_many(
+        "metric_samples",
+        ["time", "patient_id", "session_token", "metric", "value", "quality"],
+        rows,
+    )
+
+
+def count(sql: str, args: tuple = ()) -> int:
+    """A single integer count query, for the dashboards."""
+    row = one(sql, args)
+    if row is None:
+        return 0
+    try:
+        return int(list(row.values())[0] if isinstance(row, dict) else row[0])
+    except (TypeError, ValueError, IndexError):
+        return 0

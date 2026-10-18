@@ -88,7 +88,7 @@ def for_checkin(pid: str, week: int) -> dict:
     """Both summaries for a stored check-in, used by the API and the clinic call."""
     row = db.patient(pid)
     name = str(row["name"]) if row else "the patient"
-    chk = db.one("select * from checkins where patient_id=? and week=? order by date desc, rowid desc limit 1", (pid, week))
+    chk = db.one("select * from checkins where patient_id=? and week=? order by date desc limit 1", (pid, week))
     if chk is None:
         return {"patient": "", "clinician": clinician_text(name, week, None)}
     got = {

@@ -263,7 +263,7 @@ def store(pid: str, week: int, token: str, sess: dict, res: dict) -> str:
 
 def transcript_of(token: str) -> list[dict]:
     """What was said during the call, from the lines the page reported it had spoken."""
-    rows = db.rows("select * from call_frames where token=? and kind='line' order by time, rowid",
+    rows = db.rows("select * from call_frames where token=? and kind='line' order by time",
                    (token,))
     out = []
     for row in rows:
