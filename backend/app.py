@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
 from . import auth, db, demo, logs, models, rig_hub, team, telemetry, tiger
-from .agent import safety, summary
+from .agent import creao, safety, summary
 from .agent import summary as agent_summary
 from .calls import audio as callaudio
 from .calls import run as callrun
@@ -1334,6 +1334,45 @@ def post_voice_regenerate(step_id: str) -> dict:
         raise HTTPException(404, f"no script line {step_id}")
     got = voices.build(force=True, only=step_id)
     return {"ok": not got["failed"], "line": got["lines"].get(step_id, {}), "live": got["live"]}
+
+
+# ---------------------------------------------------------------- CREAO briefing agent
+
+@app.post("/api/patients/{pid}/pipeline", response_model=models.AgentPipeline, status_code=202)
+def start_pipeline(pid: str) -> dict:
+    """Start the CREAO care pipeline (triage, then briefing and outreach). Returns at once."""
+    row = db.patient(pid)
+    if row is None:
+        raise HTTPException(404, "no such patient")
+    return creao.start(pid, int(row["week"] or 0))
+
+
+@app.get("/api/patients/{pid}/pipeline", response_model=models.AgentPipeline | None)
+def get_pipeline(pid: str) -> dict | None:
+    """The newest pipeline for this patient, advanced from CREAO if it is still going."""
+    if db.patient(pid) is None:
+        raise HTTPException(404, "no such patient")
+    return creao.latest(pid)
+
+
+@app.post("/api/creao/callback")
+async def creao_callback(request: Request, token: str = "") -> dict:
+    """CREAO's webhook. Unsigned, so only the run id is read and the state is fetched fresh."""
+    import hmac
+
+    if not hmac.compare_digest(token, creao.token()):
+        raise HTTPException(403, "bad token")
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    return {"ok": creao.on_callback(payload if isinstance(payload, dict) else {})}
+
+
+@app.get("/api/creao/status")
+def creao_status() -> dict:
+    """Whether the CREAO agent is wired up. Never returns the key."""
+    return creao.status()
 
 
 @app.get("/api/summary/{pid}/{week}")

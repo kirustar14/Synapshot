@@ -3,6 +3,7 @@
 import numpy as np
 
 from . import alerts, db
+from .config import cfg
 from .data import synthetic as syn
 from .features import pipeline, sem as semmod, synth
 from .twin import build, enkf, forecast as fcast
@@ -102,6 +103,14 @@ def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
                           "payload": db.enc({"params": params, "post": post, "diag": out}), "time": db.now()})
     build.rebuild_forecast(pid)
     fired = alerts.check(pid, int(week), channel, state)
+    if cfg.auto_agents:
+        # Opt in only (AUTO_AGENT_PIPELINE=1): every pipeline spends CREAO credits.
+        try:
+            from .agent import creao
+
+            creao.start(pid, int(week))
+        except Exception as exc:  # a failed agent run must never break scoring a check-in
+            db.event(pid, "creao_error", {"error": str(exc)[:200]})
     return {"diag": out, "post": post, "alerts": fired}
 
 

@@ -8,6 +8,7 @@ import { mock } from "@/mock/db";
 import type {
   Alert,
   Attribution,
+  AgentPipeline,
   CallScript,
   CallStart,
   CallStatus,
@@ -283,6 +284,32 @@ export const api = {
     call<{ ok: boolean; call_id: string }>(`/call/${token}/finish`, { body: { aborted } }, () => mock.callFinish(token, aborted)),
   callStatus: (token: string) => call<CallStatus>(`/call/${token}/status`, undefined, () => mock.callStatus(token)),
 
+  pipeline: (id: string) => call<AgentPipeline | null>(`/patients/${id}/pipeline`, undefined, () => null),
+  startPipeline: (id: string) =>
+    call<AgentPipeline>(`/patients/${id}/pipeline`, { method: "POST" }, () => ({
+      id: "mock-pipeline",
+      week: 0,
+      status: "completed",
+      level: "watch",
+      reasons: ["The backend is not running, so this is a canned example."],
+      escalated: false,
+      stages: (["triage", "briefing", "outreach"] as const).map((role) => ({
+        role,
+        label: role[0].toUpperCase() + role.slice(1),
+        status: "completed",
+        mock: true,
+        agent_id: null,
+        creao_run_id: null,
+        error: null,
+      })),
+      briefing: "Template briefing, no CREAO agent was called. The backend is not running.",
+      follow_ups: [],
+      patient_message: null,
+      next_steps: [],
+      created: "",
+      updated: "",
+    })),
+
   voices: () => call<Voices>("/voices", undefined, mock.voices),
   regenerateVoice: (stepId: string) =>
     call<VoiceLine>(`/voices/${stepId}/regenerate`, { method: "POST" }, () => mock.regenerateVoice(stepId)),
@@ -309,6 +336,14 @@ export const useAlerts = (patientId?: string, enabled = true) =>
 export const useCohort = () => useQuery({ queryKey: ["cohort"], queryFn: api.cohort });
 export const useMessages = (id: string) =>
   useQuery({ queryKey: ["messages", id], queryFn: () => api.messages(id), enabled: !!id, refetchInterval: 2000 });
+export const usePipeline = (id: string) =>
+  useQuery({
+    queryKey: ["pipeline", id],
+    queryFn: () => api.pipeline(id),
+    enabled: !!id,
+    // Runs take minutes, so keep asking while the pipeline is going and stop once it has ended.
+    refetchInterval: (q) => (q.state.data?.status === "running" ? 3000 : false),
+  });
 export const usePreflight = () => useQuery({ queryKey: ["preflight"], queryFn: api.preflight, staleTime: Infinity });
 export const useAttribution = (id: string) =>
   useQuery({ queryKey: ["attribution", id], queryFn: () => api.attribution(id), enabled: !!id });
@@ -362,3 +397,5 @@ export const useTriggerCall = () => useWrite((patientId: string) => api.triggerC
 export const useRegenerateVoice = () => useWrite((stepId: string) => api.regenerateVoice(stepId));
 export const useStretch = () => useWrite((a: { token: string; result: StretchResult }) => api.stretch(a.token, a.result));
 export const useConsent = () => useWrite((a: { token: string; choices: ConsentChoices }) => api.consent(a.token, a.choices));
+
+export const useStartPipeline = () => useWrite((id: string) => api.startPipeline(id));

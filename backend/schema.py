@@ -16,6 +16,7 @@ SQLITE_ADDED = [
     ("messages", "kind", "text"),
     ("patients", "phone", "text"),
     ("patients", "clinic_id", "text"),
+    ("agent_runs", "pipeline", "text"),
 ]
 
 TEAM = """
@@ -93,6 +94,12 @@ create table if not exists call_sessions (
 create table if not exists call_frames (
   id text primary key, token text, task text, kind text, payload text, time text
 );
+create table if not exists agent_runs (
+  id text primary key, patient_id text, week integer, kind text, status text,
+  creao_run_id text, thread_id text, mock integer default 0, inputs text,
+  result text, error text, created text, updated text, pipeline text
+);
+create index if not exists ix_agent_runs_pat on agent_runs(patient_id);
 create index if not exists ix_checkins_pat on checkins(patient_id, week);
 create index if not exists ix_obs_pat on observations(patient_id, week);
 create index if not exists ix_alerts_pat on alerts(patient_id);

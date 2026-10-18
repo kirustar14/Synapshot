@@ -15,9 +15,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 export const Route = createFileRoute("/_clinic/patients/$id/twin")({
   head: () => ({
     meta: [
-      { title: "Twin viewer | UNNAMED" },
+      { title: "Twin viewer | Synapshot" },
       { name: "description", content: "3D brain twin with tract damage, activity and recovery over 12 weeks." },
-      { property: "og:title", content: "Twin viewer | UNNAMED" },
+      { property: "og:title", content: "Twin viewer | Synapshot" },
       { property: "og:description", content: "Explore the 3D brain twin and counterfactual recovery." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

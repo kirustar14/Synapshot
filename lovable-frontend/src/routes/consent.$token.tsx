@@ -10,9 +10,9 @@ export const Route = createFileRoute("/consent/$token")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Weekly check-in consent | UNNAMED" },
+      { title: "Weekly check-in consent | Synapshot" },
       { name: "description", content: "Review and agree to weekly FaceTime check-ins with your care team." },
-      { property: "og:title", content: "Weekly check-in consent | UNNAMED" },
+      { property: "og:title", content: "Weekly check-in consent | Synapshot" },
       { property: "og:description", content: "Consent for weekly FaceTime check-ins." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -45,7 +45,7 @@ function Consent() {
   );
   return (
     <main className="mx-auto max-w-md p-5 pb-10">
-      <p className="text-xs font-semibold tracking-[0.18em] text-primary">UNNAMED</p>
+      <p className="text-xs font-semibold tracking-[0.18em] text-primary">Synapshot</p>
       <h1 className="mt-2 text-2xl font-semibold">Hi {q.data.patient_name.split(" ")[0]}</h1>
       <div className="mt-4 space-y-3 text-[15px] leading-relaxed">{q.data.text.map((t, i) => <p key={i}>{t}</p>)}</div>
       <div className="mt-6 space-y-3">

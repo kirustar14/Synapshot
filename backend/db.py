@@ -40,12 +40,13 @@ PRIMARY_KEY = {
     "assignments": "id",
     "tiger_bootstrap": "name",
     "metric_samples": None,
+    "agent_runs": "id",
 }
 
 WIPE = (
     "patients", "events", "checkins", "observations", "parameters", "forecasts",
     "alerts", "consents", "messages", "uploads", "twin_inputs", "call_sessions",
-    "call_frames", "assignments", "metric_samples",
+    "call_frames", "assignments", "metric_samples", "agent_runs",
 )
 
 _CONN = None

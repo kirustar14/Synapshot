@@ -28,7 +28,7 @@ npm run dev
 - React
 - Tailwind CSS
 
-## UNNAMED configuration
+## Synapshot configuration
 
 - `VITE_API_URL`: backend base URL, for example `http://localhost:8000`. All calls go to `${VITE_API_URL}/api/...` and the rig stream to `${VITE_API_URL}/ws/rig`. If empty, or if `/api/health` fails, the app uses the built-in seeded mock data and shows a "Mock data" pill.
 - `VITE_AUTH0_DOMAIN` and `VITE_AUTH0_CLIENT_ID`: optional. When both are set, clinician pages require Auth0 sign in.

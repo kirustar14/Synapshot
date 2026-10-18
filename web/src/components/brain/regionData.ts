@@ -104,10 +104,10 @@ export function layerValues(id: LayerId, ctx: LayerCtx): LayerValues {
     // cortex dark. The ramp is scaled to this patient's own worst region at week 0, with a
     // floor so a nearly healthy brain does not get amplified into looking wrecked. The legend
     // prints the real number at the bright end.
-    // Scaled to the worst region at the week being shown, so the colours spread across the
-    // whole ramp and regions can be told apart. The legend prints the real number at the top.
-    let top = 0.04;
-    for (const r of regions) top = Math.max(top, atWeek(r.damage, week));
+    // Scaled to this patient's worst region at week 0, so scrubbing the weeks shows the damage
+    // fading as it heals. The floor keeps a nearly healthy brain from being amplified.
+    let top = 0.12;
+    for (const r of regions) top = Math.max(top, r.damage?.[0] ?? 0);
     for (let i = 0; i < REGIONS; i++) {
       const v = atWeek(regions[i]?.damage, week);
       out.raw[i] = v;

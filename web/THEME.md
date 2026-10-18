@@ -1,4 +1,4 @@
-# UNNAMED theme
+# Synapshot theme
 
 Carried over verbatim from `lovable-frontend/`. Every value below is copied, not paraphrased.
 Source files: `lovable-frontend/src/styles.css`, `src/components/common.tsx`,
@@ -48,7 +48,7 @@ Token mapping:
 --font-mono: "JetBrains Mono", ui-monospace, monospace;
 ```
 
-Headings are `font-extrabold` (800) or `font-black` (900). The brand mark `unnamed.` is
+Headings are `font-extrabold` (800) or `font-black` (900). The brand mark `synapshot.` is
 `text-2xl font-black`. Page titles are `text-3xl font-extrabold`. Panel titles are
 `text-base font-extrabold`. Nav items are `text-sm font-bold`. Body text carries
 `font-feature-settings: "tnum"` so digits line up in tables.
@@ -422,7 +422,7 @@ From `lovable-frontend/src/routes/_clinic.tsx`, ported to `web/src/components/Cl
 - Sidebar: `sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex`, hidden under `lg` and replaced by a `Sheet`.
 - Brand block: `flex h-[100px] items-center gap-3 px-7`, a `h-10 w-10` tile with
   `rounded-2xl border border-primary/15 bg-primary-soft text-primary` holding the lucide `Brain`
-  icon at `strokeWidth={1.5}`, then `unnamed.` in `text-2xl font-black` over
+  icon at `strokeWidth={1.5}`, then `synapshot.` in `text-2xl font-black` over
   "The brain twin lab" in `text-[10px] font-semibold text-muted-foreground`.
 - Nav item: `flex min-h-12 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold text-sidebar-foreground hover:bg-sidebar-accent` and when active
   `bg-sidebar-accent text-sidebar-accent-foreground shadow-soft`.

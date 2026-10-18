@@ -17,9 +17,9 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_clinic/patients/$id/upload")({
   head: () => ({
     meta: [
-      { title: "Data upload | UNNAMED" },
+      { title: "Data upload | Synapshot" },
       { name: "description", content: "Upload MRI, genotype, biomarkers and injury details, then build the brain twin." },
-      { property: "og:title", content: "Data upload | UNNAMED" },
+      { property: "og:title", content: "Data upload | Synapshot" },
       { property: "og:description", content: "Upload inputs and build a personal brain twin." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

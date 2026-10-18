@@ -18,7 +18,7 @@ import urllib.request
 from ..config import cfg
 
 API = "https://api.elevenlabs.io/v1/convai/agents"
-NAME = "Synapshot clinician update"
+NAME = "UNNAMED clinician update"  # lookup key for the existing agent, left as is
 # Sarah, the calm premade voice that make voices settled on for the same reason.
 VOICE = "EXAVITQu4vr4xnSDxMaL"
 

@@ -134,7 +134,7 @@ def stimulus_page() -> dict:
     try:
         with urllib.request.urlopen(url, timeout=4) as resp:
             body = resp.read(400).decode(errors="ignore")
-        ok = resp.status < 400 and "UNNAMED stimulus" in body
+        ok = resp.status < 400 and "Synapshot stimulus" in body
         return check("Stimulus page", ok, url if ok else f"{url} responded {resp.status}")
     except Exception as exc:
         return check("Stimulus page", False, f"{url} not reachable: {exc}. Start the backend with make dev")
@@ -202,7 +202,7 @@ def main() -> int:
     """Print the checks. Returns 1 when anything that blocks a call is red."""
     checks = run()
     print("")
-    print("  UNNAMED rig preflight")
+    print("  Synapshot rig preflight")
     print("  " + "-" * 62)
     for c in checks:
         mark = "GREEN" if c["ok"] else " RED "

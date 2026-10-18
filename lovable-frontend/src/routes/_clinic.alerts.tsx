@@ -9,9 +9,9 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_clinic/alerts")({
   head: () => ({
     meta: [
-      { title: "Alerts | UNNAMED" },
+      { title: "Alerts | Synapshot" },
       { name: "description", content: "Red flags, drift, missed calls and low quality alerts across patients." },
-      { property: "og:title", content: "Alerts | UNNAMED" },
+      { property: "og:title", content: "Alerts | Synapshot" },
       { property: "og:description", content: "Clinical alerts from weekly check-ins." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

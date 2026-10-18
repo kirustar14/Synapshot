@@ -9,9 +9,9 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_clinic/rig/preflight")({
   head: () => ({
     meta: [
-      { title: "Rig preflight | UNNAMED" },
+      { title: "Rig preflight | Synapshot" },
       { name: "description", content: "Checklist to confirm the call rig is ready before the demo." },
-      { property: "og:title", content: "Rig preflight | UNNAMED" },
+      { property: "og:title", content: "Rig preflight | Synapshot" },
       { property: "og:description", content: "Preflight checks for the call rig." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

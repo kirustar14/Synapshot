@@ -13,9 +13,9 @@ import { useApp } from "@/store/app";
 export const Route = createFileRoute("/_clinic/demo")({
   head: () => ({
     meta: [
-      { title: "Demo console | UNNAMED" },
+      { title: "Demo console | Synapshot" },
       { name: "description", content: "Presenter controls to advance weeks, inject drift and trigger calls." },
-      { property: "og:title", content: "Demo console | UNNAMED" },
+      { property: "og:title", content: "Demo console | Synapshot" },
       { property: "og:description", content: "Presenter controls for the live demo." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

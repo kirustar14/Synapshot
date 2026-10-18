@@ -14,7 +14,7 @@ function Gate({ children }: { children: ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
         <div className="panel w-full max-w-sm p-8 text-center">
-          <p className="text-lg font-semibold tracking-tight">UNNAMED</p>
+          <p className="text-lg font-semibold tracking-tight">Synapshot</p>
           <p className="mt-2 text-sm text-muted-foreground">Clinician sign in required.</p>
           {error && <p className="mt-2 text-sm text-destructive">{error.message}</p>}
           <Button className="mt-6 w-full" onClick={() => loginWithRedirect()}>Sign in</Button>

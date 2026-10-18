@@ -14,9 +14,9 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_clinic/patients/$id/calls")({
   head: () => ({
     meta: [
-      { title: "Call log | UNNAMED" },
+      { title: "Call log | Synapshot" },
       { name: "description", content: "Weekly call history with features, gaze traces and transcripts." },
-      { property: "og:title", content: "Call log | UNNAMED" },
+      { property: "og:title", content: "Call log | Synapshot" },
       { property: "og:description", content: "Weekly FaceTime check-in history for one patient." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
