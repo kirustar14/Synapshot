@@ -171,12 +171,6 @@ class Cfg:
     creao_outreach_agent: str = field(default_factory=lambda: os.environ.get("CREAO_OUTREACH_AGENT_ID", ""))
     # Start the pipeline by itself when a check-in is scored. Off by default: every run spends credits.
     auto_agents: bool = field(default_factory=lambda: on("AUTO_AGENT_PIPELINE"))
-    # Tiger Data. DATABASE_URL is the Tiger Cloud service URI, sslmode=require. With it set,
-    # every query goes to Postgres and the telemetry stream uses TimescaleDB. With it empty,
-    # sqlite keeps the whole system runnable on a plane.
-    database_url: str = field(
-        default_factory=lambda: first("DATABASE_URL", "TIGER_DATABASE_URL", "TIMESCALE_URL")
-    )
     creao_url: str = field(default_factory=lambda: (os.environ.get("CREAO_BASE_URL") or "https://agent.creao.ai").rstrip("/"))
     photon_key: str = field(default_factory=lambda: os.environ.get("PHOTON_API_KEY", ""))
     photon_url: str = field(default_factory=lambda: os.environ.get("PHOTON_BASE_URL", ""))

@@ -209,10 +209,6 @@ def mock_check() -> list[dict]:
         llm_line(),
         creao_line(),
         face_model_line(),
-        line(GREEN if db.is_pg() else MOCK, "Tiger Data",
-             "Postgres with TimescaleDB" if db.is_pg() else
-             ("DATABASE_URL is set but unreachable, so sqlite is in use: " + db.pg_error()
-              if db.pg_error() else "sqlite, set DATABASE_URL to use Tiger Data")),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"

@@ -34,8 +34,6 @@ numpyro
 # twilio
 # sbi                # optional upgrade for twin/surrogate.py behind USE_SBI=1
 
-# Tiger Data. Only imported when DATABASE_URL is set; sqlite is the default.
-psycopg[binary,pool]
 
 # Error tracking and tracing. A no-op without SENTRY_DSN.
 sentry-sdk[fastapi]>=2.40

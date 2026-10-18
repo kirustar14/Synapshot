@@ -17,15 +17,26 @@ RATE_WINDOW_S = 10.0       # rolling window for the per token and per IP limit
 RATE_MAX = 120             # posts allowed in that window, frames arrive about every 200 ms
 STATES = ("waiting", "in_call", "stopped", "processing", "done", "failed")
 
-# The two call tables now live in backend/schema.py with everything else. Keeping a
-# second copy here is how the sqlite and Postgres schemas drift apart.
+SCHEMA = """
+create table if not exists call_sessions (
+  token text primary key, patient_id text, week integer, state text,
+  created text, opened text, finished text, expires real,
+  consent text, redflags text, symptoms text, short integer default 0,
+  call_id text, summary text, meta text, channel text, error text
+);
+create table if not exists call_frames (
+  id text primary key, token text, task text, kind text, payload text, time text
+);
+create index if not exists ix_frames_token on call_frames(token, task);
+"""
 
 _HITS: dict[str, list[float]] = {}
 
 
 def setup() -> None:
-    """Create any table this build needs. Safe to call repeatedly."""
-    db.setup()
+    """Create the two call tables. Safe to call repeatedly."""
+    db.conn().executescript(SCHEMA)
+    db.conn().commit()
 
 
 def create(pid: str, week: int | None = None) -> dict:
@@ -126,10 +137,10 @@ def chunks(token: str, kind: str | None = None) -> list[dict]:
     """Every stored chunk for a session, oldest first."""
     setup()
     if kind:
-        rows = db.rows("select * from call_frames where token=? and kind=? order by time",
+        rows = db.rows("select * from call_frames where token=? and kind=? order by time, rowid",
                        (token, kind))
     else:
-        rows = db.rows("select * from call_frames where token=? order by time", (token,))
+        rows = db.rows("select * from call_frames where token=? order by time, rowid", (token,))
     return [{"task": r["task"], "kind": r["kind"], "payload": db.dec(r["payload"], [])} for r in rows]
 
 
