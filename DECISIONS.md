@@ -1333,3 +1333,60 @@ script in milliseconds. `e2e/call-audio.spec.ts` counts the same thing in a real
 with real effects and a real camera stream. It reaches consent, the setup step and the
 face gate and stops there, because Chrome's fake camera is a test pattern and MediaPipe
 finds no face in it. That limit is written in the test rather than hidden by it.
+
+## Step 2: the brain did not update after a call, and now it does
+
+The question was whether the 3D view changes when a check-in lands. It did not, and the
+reason was one missing line.
+
+`demo.assimilate` ran the filter, stored the new ensemble and called `rebuild_forecast`.
+Every chart moved, because every chart reads the forecast. The brain reads the twin, and
+the twin was written once by `build_twin` when the patient was created and never touched
+again. A hundred regions, none of them capable of moving, for the life of the patient.
+`scripts/call_update_report.py` printed `0 of 100 regions moved` the first time it ran,
+which is what turned a suspicion into a fact.
+
+- **`build.refresh_twin` recomputes the regions from the current ensemble.** Deliberately
+  not `build_twin`, which refits G, the expensive part, and resets drift_z, coverage and
+  the ensemble to their starting values. Calling that after a call would have undone the
+  update that had just happened. Everything structural is recomputed from the patient's
+  own record because it is cheap; the only thing that actually changed is the ensemble,
+  and that is what moves the per region damage curves.
+- **The workspace never refetched.** There was a comment in `Workspace.tsx` saying the
+  stream was what let a call land without a reload, and nothing underneath it doing so.
+  `call_done` now invalidates the patient, twin, shape, forecast, alerts, timeline,
+  check-ins and attribution queries.
+- **`GET /api/patients/{id}/latest-update`**, served from the stored `call_update` event
+  rather than recomputed, so a page opened after the call shows the same banner as one
+  that was open when it landed.
+- **The banner says small when it is small.** `update_line` names the biggest mover and
+  its network, and switches to "Small change" under 0.02 rather than making an ordinary
+  week sound like an event. A banner that always sounds urgent stops being read.
+
+How much it actually moves, measured rather than claimed, on a damage scale that sits
+around 0.25 at week 0:
+
+| call | regions moved | largest single region | drift z |
+|---|---|---|---|
+| typical | 100 of 100 | 0.022 | +0.26 |
+| worse (`--degrade 1.0`) | 100 of 100 | 0.041 | +0.68 |
+| better (`--degrade -0.8`) | 100 of 100 | 0.048 | -0.31 |
+
+That is 8 to 20 percent of a region's own value, which is visible on the 3D layer, and
+visible partly because the damage ramp was rewritten earlier to window the top end at the
+98th percentile and spread the colours across the patient's own range.
+
+- **`degrade` moves the measurements, not the result.** It shifts the week's truth in
+  SEM-scaled steps before any frames are generated, reusing the arithmetic `inject_drift`
+  already used, so the pipeline still has to measure it back out of frames and audio. A
+  knob that wrote the answer down would make the report worthless. Zero is the default
+  and a call that moves nothing stays a real outcome.
+- **The zero face rate was not the generator.** `websynth.session` uses `face_p = 1.0`
+  unless the patient is the low quality profile, where it is 0.55, and the seeded
+  check-ins hold those values. A face share of 0 comes from `app.py` defaulting a missing
+  channel to zero, which is a call with no frames at all being displayed as a call where
+  the camera saw nothing. There are now tests on both ends: a default call keeps a face
+  share above 0.5, and the poor channel stays poor without ever reaching zero.
+
+Not done: the changed regions do not pulse on the brain yet. The banner names them and
+the colours move, but the one-off pulse is still to come.

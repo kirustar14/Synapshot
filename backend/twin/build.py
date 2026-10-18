@@ -112,6 +112,91 @@ def build_twin(pid: str, template_only: bool | None = None) -> dict:
     return {"params": params, "forecast": fore, "twin": twin, "fc_fit": fc_fit, "low_fidelity": low_fidelity}
 
 
+# What counts as a region having moved, for the banner after a call.
+#
+# Deliberately an order of magnitude under the 0.01 the report counts against. One week
+# of filtering in steady state moves a region by about 0.002 to 0.004 on a damage scale
+# that sits near 0.25, so a floor of 0.01 reports every ordinary call as no change at
+# all. That is not nothing happening, it is the filter tightening by a believable amount,
+# and the banner says "small change" rather than pretending it was large.
+MOVED_FLOOR = 0.001
+
+
+def region_diff(old: dict | None, new: dict, week: int, floor: float = MOVED_FLOOR) -> list[dict]:
+    """Regions whose damage at `week` moved by more than `floor`, worst move first.
+
+    Full readable name and network on every row, never "left cortex" on its own: two
+    different parcels share that short name and a list that cannot tell them apart is
+    not telling anybody anything.
+    """
+    if not old:
+        return []
+
+    def at(region: dict) -> float:
+        series = region.get("damage") or [0.0]
+        return float(series[min(max(week, 0), len(series) - 1)])
+
+    was = {int(r["id"]): at(r) for r in old.get("regions", [])}
+    out = []
+    for r in new.get("regions", []):
+        rid = int(r["id"])
+        if rid not in was:
+            continue
+        now = at(r)
+        if abs(now - was[rid]) <= floor:
+            continue
+        out.append({"id": rid, "name": str(r["name"]), "network": str(r.get("network") or ""),
+                    "before": round(was[rid], 4), "after": round(now, 4)})
+    out.sort(key=lambda r: abs(r["after"] - r["before"]), reverse=True)
+    return out
+
+
+def refresh_twin(pid: str) -> dict:
+    """Recompute the regions from the current filter state, and store them.
+
+    This is what makes the brain move after a check-in. `assimilate` updates the filter
+    and rebuilds the forecast, but the twin, which is what the 3D view actually draws,
+    was written once when the patient was created and never again. So every chart on the
+    workspace responded to a call and the brain did not: a hundred regions, none of them
+    moving, for the life of the patient. `scripts/call_update_report.py` printed 0 of 100
+    regions moved, which is what sent me looking.
+
+    Deliberately not `build_twin`. That refits G, which is the expensive part, and it
+    also resets drift_z, coverage and the ensemble to their starting values, which would
+    undo the update that just happened. Everything structural is recomputed here because
+    it is cheap and comes from the patient's own record. The only thing that has actually
+    changed is the ensemble, and that is what moves the per region damage curves.
+    """
+    row = db.patient(pid)
+    if row is None:
+        raise KeyError(f"no patient {pid}")
+    pat = bundle(row)
+    tpl = templates()
+    template_only = bool(row["template_only"])
+
+    bio = db.dec(row["biomarkers"], pat["biomarkers"])
+    injury = db.dec(row["injury"], pat["injury"])
+    zbio = float(0.5 * (bio["gfap_z"] + bio["uchl1_z"]))
+    ei = ei_map(zbio)
+
+    params = db.dec(row["params"], {}) or {}
+    eps = float(params.get("eps") or np.exp(priors.HYPER["mu_eps"]))
+    severity = float(np.clip(0.45 + 0.2 * zbio, 0.05, 1.0))
+    strains = strain.strain(injury["angle_deg"], injury["location"], injury["helmet"], severity)
+    dmg0 = strain.damage0(strains, eps, zbio)
+
+    sc = tpl["sc"] if template_only else pat["sc"]
+    gval = float(params.get("G") or priors.HYPER["mu_G"])
+    twin = twin_json(dmg0, ei, state_of(pid), sc=sc, gval=gval)
+
+    got = db.twin_inputs(pid)
+    payload = db.dec(got["payload"], {}) if got is not None else {}
+    payload["twin"] = twin
+    db.put("twin_inputs", {"id": db.new_id("tin"), "patient_id": pid, "time": db.now(),
+                           "payload": db.enc(payload)})
+    return twin
+
+
 def save_state(state: dict) -> dict:
     """EnKF state as plain lists for sqlite."""
     return {

@@ -734,6 +734,23 @@ def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
             "waiting": False, "note": "a generated web session is running through the real pipeline"}
 
 
+@app.get("/api/patients/{pid}/latest-update", response_model=models.CallUpdate | None)
+def get_latest_update(pid: str) -> dict | None:
+    """What the most recent check-in changed in the brain, or null if there has not been one.
+
+    The same payload the stream pushes on `call_done`. A page that loads after the call
+    landed needs it too, and reading it back from the event row rather than recomputing
+    it means the banner says the same thing either way.
+    """
+    need(pid)
+    rows = db.rows(
+        "select * from events where patient_id=? and kind='call_update' "
+        "order by time desc, rowid desc limit 1", (pid,))
+    if not rows:
+        return None
+    return db.dec(rows[0]["payload"], {}) or None
+
+
 # ---------------------------------------------------------------- the event stream
 
 @app.get("/api/patients/{pid}/stream")

@@ -16,10 +16,12 @@
 // region the forecast is about without navigating, and clicking a region in the Data tab
 // moves the brain rather than opening a different screen.
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
-import { usePatient } from "@/api/client";
+import { useLatestUpdate, usePatient } from "@/api/client";
 import { usePatientStream } from "@/api/stream";
+import { UpdateBanner } from "@/components/workspace/UpdateBanner";
 import { useViewer } from "@/components/brain";
 import { ErrorState, Loading } from "@/components/common";
 import { CallModal } from "@/components/workspace/CallModal";
@@ -78,6 +80,29 @@ export default function Workspace() {
   // frames while it runs, stages while it processes, then one call_done.
   const stream = usePatientStream(id, true);
 
+  // What the last call changed, for the banner. Read from the endpoint rather than held
+  // from the stream event, so a page opened after the call says the same thing as one
+  // that was already open when it landed. Dismissing records which call was closed, so
+  // the next one shows again rather than the banner being gone for good.
+  const update = useLatestUpdate(id);
+  const [dismissed, setDismissed] = useState("");
+  const seen = useRef("");
+  const client = useQueryClient();
+
+  // The refetch that was described in a comment and never written. Everything the call
+  // touched is refetched here: the patient row, the twin the brain is drawn from, the
+  // shape, the forecast, the alerts and the timeline. Without it the charts and the
+  // brain both sat on whatever they had loaded when the page opened.
+  useEffect(() => {
+    const done = stream.done;
+    if (!done || seen.current === done.call_id) return;
+    seen.current = done.call_id;
+    for (const key of ["patient", "twin", "shape", "forecast", "alerts", "timeline",
+                       "checkins", "latest-update", "attribution", "percentile"]) {
+      void client.invalidateQueries({ queryKey: [key] });
+    }
+  }, [client, stream.done]);
+
   if (patient.isLoading) return <Loading label="Loading the patient" />;
   if (patient.error || !patient.data) {
     return (
@@ -112,6 +137,11 @@ export default function Workspace() {
         onCall={() => setCalling(true)}
         onEvidence={() => setEvidence("")}
         stream={stream}
+      />
+
+      <UpdateBanner
+        update={update.data && update.data.call_id !== dismissed ? update.data : null}
+        onClose={() => setDismissed(update.data?.call_id ?? "")}
       />
 
       {/* Three columns on a desk, stacked on a phone. The brain is first in the DOM

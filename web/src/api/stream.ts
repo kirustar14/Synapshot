@@ -50,14 +50,32 @@ export interface AlertEvent {
   trigger: string;
 }
 
+/** One region the check-in moved, with the full Schaefer name and its network. */
+export interface ChangedRegion {
+  id: number;
+  name: string;
+  network: string;
+  before: number;
+  after: number;
+}
+
 export interface DoneEvent {
   kind: "call_done";
   t: number;
   call_id: string;
   week: number;
+  date?: string;
   alerts: string[];
   drift_z: number;
   quality_ok: boolean;
+  // What the call changed in the brain. The same payload GET latest-update serves, so a
+  // page that loads after the call shows the same banner as one that was already open.
+  changed_regions?: ChangedRegion[];
+  changed_count?: number;
+  k?: number | null;
+  p?: number | null;
+  flags_added?: string[];
+  summary?: string;
 }
 
 export interface FailedEvent {
