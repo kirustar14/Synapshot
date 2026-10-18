@@ -187,7 +187,7 @@ const post = (path, body) => api(path, {
   method:"POST", headers:{"Content-Type":"application/json"},
   body: body === undefined ? null : JSON.stringify(body),
 });
-const fmt = (v, d=2) => v === null || v === undefined || Number.isNaN(v) ? "—"
+const fmt = (v, d=2) => v === null || v === undefined || Number.isNaN(v) ? "n/a"
   : (typeof v === "number" ? v.toFixed(d) : String(v));
 
 /* ---------------------------------------------------------------- svg helpers */
@@ -429,9 +429,9 @@ function kpis(health, cohort) {
   const items = [
     ["Patients", S.patients.length, "all synthetic"],
     ["Open alerts", open, open ? "needs a clinician" : "nothing outstanding"],
-    ["Coverage at week 8", c8 === undefined ? "—" : c8.toFixed(3), "target 0.65 to 0.9"],
-    ["Cohort size", cohort ? cohort.size : "—", "population layer"],
-    ["Selected", sel ? `wk ${sel.week}` : "—", sel ? sel.name : "pick a patient"],
+    ["Coverage at week 8", c8 === undefined ? "n/a" : c8.toFixed(3), "target 0.65 to 0.9"],
+    ["Cohort size", cohort ? cohort.size : "n/a", "population layer"],
+    ["Selected", sel ? `wk ${sel.week}` : "n/a", sel ? sel.name : "pick a patient"],
     ["Mode", health.mode, health.mode === "mock" ? "no keys needed" : "live keys set"],
   ];
   document.getElementById("kpis").innerHTML = items.map(([k,v,s]) =>
@@ -470,7 +470,7 @@ async function viewForecast(host) {
     const rows = f.weeks.map((wk,i) => {
       const o = sig.obs.find(x => x.week === wk);
       return [`wk ${wk}`, fmt(sig.mean[i]), fmt(sig.lo[i]), fmt(sig.hi[i]),
-        o ? fmt(o.value) : "—"];
+        o ? fmt(o.value) : "n/a"];
     });
     card.appendChild(withTable(bandChart(sig, f.weeks),
       ["week","forecast","low","high","measured"], rows));
@@ -555,7 +555,7 @@ async function viewCheckins(host) {
     <span class="un">${full.features.length} this call</span></div>`;
   c1.appendChild(tableView(["feature","tier","value","last week","needs to move","moved?"],
     full.features.map(f => [f.name.replace(/_/g," "), f.tier, fmt(f.value,2),
-      f.prev === null ? "—" : fmt(f.prev,2), fmt(f.mdc,2),
+      f.prev === null ? "n/a" : fmt(f.prev,2), fmt(f.mdc,2),
       f.changed ? `<span class="stat changed">▲ beyond noise</span>`
                 : `<span class="stat ok">within noise</span>`])));
   grid.appendChild(c1);
@@ -673,7 +673,7 @@ async function viewInputs(host) {
   kp.className = "kpis";
   kp.style.cssText = "border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px";
   kp.innerHTML = [
-    ["FC fit", t.fc_fit === null ? "—" : t.fc_fit.toFixed(3), t.fc_fit === null ? "no imaging" : "model against data"],
+    ["FC fit", t.fc_fit === null ? "n/a" : t.fc_fit.toFixed(3), t.fc_fit === null ? "no imaging" : "model against data"],
     ["Fidelity", t.low_fidelity ? "low" : "normal", t.low_fidelity ? "bands widened 1.3x" : "bands unmodified"],
     ["Template only", p.template_only ? "yes" : "no", p.template_only ? "group wiring" : "personal wiring"],
     ["Coupling G", p.params.G.toFixed(3), "fit to this brain"],
