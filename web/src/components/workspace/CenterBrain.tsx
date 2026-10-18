@@ -168,7 +168,6 @@ export function CenterBrain({ patient }: { patient: Patient }) {
                     type="button"
                     onClick={() => {
                       setRegion(m.index);
-                      viewer.setSelected(m.index);
                       setQuery("");
                     }}
                     className="block w-full px-2.5 py-1.5 text-left text-xs capitalize hover:bg-muted"
@@ -187,10 +186,7 @@ export function CenterBrain({ patient }: { patient: Patient }) {
             <span className="capitalize">{regionLabel(undefined, twin.data, region).plain}</span>
             <button
               type="button"
-              onClick={() => {
-                setRegion(null);
-                viewer.setSelected(null);
-              }}
+              onClick={() => setRegion(null)}
               aria-label="Clear the selected region"
               className="rounded p-0.5 hover:bg-background"
             >
@@ -234,6 +230,46 @@ export function CenterBrain({ patient }: { patient: Patient }) {
             : `Week ${week} is a forecast. Nothing has been measured there.`}
         </p>
       </div>
+
+      {/* The vessel caption is shown, not hidden in a tooltip. A rendered vessel beside
+          a rendered brain is exactly the thing that gets mistaken for an angiogram, and
+          a label somebody has to hover for is a label most people never see. */}
+      {viewer.vessels && vessels.data && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-blue-400/30 bg-blue-500/5 px-2.5 py-1.5 text-[10px] leading-snug">
+          <span className="font-bold text-blue-700 dark:text-blue-300">
+            {vessels.data.caption}
+          </span>
+          <button
+            type="button"
+            aria-pressed={viewer.arteries}
+            onClick={() => viewer.setFlag({ arteries: !viewer.arteries })}
+            className={cn(
+              "rounded-full border px-2 py-0.5 font-bold",
+              viewer.arteries ? "border-red-400 bg-red-500/15 text-red-700 dark:text-red-300" : "border-border",
+            )}
+          >
+            Arteries
+          </button>
+          {(patient.injury.swi_foci ?? 0) > 0 && (
+            <button
+              type="button"
+              aria-pressed={viewer.foci}
+              onClick={() => viewer.setFlag({ foci: !viewer.foci })}
+              className={cn(
+                "rounded-full border px-2 py-0.5 font-bold",
+                viewer.foci ? "border-orange-400 bg-orange-500/15 text-orange-700 dark:text-orange-300" : "border-border",
+              )}
+            >
+              {patient.injury.swi_foci} SWI foci
+            </button>
+          )}
+          <span className="text-muted-foreground">
+            {(patient.injury.swi_foci ?? 0) > 0
+              ? "The report counted the foci and named the lobe. It did not give coordinates, so the nodes are placed in that region rather than measured."
+              : "No SWI foci were read for this patient."}
+          </span>
+        </div>
+      )}
     </section>
   );
 }

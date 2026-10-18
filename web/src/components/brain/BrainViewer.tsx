@@ -124,7 +124,11 @@ export default function BrainViewer(props: BrainViewerProps) {
   const cortex = useMemo(() => (mesh.data ? buildCortex(mesh.data, liveShape) : null), [mesh.data, liveShape]);
   useEffect(() => {
     const geometry = cortex?.geometry;
-    return () => geometry?.dispose();
+    return () => {
+      // The BVH holds its own typed arrays, so disposing the geometry alone leaks them.
+      geometry?.disposeBoundsTree?.();
+      geometry?.dispose();
+    };
   }, [cortex]);
 
   const points = useMemo(() => regionPoints(mesh.data, twin.data), [mesh.data, twin.data]);

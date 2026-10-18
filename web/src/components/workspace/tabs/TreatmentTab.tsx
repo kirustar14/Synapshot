@@ -276,7 +276,7 @@ export function TreatmentTab({ patient }: { patient: Patient }) {
                   <li key={r.index}>
                     <button
                       type="button"
-                      onClick={() => { setRegion(r.index); viewer.setSelected(r.index); }}
+                      onClick={() => setRegion(r.index)}
                       className="flex w-full items-baseline justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-muted"
                     >
                       <span className="truncate text-[11px] capitalize">{r.label}</span>

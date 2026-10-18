@@ -937,3 +937,43 @@ there says "the report counted this many foci in this region", not "a focus is h
 at, which is the question somebody watching the demo actually has: what is real, what is
 standing in, what v2 removed and what it merged. It reads the live system rather than a
 list somebody typed, so a line claiming a thing is real has gone and looked.
+
+### Region picking
+
+three's default `Mesh.raycast` walks every triangle on every pointer move. The cortex is
+40,960 triangles, so hovering it ran about two and a half million ray-triangle tests a
+second in JavaScript, which is most of a frame's budget spent working out which parcel
+the mouse is over. `three-mesh-bvh` replaces that with a bounding volume hierarchy built
+once per geometry: the build costs a few milliseconds and a raycast drops to 0.16 ms,
+measured in the page rather than through the test driver's mouse, which has its own much
+larger overhead.
+
+The tree is built over the pial positions, which is what the ray actually hits. Inflation
+happens in the vertex shader and the picking ray never sees it, so a region picked on an
+inflated surface is the region under the pointer on the pial one. That is a real
+limitation of doing the deformation on the GPU, and it is why the inflate slider is a
+display control rather than a measurement one.
+
+**Clicking a region selected nothing.** The workspace kept its own `region` state next to
+the viewer's `selected`, so a click set the viewer's and left the workspace's untouched:
+the selection chip never appeared and no tab ever heard about it. Two stores for one fact
+is the bug; there is one now. An end to end test clicks the brain and asserts the chip
+appears, because this is invisible to a unit test and invisible to a screenshot.
+
+### The vessel caption is shown, not hovered
+
+It started as a tooltip on the layer chip. A label somebody has to hover for is a label
+most people never see, and this is the one that stops a rendered vessel being mistaken
+for an angiogram. It is a line under the canvas whenever the layer is on, next to the
+arteries toggle and the SWI foci count.
+
+### What the end to end tests are for
+
+`npm run e2e` is eight checks that need a real browser: region picking and its speed, the
+vessel layer drawing without throwing, every layer chip being present, and no screen
+scrolling sideways at 390 pixels or vertically at 1440. They are deliberately not part of
+`npm test`: they need a backend on :8111 with seeded data and a built frontend, and they
+should fail loudly for a different reason than a unit test does.
+
+Four of the six real bugs in the v2 frontend were only visible in a browser. That is the
+argument for having them.

@@ -20,6 +20,7 @@ import { createContext, useContext, useState } from "react";
 import { useParams } from "react-router-dom";
 import { usePatient } from "@/api/client";
 import { usePatientStream } from "@/api/stream";
+import { useViewer } from "@/components/brain";
 import { ErrorState, Loading } from "@/components/common";
 import { CallModal } from "@/components/workspace/CallModal";
 import { CenterBrain } from "@/components/workspace/CenterBrain";
@@ -37,7 +38,14 @@ interface Ctx {
   /** Week the viewer is showing. The scrubber and the timeline both drive it. */
   week: number;
   setWeek: (w: number) => void;
-  /** Region the panels are focused on, or null. Set by clicking the brain or a row. */
+  /**
+   * The region the panels are focused on, or null.
+   *
+   * This is the viewer's own `selected`, not a copy of it. Keeping a second one here
+   * meant clicking a parcel on the brain set the viewer's and left the workspace's
+   * untouched, so the selection chip never appeared and no tab ever heard about it.
+   * One store, one truth.
+   */
   region: number | null;
   setRegion: (r: number | null) => void;
   /** Replaces the brain's layer values, used by the Treatment tab's difference mode. */
@@ -60,7 +68,8 @@ export default function Workspace() {
 
   const [tab, setTab] = useState<TabId>("data");
   const [week, setWeek] = useState(0);
-  const [region, setRegion] = useState<number | null>(null);
+  const region = useViewer((s) => s.selected);
+  const setRegion = useViewer((s) => s.setSelected);
   const [overlay, setOverlay] = useState<Ctx["overlay"]>(null);
   const [evidence, setEvidence] = useState<string | null>(null);
   const [calling, setCalling] = useState(false);
