@@ -22,13 +22,13 @@ interface NavItem {
 
 function Brand() {
   return (
-    <Link to="/" aria-label="UNNAMED home" className="flex h-[100px] items-center gap-3 px-7">
-      <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary/15 bg-primary-soft text-primary">
-        <Brain className="h-6 w-6" strokeWidth={1.5} aria-hidden />
+    <Link to="/" aria-label="Synapshot home" className="flex h-[92px] items-center gap-3 px-7">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-soft">
+        <Brain className="h-5 w-5" strokeWidth={2} aria-hidden />
       </span>
       <span>
-        <span className="block text-2xl font-black">unnamed.</span>
-        <span className="block text-[10px] font-semibold text-muted-foreground">The brain twin lab</span>
+        <span className="block text-xl font-black leading-[22px] tracking-tight">synapshot.</span>
+        <span className="block text-xs font-semibold text-muted-foreground">Brain twin lab</span>
       </span>
     </Link>
   );
@@ -40,16 +40,15 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
   const open = alerts?.filter((a) => !a.acked).length ?? 0;
 
   const items: NavItem[] = [
-    { to: "/", label: "Patient workspace", icon: Users, end: true },
+    { to: "/", label: "Patients", icon: Users, end: true },
     { to: "/alerts", label: "Alerts", icon: Bell, badge: open },
-    { to: "/cohort", label: "Cohort insights", icon: LineChart },
+    { to: "/cohort", label: "Cohort", icon: LineChart },
     { to: "/rig", label: "Live call", icon: Radio },
   ];
   if (unlocked) items.push({ to: "/demo", label: "Demo", icon: Gamepad2 });
 
   return (
-    <nav aria-label="Main" className="flex flex-col gap-2 px-4 py-5">
-      <p className="mb-2 px-4 text-[10px] font-bold uppercase text-muted-foreground">Clinical workspace</p>
+    <nav aria-label="Main" className="flex flex-col gap-1 px-4 py-2">
       {items.map((item) => (
         <NavLink
           key={item.to}
@@ -58,18 +57,18 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
           onClick={onNavigate}
           className={({ isActive }) =>
             cn(
-              "group flex min-h-12 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+              "group flex h-11 items-center gap-3 rounded-[14px] px-3.5 text-[15px] transition-colors focus-visible:outline-2 focus-visible:outline-ring",
               isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-soft"
-                : "text-sidebar-foreground hover:bg-sidebar-accent",
+                ? "bg-sidebar-accent font-extrabold text-sidebar-accent-foreground shadow-soft"
+                : "font-bold text-sidebar-foreground hover:bg-sidebar-accent/70",
             )
           }
         >
-          <item.icon className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden />
+          <item.icon className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
           <span className="flex-1">{item.label}</span>
           {item.badge !== undefined && item.badge > 0 && (
             <span
-              className="rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-destructive-foreground"
+              className="flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-extrabold text-destructive-foreground"
               aria-label={`${item.badge} open alerts`}
             >
               {item.badge}
@@ -82,9 +81,9 @@ function Nav({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 const SECTIONS: { prefix: string; label: string }[] = [
-  { prefix: "/patients/", label: "Patient record" },
+  { prefix: "/patients/", label: "Patient" },
   { prefix: "/alerts", label: "Alerts" },
-  { prefix: "/cohort", label: "Cohort insights" },
+  { prefix: "/cohort", label: "Cohort" },
   { prefix: "/rig", label: "Live call" },
   { prefix: "/demo", label: "Demo console" },
 ];
@@ -102,27 +101,29 @@ export function ClinicLayout() {
     if (pathname.startsWith("/demo")) setUnlocked(true);
   }, [pathname, setUnlocked]);
 
-  const section = SECTIONS.find((s) => pathname.startsWith(s.prefix))?.label ?? "Patient workspace";
+  const section = SECTIONS.find((s) => pathname.startsWith(s.prefix))?.label ?? "Patients";
   const syntheticData = health?.mode === "mock";
   const mockLayer = isMock();
 
   return (
     <div className="flex min-h-screen overflow-x-clip bg-background">
-      <aside className="no-print sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <aside className="no-print sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col bg-sidebar lg:flex">
         <Brand />
         <Nav />
-        <div className="mt-auto px-7 pb-7">
-          <div className="mb-4 flex items-center gap-2 border-t pt-5 text-xs font-extrabold">
-            <FlaskConical className="h-4 w-4 text-primary" aria-hidden /> Research environment
+        <div className="mt-auto px-4 pb-6">
+          <div className="rounded-2xl bg-card/70 p-4">
+            <div className="flex items-center gap-2 text-[13px] font-extrabold">
+              <FlaskConical className="h-4 w-4 text-synthetic" aria-hidden /> Research use only
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+              Synthetic patients. Forecasts support clinical judgment and never replace it.
+            </p>
           </div>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Synthetic patients. Model forecasts support, but never replace, clinical judgment.
-          </p>
-          <div className="mt-5 flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-lab-lilac text-xs font-extrabold">CL</span>
+          <div className="mt-4 flex items-center gap-3 px-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-card text-xs font-extrabold shadow-soft">CL</span>
             <div>
-              <p className="text-xs font-bold">Clinical lab</p>
-              <p className="text-[10px] text-muted-foreground">TBI recovery research</p>
+              <p className="text-[13px] font-bold">Clinical lab</p>
+              <p className="text-xs text-muted-foreground">TBI recovery research</p>
             </div>
           </div>
         </div>
@@ -137,20 +138,20 @@ export function ClinicLayout() {
       </Sheet>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="no-print sticky top-0 z-20 flex h-[76px] items-center gap-3 border-b border-border/70 bg-background/95 px-4 backdrop-blur lg:px-10">
+        <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 bg-background/85 px-4 backdrop-blur-md lg:pl-6 lg:pr-12">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="Open navigation">
             <Menu className="h-5 w-5" aria-hidden />
           </Button>
-          <div className="hidden items-center gap-3 text-xs sm:flex">
+          <div className="hidden items-center gap-2 text-[13px] font-semibold sm:flex">
             <span className="text-muted-foreground">Clinical lab</span>
-            <ChevronRight className="h-3 w-3 text-muted-foreground" aria-hidden />
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
             <span className="font-bold">{section}</span>
           </div>
-          <span className="text-sm font-extrabold sm:hidden">unnamed.</span>
+          <span className="text-sm font-extrabold sm:hidden">synapshot.</span>
           <div className="ml-auto flex items-center gap-2">
             {syntheticData && (
-              <span className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1.5 text-[11px] font-bold text-accent-foreground">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+              <span className="inline-flex h-8 items-center gap-2 rounded-full bg-card px-3 text-xs font-bold text-muted-foreground shadow-soft">
+                <span className="h-1.5 w-1.5 rounded-full bg-synthetic" aria-hidden />
                 Synthetic data
               </span>
             )}
@@ -175,7 +176,7 @@ export function ClinicLayout() {
             )}
           </div>
         </header>
-        <main className="print-page mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-5 py-7 lg:px-10 lg:py-10">
+        <main className="print-page mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-5 pb-12 pt-4 lg:pl-6 lg:pr-12">
           <Outlet />
         </main>
       </div>

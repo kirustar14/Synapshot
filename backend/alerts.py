@@ -22,7 +22,7 @@ def create(pid: str, kind: str, trigger: str, notify: bool = True) -> dict:
 
     if notify and kind in CALLS:
         week = int(row["week"] or 0) if row else 0
-        text = f"UNNAMED alert for {name}, week {week}. {trigger} Please review the dashboard."
+        text = f"Synapshot alert for {name}, week {week}. {trigger} Please review the dashboard."
         called = bool(clinic_call.call(pid, text).get("ok"))
 
     if notify and kind in TEXTS:
@@ -119,7 +119,7 @@ def call_now(aid: str) -> dict:
         return {"ok": False, "error": "no such alert"}
     pat = db.patient(row["patient_id"])
     name = str(pat["name"]) if pat else "the patient"
-    got = clinic_call.call(row["patient_id"], f"UNNAMED alert for {name}. {row['trigger']}")
+    got = clinic_call.call(row["patient_id"], f"Synapshot alert for {name}. {row['trigger']}")
     db.patch("alerts", aid, {"called": 1 if got.get("ok") else 0})
     return got
 

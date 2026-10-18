@@ -54,6 +54,14 @@ _LOCK = threading.RLock()
 _SCHEMA_READY = False
 _PG_ERROR = ""
 
+# One connection is shared by every FastAPI worker thread (check_same_thread=False), and
+# the clinician app fires its twin, shape, forecast and mesh requests in parallel. Without
+# a lock two threads used the same connection at once and one of them read a half-moved
+# page: Sentry caught it as "database disk image is malformed" on /api/patients/{pid}/twin
+# (UNNAMED-BACKEND-2) while the file itself passed integrity_check. Every statement now
+# holds this lock. Reentrant, because conn() itself runs statements on first open.
+LOCK = threading.RLock()
+
 
 def is_pg() -> bool:
     """True when DATABASE_URL is set, so Postgres is the system of record."""
@@ -65,7 +73,13 @@ def dialect() -> str:
     return "postgres" if is_pg() else "sqlite"
 
 
-def _sqlite() -> sqlite3.Connection:
+def conn() -> sqlite3.Connection:
+    """Open the database once, create the schema if needed."""
+    with LOCK:
+        return _open()
+
+
+def _open() -> sqlite3.Connection:
     global _CONN
     if _CONN is None:
         Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -230,9 +244,9 @@ def run(sql: str, args: tuple = ()):
         with _pool().connection() as conn, conn.cursor() as cur:
             cur.execute(q(sql), args)
             return cur
-    with _LOCK:
-        cur = _sqlite().execute(sql, args)
-        _sqlite().commit()
+    with LOCK:
+        cur = conn().execute(sql, args)
+        conn().commit()
         return cur
 
 
@@ -263,8 +277,8 @@ def rows(sql: str, args: tuple = ()) -> list:
         with _pool().connection() as conn, conn.cursor() as cur:
             cur.execute(q(sql), args)
             return list(cur.fetchall())
-    with _LOCK:
-        return list(_sqlite().execute(sql, args).fetchall())
+    with LOCK:
+        return list(conn().execute(sql, args).fetchall())
 
 
 def one(sql: str, args: tuple = ()):
@@ -274,8 +288,8 @@ def one(sql: str, args: tuple = ()):
         with _pool().connection() as conn, conn.cursor() as cur:
             cur.execute(q(sql), args)
             return cur.fetchone()
-    with _LOCK:
-        return _sqlite().execute(sql, args).fetchone()
+    with LOCK:
+        return conn().execute(sql, args).fetchone()
 
 
 def put(table: str, row: dict) -> str:

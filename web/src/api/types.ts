@@ -117,7 +117,7 @@ export interface Twin {
 // ---------------------------------------------------------------- mesh, shape, receptors, what-if
 
 export interface Mesh {
-  space: "fsaverage5";
+  space: "fsaverage6";
   pial: number[];        // flat [x,y,z,...] in mm, centred on the origin
   inflated: number[];    // same length and order as pial
   faces: number[];       // flat [a,b,c,...] into the vertex arrays
@@ -133,7 +133,7 @@ export interface Mesh {
   // the procedural mock may omit it, in which case fall back to Twin.regions[].x,y,z.
   region_xyz?: number[];
   verts?: number;
-  source: "fsaverage5" | "procedural";
+  source: "fsaverage6" | "procedural";
 }
 
 export interface Shape {
