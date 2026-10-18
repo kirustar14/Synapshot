@@ -1,0 +1,135 @@
+{
+  "_note": "Receptor targets per drug, for the what-if viewer only. This is not a dosing reference and not a treatment recommendation. Doses are shown for recognition and never reach the model.",
+  "_affinity": "0 to 1, how strongly the drug acts at that target relative to its own main action. Not a Ki and not comparable between drugs: it is a weight on where in the brain the effect lands, taken from the direction and relative prominence of each action in the pharmacology, and it is a judgement call.",
+  "_direction": "+1 raises signalling through that target, -1 lowers it. A transporter blocker raises synaptic transmitter, so its direction is +1 even though it blocks the protein the map shows.",
+  "_proxy": "True when the map is the nearest available picture of where the drug acts, not the drug's own target.",
+  "drugs": [
+    {
+      "name": "sertraline",
+      "class": "SSRI",
+      "typical_dose": "25 to 200 mg daily",
+      "modeled": true,
+      "targets": [
+        { "receptor": "5-HTT", "affinity": 1.0, "direction": 1, "why": "blocks the serotonin transporter, raising synaptic serotonin where terminals are densest" },
+        { "receptor": "DAT", "affinity": 0.15, "direction": 1, "why": "weak dopamine transporter activity at higher doses" }
+      ],
+      "note": "Used in post-concussive depression and in headache. Onset over weeks, which this model does not represent at all: it shows where the effect lands, not when."
+    },
+    {
+      "name": "amitriptyline",
+      "class": "tricyclic antidepressant",
+      "typical_dose": "10 to 50 mg at night",
+      "modeled": true,
+      "targets": [
+        { "receptor": "5-HTT", "affinity": 0.8, "direction": 1, "why": "serotonin reuptake inhibition" },
+        { "receptor": "NET", "affinity": 0.7, "direction": 1, "why": "noradrenaline reuptake inhibition" },
+        { "receptor": "5-HT2A", "affinity": 0.6, "direction": -1, "why": "5-HT2A antagonist" }
+      ],
+      "note": "Low dose amitriptyline is common for post-traumatic headache. Its antihistamine and antimuscarinic actions, which are most of why it is sedating, have no map here and are not represented."
+    },
+    {
+      "name": "nortriptyline",
+      "class": "tricyclic antidepressant",
+      "typical_dose": "10 to 50 mg at night",
+      "modeled": true,
+      "targets": [
+        { "receptor": "NET", "affinity": 0.9, "direction": 1, "why": "noradrenaline reuptake inhibition, its main action" },
+        { "receptor": "5-HTT", "affinity": 0.3, "direction": 1, "why": "weaker serotonin reuptake inhibition" }
+      ],
+      "note": "More noradrenergic and less sedating than amitriptyline."
+    },
+    {
+      "name": "methylphenidate",
+      "class": "stimulant",
+      "typical_dose": "5 to 20 mg twice daily",
+      "modeled": true,
+      "targets": [
+        { "receptor": "DAT", "affinity": 1.0, "direction": 1, "why": "blocks the dopamine transporter" },
+        { "receptor": "NET", "affinity": 0.6, "direction": 1, "why": "blocks the noradrenaline transporter" }
+      ],
+      "note": "Used for post-traumatic attention and fatigue. The striatum, where most of the DAT signal sits, is outside this cortical parcellation, so what is shown is the cortical part of the effect only."
+    },
+    {
+      "name": "amantadine",
+      "class": "NMDA antagonist and dopaminergic",
+      "typical_dose": "100 mg twice daily",
+      "modeled": true,
+      "targets": [
+        { "receptor": "NMDA", "affinity": 0.8, "direction": -1, "why": "weak non-competitive NMDA receptor antagonist" },
+        { "receptor": "DAT", "affinity": 0.4, "direction": 1, "why": "increases dopamine release and reduces reuptake" }
+      ],
+      "note": "The best studied drug in disorders of consciousness after severe TBI. The evidence in mild TBI is much thinner."
+    },
+    {
+      "name": "propranolol",
+      "class": "beta blocker",
+      "typical_dose": "20 to 80 mg twice daily",
+      "modeled": true,
+      "targets": [
+        { "receptor": "NET", "affinity": 0.5, "direction": -1, "proxy": true, "why": "no beta-adrenoceptor map exists in this atlas set. The noradrenaline transporter map shows where noradrenergic terminals are, which is the nearest available picture of where a central beta blockade would be felt. It is a proxy and the effect shown is a guess about location, not about size." }
+      ],
+      "note": "Used for post-traumatic headache prophylaxis. Shown against a proxy map, so treat the location of the effect as indicative and the magnitude as uninformative."
+    },
+    {
+      "name": "levetiracetam",
+      "class": "antiseizure",
+      "typical_dose": "250 to 1000 mg twice daily",
+      "modeled": true,
+      "targets": [
+        { "receptor": "SV2A", "affinity": 1.0, "direction": -1, "why": "binds synaptic vesicle glycoprotein 2A, reducing vesicular release" }
+      ],
+      "note": "SV2A is close to a synaptic density marker, so this map is as much about where synapses are as about where the drug acts."
+    },
+    {
+      "name": "ondansetron",
+      "class": "antiemetic",
+      "typical_dose": "4 to 8 mg as needed",
+      "modeled": false,
+      "targets": [],
+      "why_not": "5-HT3 is its target and there is no 5-HT3 map in this atlas set. Its antiemetic action is also largely at the area postrema and in the gut, neither of which is in a cortical parcellation."
+    },
+    {
+      "name": "gabapentin",
+      "class": "alpha-2-delta ligand",
+      "typical_dose": "300 to 900 mg three times daily",
+      "modeled": false,
+      "targets": [],
+      "why_not": "Its target is the alpha-2-delta subunit of the voltage gated calcium channel. There is no PET map of it."
+    },
+    {
+      "name": "melatonin",
+      "class": "hormone",
+      "typical_dose": "2 to 5 mg at night",
+      "modeled": false,
+      "targets": [],
+      "why_not": "MT1 and MT2 have no map here, and the effect that matters is on the timing of sleep, which this model has no representation of at all."
+    },
+    {
+      "name": "acetaminophen",
+      "class": "analgesic",
+      "typical_dose": "500 to 1000 mg every 6 hours",
+      "modeled": false,
+      "targets": [],
+      "why_not": "Its mechanism is still argued over and none of the candidates has a receptor map. Shown here because it is on most of these charts, and the honest answer is that this model has nothing to say about it."
+    },
+    {
+      "name": "ibuprofen",
+      "class": "NSAID",
+      "typical_dose": "200 to 400 mg every 6 hours",
+      "modeled": false,
+      "targets": [],
+      "why_not": "Cyclooxygenase inhibition, which is not a receptor with a distribution map."
+    },
+    {
+      "name": "topiramate",
+      "class": "antiseizure",
+      "typical_dose": "25 to 100 mg daily",
+      "modeled": true,
+      "targets": [
+        { "receptor": "GABA-A", "affinity": 0.6, "direction": 1, "why": "positive modulation at a non-benzodiazepine site of GABA-A" },
+        { "receptor": "mGluR5", "affinity": 0.3, "direction": -1, "proxy": true, "why": "it antagonises AMPA and kainate receptors, which have no map here. The mGluR5 map stands in for excitatory glutamatergic density and is a proxy." }
+      ],
+      "note": "Used for headache prophylaxis. Cognitive side effects are the usual reason it is stopped, and this model does not represent those."
+    }
+  ]
+}

@@ -21,14 +21,13 @@ OPTIONAL = {
     "nilearn": "Schaefer-100 names and centroids, falls back to an ellipsoid",
     "enigmatoolbox": "gene expression map, falls back to a smooth random map",
     "mediapipe": "face and iris landmarks, without it every frame reports no face",
-    "cv2": "JPEG frames for the rig console",
     "faster_whisper": "speech transcription, falls back to the scripted transcript",
     "parselmouth": "jitter, shimmer, HNR and CPP",
     "librosa": "spectral extras",
-    "mss": "screen capture of the FaceTime window",
-    "sounddevice": "audio in and out of FaceTime",
     "anthropic": "natural phrasing and summaries, falls back to templates",
-    "twilio": "the clinic call, falls back to logging the script",
+    "reportlab": "the flagship patient's PDF documents, needed by make sample",
+    "pypdf": "reading text out of an uploaded PDF",
+    "twilio": "the SMS fallback when iMessage cannot deliver",
     "numpyro": "the hierarchical population fit, falls back to weighted least squares",
     "sbi": "optional emulator upgrade behind USE_SBI",
 }
@@ -54,11 +53,10 @@ ROUTES = [
     ("POST", "/api/patients/{pid}/uploads"), ("GET", "/api/patients/{pid}/twin-inputs"),
     ("POST", "/api/patients/{pid}/build-twin"), ("GET", "/api/patients/{pid}/messages"),
     ("POST", "/api/patients/{pid}/note"), ("GET", "/api/alerts"),
-    ("POST", "/api/alerts/{aid}/ack"), ("POST", "/api/alerts/{aid}/call"),
-    ("GET", "/api/cohort"), ("GET", "/api/rig/preflight"), ("POST", "/api/demo/reset"),
+    ("POST", "/api/alerts/{aid}/ack"), ("GET", "/api/alerts/{aid}/explain"),
+    ("GET", "/api/cohort"), ("POST", "/api/demo/reset"),
     ("POST", "/api/demo/advance-week"), ("POST", "/api/demo/inject-drift"),
-    ("POST", "/api/demo/trigger-call"), ("GET", "/api/consent/{token}"),
-    ("POST", "/api/consent/{token}"), ("POST", "/api/stretch/{token}"),
+    ("POST", "/api/demo/trigger-call"), ("GET", "/api/patients/{pid}/stream"),
 ]
 
 
@@ -68,17 +66,13 @@ def line(state: str, name: str, detail: str = "") -> dict:
 
 
 def routes_check() -> list[dict]:
-    """Every contract route registered with the right method, plus both websockets."""
+    """Every contract route registered with the right method."""
     from .app import app
 
     have = {(m, r.path) for r in app.routes for m in (getattr(r, "methods", None) or [])}
-    paths = {r.path for r in app.routes}
     missing = [f"{m} {p}" for m, p in ROUTES if (m, p) not in have]
-    out = [line(RED if missing else GREEN, f"{len(ROUTES)} contract routes registered",
-                ", ".join(missing) if missing else "every route and method present")]
-    for ws in ("/ws/rig", "/ws/stimulus"):
-        out.append(line(GREEN if ws in paths else RED, f"websocket {ws}", ""))
-    return out
+    return [line(RED if missing else GREEN, f"{len(ROUTES)} contract routes registered",
+                 ", ".join(missing) if missing else "every route and method present")]
 
 
 def data_check() -> list[dict]:
@@ -143,9 +137,10 @@ def twin_check() -> list[dict]:
 def mock_check() -> list[dict]:
     """What is running on a fallback, and what it would take to make it real."""
     return [
-        line(MOCK if cfg.mock_rig else GREEN, "rig",
-             "replaying a generated session, set RIG_FACETIME_NUMBER for a real call"
-             if cfg.mock_rig else f"live, calling {cfg.facetime_number}"),
+        line(MOCK if cfg.mock_rig else GREEN, "demo mode",
+             "a call can be driven from a generated session with no phone, set MOCK_RIG=0 "
+             "to require a real one" if cfg.mock_rig
+             else "off, every call has to come from a real phone"),
         # A bad model id is a fallback, not a failure: a real one is substituted and the
         # LLM still works. The detail says so loudly rather than exiting non-zero.
         line(MOCK if (cfg.mock_llm or config.MODEL_NOTE) else GREEN, "LLM",
@@ -155,9 +150,9 @@ def mock_check() -> list[dict]:
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"
              if cfg.mock_photon else "live"),
-        line(MOCK if cfg.mock_twilio else GREEN, "clinic call",
-             "script logged, set the four Twilio keys to dial"
-             if cfg.mock_twilio else f"live to {cfg.clinic_number}"),
+        line(MOCK if cfg.mock_twilio else GREEN, "SMS fallback",
+             "written to the messages table, set the Twilio keys to send"
+             if cfg.mock_twilio else f"live from {cfg.twilio_from}"),
         line(MOCK if cfg.mock_eleven else GREEN, "ElevenLabs voices",
              "no key, the page uses the browser's own speech synthesis"
              if cfg.mock_eleven else f"live, {cfg.eleven_tts_model}"),
@@ -241,10 +236,6 @@ def webcall_check() -> list[dict]:
             out.append(line(MOCK, "PUBLIC_URL is https but not reachable",
                             f"{url}, {str(exc)[:80]}. Start the tunnel and make dev"))
 
-    out.append(line(GREEN if cfg.web_call() else MOCK, f"CALL_MODE is {cfg.call_mode}",
-                    "the patient opens a web page" if cfg.web_call()
-                    else "the old FaceTime rig path, set CALL_MODE=web for the new flow"))
-
     # ElevenLabs. One cheap authenticated GET. The key is never printed, only used.
     if not cfg.eleven_key:
         out.append(line(MOCK, "ElevenLabs key", "not set, the page uses browser speech synthesis"))
@@ -298,13 +289,11 @@ def webcall_check() -> list[dict]:
                     f"{tool} is installed, run make tunnel for the steps" if tool
                     else "neither cloudflared nor ngrok found. brew install cloudflared"))
 
-    # Twilio, the SMS fallback and the clinic call.
+    # Twilio, the SMS fallback for when iMessage cannot deliver.
     have_twilio = all([cfg.twilio_sid, cfg.twilio_token, cfg.twilio_from])
     out.append(line(GREEN if have_twilio else MOCK, "Twilio credentials",
                     f"set, SMS fallback live from {cfg.twilio_from}" if have_twilio
                     else "not all set, SMS falls back to mock"))
-    out.append(line(GREEN if cfg.clinic_number else MOCK, "CLINIC_NUMBER",
-                    "set" if cfg.clinic_number else "not set, the clinic call is logged only"))
 
     # The mesh the viewer renders.
     from .data import mesh as meshmod
@@ -372,7 +361,7 @@ def main() -> int:
     db.conn()
     got = run()
     print("")
-    print("  UNNAMED final checklist")
+    print("  Synapshot final checklist")
     print("  " + "=" * 74)
     for title, rows in got["sections"].items():
         print(f"\n  {title}")

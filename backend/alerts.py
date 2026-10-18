@@ -1,7 +1,6 @@
 """Alert rules over the posterior, the drift z and the call quality."""
 
-from . import db
-from .comms import clinic_call
+from . import db, live
 from .comms import notify as texter
 
 DRIFT_Z = 2.0        # drift z above this counts as a drifting week
@@ -9,21 +8,18 @@ DRIFT_WEEKS = 2      # consecutive drifting weeks needed to raise the alert
 FACE_SHARE = 0.7     # below this share of frames with a face the call is low quality
 CALIB_DEG = 3.0      # above this calibration error the eye tasks are not trustworthy
 
-CALLS = {"red_flag", "drift"}        # alert types that ring the clinic
 TEXTS = {"red_flag", "low_quality", "missed_call"}   # alert types that text the patient
 
 
 def create(pid: str, kind: str, trigger: str, notify: bool = True) -> dict:
-    """Store an alert and, for the serious kinds, ring the clinic and text the patient."""
-    row = db.patient(pid)
-    name = str(row["name"]) if row else "the patient"
-    aid = db.new_id("al")
-    called = False
+    """Store an alert, text the patient for the serious kinds, and push it to the screen.
 
-    if notify and kind in CALLS:
-        week = int(row["week"] or 0) if row else 0
-        text = f"UNNAMED alert for {name}, week {week}. {trigger} Please review the dashboard."
-        called = bool(clinic_call.call(pid, text).get("ok"))
+    Nothing phones anybody any more. The outbound clinic call is gone: an alert lands in
+    the clinician's workspace, in the left rail, over the event stream. A rule that can
+    fire several times in a row should not be able to ring a phone several times in a row.
+    """
+    row = db.patient(pid)
+    aid = db.new_id("al")
 
     if notify and kind in TEXTS:
         kinds = {"red_flag": "emergency", "low_quality": "low_quality"}
@@ -31,10 +27,13 @@ def create(pid: str, kind: str, trigger: str, notify: bool = True) -> dict:
 
     db.put("alerts", {
         "id": aid, "patient_id": pid, "type": kind, "trigger": trigger,
-        "time": db.now(), "called": int(called), "acked": 0,
+        "time": db.now(), "called": 0, "acked": 0,
     })
-    db.event(pid, "alert", {"type": kind, "trigger": trigger, "called": called})
-    return {"id": aid, "patient_id": pid, "type": kind, "trigger": trigger, "time": db.now(), "called": called, "acked": False}
+    db.event(pid, "alert", {"type": kind, "trigger": trigger})
+    live.publish(pid, "alert", {"id": aid, "type": kind, "trigger": trigger})
+    del row
+    return {"id": aid, "patient_id": pid, "type": kind, "trigger": trigger,
+            "time": db.now(), "called": False, "acked": False}
 
 
 def drift_rule(state: dict) -> tuple[bool, str]:
@@ -112,16 +111,55 @@ def ack(aid: str) -> None:
     db.patch("alerts", aid, {"acked": 1})
 
 
-def call_now(aid: str) -> dict:
-    """Ring the clinic for an existing alert and mark it called."""
+def explain(aid: str) -> dict:
+    """The rule behind one alert and the numbers that tripped it.
+
+    The left rail shows a one line reason and this is what opens when you click it, so
+    a flag is never just a coloured dot with an assertion attached.
+    """
     row = db.one("select * from alerts where id=?", (aid,))
     if row is None:
         return {"ok": False, "error": "no such alert"}
-    pat = db.patient(row["patient_id"])
-    name = str(pat["name"]) if pat else "the patient"
-    got = clinic_call.call(row["patient_id"], f"UNNAMED alert for {name}. {row['trigger']}")
-    db.patch("alerts", aid, {"called": 1 if got.get("ok") else 0})
-    return got
+    kind = str(row["type"])
+    rules = {
+        "drift": {
+            "rule": "drift z above 2.0 for two consecutive weeks",
+            "detail": "drift z is the mean standardized residual of the last two weeks, "
+                      "signed so positive means reality is worse than the twin expected. "
+                      "One bad week is noise, two in a row is a trend.",
+            "threshold": DRIFT_Z,
+        },
+        "low_quality": {
+            "rule": f"a face in under {FACE_SHARE:.0%} of frames, or calibration error "
+                    f"above {CALIB_DEG:.0f} degrees, or the flash timing test failed",
+            "detail": "the eye measures are deleted rather than reported through a "
+                      "channel that cannot support them.",
+            "threshold": FACE_SHARE,
+        },
+        "red_flag": {
+            "rule": "any yes on the seven item safety screen",
+            "detail": "the check-in stops before anything is measured and the patient is "
+                      "told to get medical help now. A clinician must confirm this "
+                      "question list before any use outside the team.",
+            "threshold": 1,
+        },
+        "missed_call": {
+            "rule": "no completed check-in for the week",
+            "detail": "no measurements, so the filter has nothing to assimilate and the "
+                      "band widens.",
+            "threshold": 0,
+        },
+    }
+    got = rules.get(kind, {"rule": kind, "detail": "", "threshold": 0})
+    state = {}
+    pid = str(row["patient_id"])
+    pat = db.patient(pid)
+    if pat is not None:
+        state = {"drift_z": round(float(pat["drift_z"] or 0.0), 3),
+                 "coverage": round(float(pat["coverage"] or 0.0), 3),
+                 "week": int(pat["week"] or 0)}
+    return {"ok": True, "id": aid, "type": kind, "trigger": row["trigger"],
+            "time": row["time"], **got, "state": state}
 
 
 def flags(pid: str) -> list[str]:

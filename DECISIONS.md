@@ -696,3 +696,184 @@ What the transports said once the code was right, verified against the real serv
 - **Twilio is ready.** Trial account, active, and `CLINIC_NUMBER` is already a verified
   caller ID, which a trial account requires. So the Twilio leg of the clinic call works
   as soon as `MOCK_TWILIO=0` and `LIVE_CLINIC_CALL=1`.
+
+---
+
+# v2: Synapshot, one clean demo
+
+The science did not change. The number of screens did. Every model, every fit and every
+gate from the phases above is still here and still running; what went is the surfaces
+that showed the same thing twice and the integrations that were never on the demo path.
+
+## The name
+
+`UNNAMED` became **Synapshot**, tagline "A snapshot of your brain, every week." The
+database moved from `data/unnamed.db` to `data/synapshot.db` and `make clean` removes the
+new name. An existing `data/unnamed.db` is not migrated: it is seed data, `make seed`
+rebuilds it in seconds, and a migration for disposable data is a liability.
+
+## Removed, and why
+
+Everything in this list is deleted, not hidden behind a flag. A flag on a path nobody
+runs is a path that rots.
+
+| Removed | Why |
+| --- | --- |
+| The FaceTime rig: `rig/`, `stimulus/`, `backend/rig_hub.py`, OBS, BlackHole, AppleScript, `CALL_MODE=facetime` | The web call on the patient's own phone replaced it in v1 and does the same measurements better. Keeping a second capture path meant two code paths for every feature and a demo that needed a second Mac. |
+| R1 live console, R2 preflight, D1 demo console | The live gaze strip now lives in the call modal where the call is. Preflight is `make check` and `make phone`, which run in a terminal where you can act on them. |
+| P1 consent mock, P2 phone mock, P4 gait and hearing | The consent screen and the phone screen are real now, inside `/call/:token`. Gait and hearing were exploratory, never validated, and showed numbers with no interval. |
+| `/ui` harness, `frontend/` | A test harness for the backend, shipped at a route a visitor could reach. `/docs` already does this job honestly. |
+| The clinic outbound phone call: `backend/comms/clinic_call.py`, `CLINIC_NUMBER`, `LIVE_CLINIC_CALL` | See below. This one was not a tidy-up. |
+| `LIVE_AGENT`, the question and answer agent, `backend/agent/dialog.py`, `backend/agent/script.py` | The script is fixed and the safety screen is decided by the backend, so a conversational agent sat beside the measurement path adding risk and no measurement. |
+| ElevenLabs speech to text | Patient audio for the recall, fluency and speech tasks is the one place a recording exists. `faster_whisper` runs locally and the audio never leaves the machine. Sending it to a hosted API for a convenience the local model already covers was the wrong trade. |
+| Fetch.ai, Gemini, Maps, `PLANNER`, `EXPLAIN`, `NOTIFY_ON_MATCH` | None of them were on the demo path. Keys for services the app does not call are a liability in a `.env`, not a feature. |
+
+### The outbound call is gone, and it is not coming back behind a safer flag
+
+In v1 the app rang a clinician when an alert fired. During testing it rang a real person
+over and over, because alert rules fire in batches when you seed or advance weeks, and
+because credentials in `.env` were treated as permission to dial.
+
+The v1 fix was a required `LIVE_CLINIC_CALL` switch and an allow-list check on calls. That
+was the wrong shape of fix. A rule that can fire several times in a row must not be able
+to ring a phone several times in a row, and no switch makes that safe.
+
+So the whole path is deleted: the module, the Twilio voice call, the ElevenLabs outbound
+agent, `CLINIC_NUMBER`, and the switch itself. An alert now lands in the clinician's
+workspace over the event stream, where it waits to be read. Two tests keep it gone:
+`test_nothing_in_the_app_can_place_a_phone_call` greps every module in `backend/` for
+dialler shapes and asserts the three deleted modules fail to import, and
+`test_an_alert_lands_in_the_workspace_instead_of_ringing` checks the alert reaches the
+stream and writes no call event.
+
+There is exactly one outbound path left: a text with a link in it.
+
+## Merged into the patient workspace
+
+C2 overview, C3 twin viewer, C4 scenario compare, C5 call log, C6 alerts, the cohort page
+and the model validation numbers are now one screen with three zones and four tabs. The
+brain never leaves it. Nothing in that list was deleted: the compare viewer is the
+Treatment tab's difference mode, the cohort numbers are the population percentile ribbon
+in Analysis, and the validation numbers are in the Evidence drawer.
+
+## The websocket became an event stream
+
+`/ws/rig` and `/ws/stimulus` are replaced by `GET /api/patients/{pid}/stream`, server-sent
+events, one stream per patient. SSE rather than a websocket because every message goes one
+way, EventSource reconnects on its own, and it survives a tunnel that a websocket does not.
+The hub keeps the last 40 events per patient so a browser that connects mid-call catches
+up instead of showing an empty strip.
+
+Events are per patient and a subscriber gets nothing about anybody else. That matters
+because a clinician may have one patient open on a screen somebody else can see.
+
+## The call is four minutes by default
+
+`/call/:token` serves the brief script: eleven screens, about four minutes. `?full=1`
+serves the whole fourteen minute protocol. The symptom-triggered short rule is separate
+and still applies to either.
+
+This is a real trade, not a free saving, and `backend/calls/script.py` says so where the
+list is defined. Ten antisaccade trials estimate the error rate with a standard error
+around 15 percentage points where twenty halve it, and the brief script does not run
+pursuit_v, saccade, npc, the two oral motor tasks, the picture description or fluency at
+all. Those features are then absent for the week rather than measured badly: the filter
+assimilates what arrived and the band widens where it did not. Nothing is invented to
+fill them in, and `payload()` returns a `skipped` list so the page can say which tasks
+did not run.
+
+## Reading a patient out of their documents
+
+`POST /api/patients/ingest` takes a multipart upload and streams five steps back on the
+same response, as server-sent events. One upload, one pipeline, one page waiting on it: a
+job id and a second connection would be three moving parts where one does.
+
+- **The schema has no way to express a value without its provenance.** Every field is a
+  value plus a confidence, the file it came from and the sentence it was read out of
+  (`backend/ingest/schema.py`). A field with no source is one somebody has to check by
+  hand anyway, and the screen should say so rather than look certain.
+- **0.6 is the review line.** Below it the value is kept, shown greyed as "needs review",
+  and not used by the twin. A twin built partly on a 0.3 confidence guess is worse than
+  one that says it is a template. The number is a judgement call, written down so it can
+  be argued with.
+- **A derived value says it was derived.** Days since injury is the gap between two dates
+  that are stated; no sentence says it. It carries `derived_from` instead of a quote,
+  because a quote that does not contain its own number is a provenance trail pointing
+  somewhere the value is not.
+- **Days since injury is measured from the bundle's own latest date, not from today.**
+  Otherwise the same records describe a patient who drifts further from their injury
+  every day the demo is run.
+- **Claude and the fallback never mix.** When the model succeeds nothing from the regex
+  pass is merged in. Half a record from each would make `source_file` mean two different
+  things on one screen with no way to tell which fields to trust.
+- **The build log's one second floor is pacing, not padding.** Steps two to five take
+  real time. A step that finishes in 30 ms would flash past unread, and the point of
+  showing steps is that somebody can see what was done with their documents. No step
+  claims to have done more than it did.
+
+### What the extractor actually scores
+
+On the flagship pack, against `expected.json`: **21 of 21 with a key**, **20 of 21
+without one**. The one it misses without a key is her sport, which is written on the
+scanned referral letter and in no typeset document. That gap is deliberate (see below).
+
+Bugs found and fixed while measuring it, each of which had put something plausible and
+wrong on the screen:
+
+- A dose read off a neighbouring drug. "ondansetron 4 mg and acetaminophen 500 mg" gave
+  amitriptyline the acetaminophen dose, because doses were matched per line and a
+  clinical note wraps. Doses are now scoped to the span between one drug name and the next.
+- Every drug on the reconciliation sheet marked "proposed". That page has almost no full
+  stops, so the whole thing was one "sentence" containing CURRENT, PROPOSED and STOPPED
+  at once. Headings are sentence boundaries now, and a drug's status comes from its own
+  sentence or the section it sits under.
+- "PLAN" read as a proposal. A plan heading in an ED note is what is being done now. The
+  word was removed from the proposal list; "consider", "not yet started" and "to start"
+  remain.
+- The CT finding taken from the triage note, which says "CT head per the Canadian CT Head
+  Rule". Every note in a head injury chart mentions CT; only one is the CT report. A
+  modality is now only read from a document whose title or examination field names it.
+- An impression truncated to "Study is". Impressions wrap, and one line of one is not a
+  finding. A conclusion now runs to the first real boundary: blank line, heading, page
+  footer, a labelled aside like "Note:", or three sentences.
+- "Sport and Exercise Medicine" read as an occupation of "and Exercise Medicine". Label
+  patterns need their colon.
+- A guard that did nothing. "the captured value must start with a lower case letter" was
+  written as a `[a-z]` class on a pattern compiled with `re.I`, where it matches upper
+  case too. The check is in code now, not in the pattern.
+- "nausea without vomiting" reported as vomiting. A negated symptom is worse than a short
+  list, so a mention preceded by no, not, without, denies or negative for is skipped, and
+  "pressure" preceded by "blood" is not a symptom.
+- A quote with no number in it. The label and the value land on separate lines of a PDF's
+  text layer, so quoting the line the match started on gave "GCS:" and nothing else.
+  Quotes span the whole match now, and a test asserts every numeric field's quote
+  contains its own number.
+
+## The flagship pack
+
+`make sample` writes ten documents and an answer key to
+`backend/data/sample/maya_ortiz`: eight PDFs typeset with reportlab and two PNGs that look
+like they came off a flatbed. Maya Ortiz is invented; the clinical picture is a composite
+of what the literature describes for a sport-related concussion with a small contusion.
+Every page carries "SYNTHETIC RECORD. NOT A REAL PERSON. NOT FOR CLINICAL USE."
+
+- **One source of truth.** `backend/synth/facts.py` renders both the documents and
+  `expected.json`, so the answer key and the pack cannot disagree.
+- **The dates are fixed, not relative to today.** Nine days is nine days, in every run,
+  forever. A bundle whose dates move needs its answer key regenerated to stay true.
+- **One field lives only on a scan, on purpose.** Her sport is on the scanned referral
+  letter and nowhere else. With a key, Claude reads the image and gets it. Without one it
+  comes back at confidence zero and the workspace shows it as needing review. A demo where
+  every field always resolves would never show that state, and that state is the honest
+  behaviour of this pipeline on a real bundle.
+
+## Contract changes
+
+`Injury`, `Alleles` and `Biomarkers` gained optional fields so the clinical detail the
+ingest reads survives the response model, which was silently dropping it. A new `Chart`
+object carries what the documents said but the model does not consume: occupation, the
+medication list, the symptoms the notes name. It is deliberately not inside `injury` or
+`biomarkers`, which are model inputs. The `chart` column was added by the existing
+migration list in `db.py`.
+
+`CallScript` lost `clinic_number` and gained `full`, `minutes` and `skipped`.

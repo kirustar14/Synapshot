@@ -17,9 +17,11 @@ function SignIn() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <div className="panel w-full max-w-sm p-8 text-center">
-        <p className="text-2xl font-black">unnamed.</p>
+        <p className="text-2xl font-black">
+          Synapshot<span className="text-primary">.</span>
+        </p>
         <p className="mt-1 text-[10px] font-semibold text-muted-foreground">
-          The brain twin lab
+          A snapshot of your brain, every week
         </p>
         <p className="mt-6 text-sm text-muted-foreground">
           Clinician sign in required.

@@ -154,19 +154,48 @@ def test_activity_is_healthy_at_zero_and_recovers(seeded):
     assert abs(act[:, -1].mean()) < abs(act[:, 0].mean()), "activity should recover over 12 weeks"
 
 
-def test_receptors_are_five_maps_of_a_hundred():
-    """Five receptor maps, one value per region, labelled if they are a stand-in."""
+def test_every_receptor_map_covers_every_region():
+    """One value per region per target, and a stand-in is labelled as one.
+
+    The set grew from five to twelve for the drug viewer: without the transporters there
+    is no honest way to place an SSRI, a tricyclic or a stimulant.
+    """
     got = intervention.receptors()
-    assert set(got["names"]) == {"GABA-A", "NMDA", "D2", "5-HT2A", "mu-opioid"}
+    assert set(got["names"]) == set(intervention.TARGETS)
+    assert {"GABA-A", "NMDA", "D2", "5-HT2A", "mu-opioid"} <= set(got["names"]), (
+        "the original five have to survive, the slider still offers them"
+    )
+    assert {"5-HTT", "NET", "DAT", "SV2A"} <= set(got["names"]), (
+        "the transporters are what make the formulary modellable"
+    )
     for name in got["names"]:
         arr = np.asarray(got["maps"][name])
         assert arr.shape == (REG,)
         assert np.isfinite(arr).all()
+        # The payload rounds to four decimals, so the mean of the rounded values is not
+        # exactly zero. The tolerance is the rounding, not the z score.
+        assert abs(float(arr.mean())) < 1e-3, f"{name} is not z scored"
+        assert abs(float(arr.std()) - 1.0) < 0.02, f"{name} is not unit variance"
     assert isinstance(got["synthetic_template"], bool)
+    # Which maps are real and which are stand-ins is reported, never implied.
+    assert set(got["stand_in"]) <= set(got["names"])
+    assert set(got["tracers"]) == set(got["names"]) - set(got["stand_in"])
+
+
+def test_a_stand_in_map_is_never_passed_off_as_real():
+    """A target with no real study is named in stand_in and absent from tracers."""
+    got = intervention.receptors()
+    for name in got["stand_in"]:
+        assert name not in got["tracers"], f"{name} is a stand-in but claims a tracer"
+    if not got["tracers"]:
+        assert got["synthetic_template"] is True
+    # Every real map says which study and which space it came from.
+    for line in got["sources"]:
+        assert ":" in line and ("surface" in line or "volume" in line), line
 
 
 def test_intervention_is_finite_for_every_target(seeded):
-    """All five targets return a finite per region effect and the disclaimer."""
+    """Every target returns a finite per region effect and the disclaimer."""
     pid = seeded[0]["id"]
     for target in intervention.receptors()["names"]:
         got = intervention.run(pid, target, 0.3)

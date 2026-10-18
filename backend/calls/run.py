@@ -1,11 +1,12 @@
-"""Finish a web call: assemble what the phone posted, measure it, update the twin.
+"""Finish a call: assemble what the phone posted, measure it, update the twin.
 
-This is the same tail the FaceTime rig ran, reached from a different front end. The
-features, the quality gates, the filter update, the alert rules and both summaries are
-the existing code, so a web call and a rig call end up as the same kind of check-in.
+The features, the quality gates, the filter update, the alert rules and both summaries
+are the same code the pipeline has always used. This runs in a background task, and each
+stage pushes one event onto the patient's stream, so the clinician's call modal shows the
+real stages going by instead of a spinner that means nothing.
 """
 
-from .. import db
+from .. import db, live
 from ..agent import summary
 from ..features import pipeline, sem as semmod, webframes
 from . import audio as audiomod
@@ -29,11 +30,13 @@ def finish(token: str, aborted: bool = False) -> dict:
         return {"ok": True, "aborted": True, "call_id": None}
 
     sessions.set_state(token, "processing")
+    live.publish(pid, "stage", {"name": "assemble", "say": "reading what the phone sent"})
     try:
         got = measure(token, pid, week)
     except Exception as exc:
         sessions.set_state(token, "failed", error=str(exc)[:400], finished=db.now())
         db.event(pid, "call_failed", {"week": week, "error": str(exc)[:400]})
+        live.publish(pid, "call_failed", {"week": week, "error": str(exc)[:200]})
         from .. import alerts as alertmod
 
         alertmod.missed(pid, week)
@@ -123,10 +126,12 @@ def measure(token: str, pid: str, week: int) -> dict:
     hist = db.observations(pid)
     prev = next((h["values"] for h in reversed(hist) if int(h["week"]) < week), None)
     base = next((h["values"] for h in hist if int(h["week"]) == 0), None)
+    live.publish(pid, "stage", {"name": "measure", "say": "working out the measurements"})
     res = pipeline.run(sess, prev=prev, age=int(row["age"] or 30), sex=str(row["sex"]),
                        baseline=base)
 
     cid = store(pid, week, token, sess, res)
+    live.publish(pid, "stage", {"name": "assimilate", "say": "updating the twin"})
     out = demo.assimilate(pid, week, pipeline.observables(res["values"]), res["channel"])
 
     name = str(row["name"])
@@ -134,10 +139,16 @@ def measure(token: str, pid: str, week: int) -> dict:
     from ..comms import notify
 
     notify.send(pid, "post_call", body=note)
-    if out["alerts"]:
-        from ..comms import clinic_call
 
-        clinic_call.call(pid, summary.clinician_text(name, week, res))
+    # One event that says the whole thing landed. The workspace refetches the twin, the
+    # forecast and the alerts off this, which is what animates the brain and pops the
+    # flags without anybody reloading the page.
+    live.publish(pid, "call_done", {
+        "call_id": cid, "week": week,
+        "alerts": [a["type"] for a in out["alerts"]],
+        "drift_z": round(float(out["diag"]["drift_z"]), 3),
+        "quality_ok": bool(res["quality"]["ok"]),
+    })
 
     return {"call_id": cid, "alerts": [a["type"] for a in out["alerts"]],
             "patient_note": note, "channel": res["channel"], "drift_z": out["diag"]["drift_z"]}

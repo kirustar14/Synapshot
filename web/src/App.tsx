@@ -1,5 +1,16 @@
-// Router, query client, theme sync and the toaster. The clinic routes sit inside the sidebar
-// shell. The patient facing routes sit outside it.
+// Router, query client, theme sync and the toaster.
+//
+// Five routes, which is the whole app:
+//
+//   /                 the landing page
+//   /clinic           one table of everybody
+//   /patients/new     build a patient from their documents
+//   /patients/:id     the workspace, where everything about one patient lives
+//   /call/:token      what the patient opens on their own phone
+//
+// The clinic routes sit inside the shell. The landing page and the call page do not:
+// the landing page is its own full-bleed thing, and the call page has to open from a
+// texted link with no account and no clinician chrome anywhere near it.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -7,24 +18,14 @@ import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import { AuthGate } from "@/components/AuthGate";
 import { ClinicLayout } from "@/components/ClinicLayout";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useApp } from "@/store/app";
-import Alerts from "@/pages/Alerts";
-import Cohort from "@/pages/Cohort";
-import Consent from "@/pages/Consent";
-import Demo from "@/pages/Demo";
+import Clinic from "@/pages/Clinic";
+import Home from "@/pages/Home";
 import NotFound from "@/pages/NotFound";
 import PatientCall from "@/pages/PatientCall";
-import PatientCalls from "@/pages/PatientCalls";
-import PatientCompare from "@/pages/PatientCompare";
-import PatientLayout from "@/pages/PatientLayout";
-import PatientOverview from "@/pages/PatientOverview";
-import PatientTwin from "@/pages/PatientTwin";
-import PatientUpload from "@/pages/PatientUpload";
-import Patients from "@/pages/Patients";
-import Phone from "@/pages/Phone";
-import Rig from "@/pages/Rig";
-import RigPreflight from "@/pages/RigPreflight";
-import Stretch from "@/pages/Stretch";
+import PatientNew from "@/pages/PatientNew";
+import Workspace from "@/pages/Workspace";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,37 +34,21 @@ export const queryClient = new QueryClient({
 });
 
 export const routes = [
+  { path: "/", element: <Home /> },
   {
-    // Only the clinician routes sit behind the optional login. The patient pages must
-    // open from a texted link with no account, so they stay outside it.
+    // Only the clinician routes sit behind the optional login. The patient page must
+    // open from a texted link with no account, so it stays outside it.
     element: (
       <AuthGate>
         <ClinicLayout />
       </AuthGate>
     ),
     children: [
-      { path: "/", element: <Patients /> },
-      {
-        path: "/patients/:id",
-        element: <PatientLayout />,
-        children: [
-          { index: true, element: <PatientOverview /> },
-          { path: "upload", element: <PatientUpload /> },
-          { path: "twin", element: <PatientTwin /> },
-          { path: "compare", element: <PatientCompare /> },
-          { path: "calls", element: <PatientCalls /> },
-        ],
-      },
-      { path: "/alerts", element: <Alerts /> },
-      { path: "/cohort", element: <Cohort /> },
-      { path: "/rig", element: <Rig /> },
-      { path: "/rig/preflight", element: <RigPreflight /> },
-      { path: "/demo", element: <Demo /> },
+      { path: "/clinic", element: <Clinic /> },
+      { path: "/patients/new", element: <PatientNew /> },
+      { path: "/patients/:id", element: <Workspace /> },
     ],
   },
-  { path: "/consent/:token", element: <Consent /> },
-  { path: "/phone/:id", element: <Phone /> },
-  { path: "/stretch/:token", element: <Stretch /> },
   { path: "/call/:token", element: <PatientCall /> },
   { path: "*", element: <NotFound /> },
 ];
@@ -83,7 +68,9 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeSync />
-      <RouterProvider router={router} />
+      <TooltipProvider delayDuration={200}>
+        <RouterProvider router={router} />
+      </TooltipProvider>
       <Toaster position="bottom-right" />
     </QueryClientProvider>
   );

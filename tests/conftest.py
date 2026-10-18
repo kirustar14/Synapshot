@@ -26,7 +26,7 @@ os.environ["REACH"] = "1"
 # A separate database so a test run never touches the demo one. The cache directory is
 # shared on purpose: the template bundle and the surrogate table are expensive and the
 # same for everybody.
-os.environ["DB_PATH"] = "data/test_unnamed.db"
+os.environ["DB_PATH"] = "data/test_synapshot.db"
 
 import pytest  # noqa: E402
 

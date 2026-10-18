@@ -1,6 +1,6 @@
 PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: dev seed test rig preflight check install clean mesh voices web models tunnel imessage all
+.PHONY: dev seed sample test check phone install clean mesh voices web models tunnel imessage all
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -14,17 +14,16 @@ seed:
 test:
 	$(PY) -m pytest -q tests
 
-rig:
-	$(PY) rig/run_call.py
-
-preflight:
-	$(PY) rig/preflight.py
+# The flagship patient: ten real documents on disk plus the field-by-field answer key
+# the ingest is scored against. Seeded, so the same files come out every time.
+sample:
+	$(PY) -m backend.synth.make_sample
 
 check:
 	$(PY) -m backend.checklist
 
-# Just the phone chain: can a text reach you, can your phone open the call page,
-# and will the clinic call ring. Every unfinished line says what to do about it.
+# Just the phone chain: can a text reach you and can your phone open the call page.
+# Every unfinished line says what to do about it.
 phone:
 	$(PY) -m backend.phoneready
 
@@ -58,7 +57,7 @@ web:
 	@cp -f exports/mesh.json web/public/mesh.json 2>/dev/null && echo "  copied exports/mesh.json into web/public/" || true
 
 # Everything a fresh checkout needs, in the order it needs it.
-all: mesh seed voices models web
+all: mesh sample seed voices models web
 	@echo ""
 	@echo "  Ready. Run make dev, then make tunnel for a phone."
 	@echo ""
@@ -68,11 +67,6 @@ all: mesh seed voices models web
 imessage:
 	cd backend/comms/node && npm install
 	@$(PY) -c "from backend.comms import photon; import json; print(json.dumps(photon.docs(), indent=2))"
-
-# Creates the ElevenLabs conversational agent that reads the clinician update, and
-# prints the id to put in .env. Idempotent by name. It needs credits before it speaks.
-agent:
-	$(PY) -m backend.comms.make_agent
 
 tunnel:
 	@echo ""
@@ -108,5 +102,5 @@ tunnel:
 	@echo ""
 
 clean:
-	rm -rf data/unnamed.db data/cache data/cohort.json data/synthetic data/calls
+	rm -rf data/synapshot.db data/cache data/cohort.json data/synthetic data/calls
 	rm -rf data/mesh.json exports/mesh.json

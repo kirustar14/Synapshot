@@ -11,7 +11,6 @@ recovers it and that the saccade latency comes back right once it is removed.
 
 import numpy as np
 
-from ..agent import script as agentscript
 from ..calls import script as webscript
 from . import gaze as gz, memory, synth
 
@@ -227,7 +226,7 @@ def session(values: dict, seed: int = 0, poor: bool = False, cam_delay_s: float 
 
     said = memory.WORDS[: max(0, min(15, recall))]
     answers = {
-        "symptoms": dict(zip(agentscript.SYMPTOMS, synth.split_symptoms(total, rng))),
+        "symptoms": dict(zip(webscript.SYMPTOMS, synth.split_symptoms(total, rng))),
         "recall_immediate": said + ([memory.WORDS[-1]] if recall < 15 and rng.random() < 0.3 else []),
         "recall_delayed": said,
         "fluency": synth.fluency_said(rng, int(round(float(values.get("fluency_animals", 18))))),

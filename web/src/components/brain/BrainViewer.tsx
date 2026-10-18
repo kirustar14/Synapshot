@@ -43,6 +43,10 @@ export interface BrainViewerProps {
   /** Replaces the computed layer values outright, which the difference toggle uses. */
   valuesOverride?: LayerValues | null;
   caption?: string;
+  /** Slow automatic rotation. Used by the landing page.  */
+  spin?: boolean;
+  /** Drops every overlay except one honesty label, so the brain can be the whole frame. */
+  bare?: boolean;
 }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -93,7 +97,7 @@ const HEMIS: { id: HemiMode; label: string }[] = [
 ];
 
 export default function BrainViewer(props: BrainViewerProps) {
-  const { patientId, compact = false, height, syncId, caption } = props;
+  const { patientId, compact = false, height, syncId, caption, spin = false, bare = false } = props;
   const mesh = useMesh();
   const shape = useShape(patientId);
   const twin = useTwin(patientId);
@@ -211,6 +215,7 @@ export default function BrainViewer(props: BrainViewerProps) {
           ranked={ranked}
           compact={compact}
           syncId={syncId ?? null}
+          spin={spin}
         />
       </Canvas>
 
@@ -220,6 +225,7 @@ export default function BrainViewer(props: BrainViewerProps) {
         aria-hidden
       />
 
+      {!bare && (
       <div className="pointer-events-none absolute left-3 top-3 flex max-w-[55%] flex-wrap items-center gap-1.5 text-[10px] font-bold">
         <span
           className={cn(
@@ -237,7 +243,9 @@ export default function BrainViewer(props: BrainViewerProps) {
         </span>
         {caption && <span className="rounded-full border border-white/20 bg-black/60 px-2 py-0.5 text-white">{caption}</span>}
       </div>
+      )}
 
+      {!bare && (
       <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5">
         {(!compact || syncId) && (
           <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1" role="group" aria-label="Preset views">
@@ -306,7 +314,9 @@ export default function BrainViewer(props: BrainViewerProps) {
           </>
         )}
       </div>
+      )}
 
+      {!bare && (
       <div className="pointer-events-none absolute bottom-3 left-3 max-w-[60%] text-[11px] text-cyan-50">
         {readout !== null && readout !== undefined ? (
           <div className="rounded-lg border border-cyan-300/30 bg-black/70 px-2.5 py-1.5">
@@ -324,9 +334,14 @@ export default function BrainViewer(props: BrainViewerProps) {
           <p className="rounded-lg bg-black/50 px-2 py-1 text-cyan-200/80">Drag to rotate. Click a region to pin it.</p>
         )}
       </div>
+      )}
 
+      {/* The one label that survives `bare`. A rendered surface can look like a scan, so
+          it has to say what it is wherever it appears. On the landing page there is no
+          patient behind it at all, and it says that instead. */}
       <p className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 text-[10px] text-cyan-200/80">
-        <Info className="h-3 w-3" aria-hidden /> Model output, not a scan
+        <Info className="h-3 w-3" aria-hidden />
+        {patientId ? "Model output, not a scan" : "Template surface. Not patient data."}
       </p>
 
       {shape.error && (

@@ -64,12 +64,20 @@ def transcript_of(name: str, week: int, values: dict) -> list[dict]:
     ]
 
 
-def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = False) -> str:
-    """Store a check-in record from what the pipeline measured."""
+def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = False,
+                when: str | None = None) -> str:
+    """Store a check-in record from what the pipeline measured.
+
+    `when` dates it, and the seeder passes one so a built history lands on the calendar
+    where it is supposed to have happened. It cannot be worked out from the patient row
+    here: during seeding the row's week is still the previous one, so every check-in would
+    date itself to today and the timeline would be a single dot.
+    """
     row = db.patient(pid)
     cid = db.new_id("chk")
+    stamp = when or db.now()
     db.put("checkins", {
-        "id": cid, "patient_id": pid, "week": int(week), "date": db.now(),
+        "id": cid, "patient_id": pid, "week": int(week), "date": stamp,
         "duration_s": float(sess.get("seconds", 840.0)), "steps": db.enc(got["steps"]),
         "channel": db.enc(got["channel"]), "features": db.enc(got["features"]),
         "gaze": db.enc(got["gaze"]), "traces": db.enc(got["traces"]),
@@ -78,7 +86,7 @@ def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = Fal
     })
     for key, val in pipeline.observables(got["values"]).items():
         db.add_observation(pid, week, key, float(val), semmod.sem(key))
-    db.patch("patients", pid, {"last_call": db.now(), "week": int(week)})
+    db.patch("patients", pid, {"last_call": stamp, "week": int(week)})
     return cid
 
 
@@ -105,12 +113,15 @@ def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
     return {"diag": out, "post": post, "alerts": fired}
 
 
-def run_week(pid: str, week: int, poor: bool = False) -> dict:
+def run_week(pid: str, week: int, poor: bool = False, upto: int | None = None) -> dict:
     """One mock call at a given week, measured through the real feature pipeline.
 
     The session is built to carry this week's true values, then the pipeline has to
     measure them back out of frames, a stimulus log and spoken answers. What the filter
     assimilates is what the pipeline measured, not the truth it was built from.
+
+    `upto` is the last week being built, which is what makes a seeded history land on
+    real dates: week w of a patient who ends on week `upto` happened `upto - w` weeks ago.
     """
     row = db.patient(pid)
     truth = truth_of(pid)
@@ -120,7 +131,8 @@ def run_week(pid: str, week: int, poor: bool = False) -> dict:
     prev = next((h["values"] for h in reversed(hist) if int(h["week"]) < week), None)
     base = next((h["values"] for h in hist if int(h["week"]) == 0), None)
     got = pipeline.run(sess, prev=prev, age=int(row["age"] or 30), sex=str(row["sex"]), baseline=base)
-    add_checkin(pid, week, got, sess)
+    when = db.weeks_ago(max(0, int(upto) - int(week))) if upto is not None else None
+    add_checkin(pid, week, got, sess, when=when)
     return assimilate(pid, week, pipeline.observables(got["values"]), got["channel"])
 
 
@@ -176,13 +188,6 @@ def profile_of(pid: str) -> str:
     return ""
 
 
-def trigger_call(pid: str) -> dict:
-    """Run a call now. The real rig when it is available, otherwise the mock session."""
-    from .rig_hub import run_call
-
-    return run_call(pid)
-
-
 def reset(quiet: bool = False) -> dict:
     """Wipe everything and rebuild the six demo patients at their profile weeks."""
     db.wipe()
@@ -207,7 +212,7 @@ def reset(quiet: bool = False) -> dict:
 
         poor = prof["key"] == "low_quality"
         for wk in range(0, prof["week"] + 1):
-            run_week(pid, wk, poor)
+            run_week(pid, wk, poor, upto=prof["week"])
 
         if prof["key"] == "red_flag":
             alerts.red_flag(pid, {"worsening_headache": True, "repeated_vomiting": False,

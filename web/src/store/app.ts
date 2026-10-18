@@ -4,8 +4,10 @@
 import { create } from "zustand";
 import type { Scenario } from "@/api/types";
 
-const DARK_KEY = "unnamed-dark";
-const DEMO_KEY = "unnamed-demo";
+const DARK_KEY = "synapshot-dark";
+// Demo mode: run the check-in here on this laptop's webcam instead of texting a link to
+// a phone. Persisted, because it is a property of the machine you are demoing on.
+const DEMO_KEY = "synapshot-demo-mode";
 
 export interface ScenarioSlot {
   id: string;
@@ -34,8 +36,8 @@ interface AppState {
   dark: boolean;
   setDark: (v: boolean) => void;
 
-  demoUnlocked: boolean;
-  setDemoUnlocked: (v: boolean) => void;
+  demoMode: boolean;
+  setDemoMode: (v: boolean) => void;
 
   scenarios: ScenarioSlot[];
   setScenarios: (s: ScenarioSlot[]) => void;
@@ -79,10 +81,10 @@ export const useApp = create<AppState>((set) => ({
     set({ dark: v });
   },
 
-  demoUnlocked: readFlag(DEMO_KEY),
-  setDemoUnlocked: (v) => {
+  demoMode: readFlag(DEMO_KEY),
+  setDemoMode: (v) => {
     writeFlag(DEMO_KEY, v);
-    set({ demoUnlocked: v });
+    set({ demoMode: v });
   },
 
   scenarios: [

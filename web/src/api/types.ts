@@ -1,4 +1,4 @@
-// The complete UNNAMED API contract. This file is the source of truth shared by the
+// The complete Synapshot API contract. This file is the source of truth shared by the
 // backend and web/. Field names are frozen: never rename one on either side alone.
 // Assembled from spec file 4 (base), spec file 1 (mesh, shape, receptors, intervention)
 // and spec file 2 (the web call), plus the master prompt header section 3a.

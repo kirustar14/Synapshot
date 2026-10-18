@@ -32,6 +32,8 @@ export interface SceneProps {
   compact: boolean;
   /** Set on the compare screen so two canvases share one camera. */
   syncId: string | null;
+  /** Slow automatic rotation, for the landing page hologram. */
+  spin?: boolean;
 }
 
 /** Rotates RAS millimetres so the superior direction is up in the scene. */
@@ -45,7 +47,7 @@ function presetPosition(name: ViewPreset, d: number): [number, number, number] {
 }
 
 export function Scene(props: SceneProps) {
-  const { cortex, mesh, twin, shape, points, tracts, values, ghost, layerIdx, week, ranked, compact, syncId } = props;
+  const { cortex, mesh, twin, shape, points, tracts, values, ghost, layerIdx, week, ranked, compact, syncId, spin } = props;
   const v = useViewer();
   const { camera, invalidate } = useThree();
   const controls = useRef<OrbitControlsImpl>(null);
@@ -341,6 +343,8 @@ export function Scene(props: SceneProps) {
         minDistance={cortex.radius * 1.1}
         maxDistance={cortex.radius * 7}
         makeDefault
+        autoRotate={!!spin}
+        autoRotateSpeed={0.42}
         onStart={() => syncId && v.claimCamera(syncId)}
       />
 

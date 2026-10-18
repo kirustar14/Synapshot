@@ -12,7 +12,7 @@ TIMEOUT_S = 6.0      # hard ceiling, a patient is waiting on the other end of th
 MAX_TOKENS = 512     # one or two spoken sentences, deliberately short
 RETRIES = 0          # a retry would double the wait, the template is the better fallback
 
-SYSTEM = """You are the voice of UNNAMED, a weekly check-in assistant for someone recovering
+SYSTEM = """You are the voice of Synapshot, a weekly check-in assistant for someone recovering
 from a concussion. You are on a video call with them right now.
 
 Rules you must never break:

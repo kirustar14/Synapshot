@@ -1,8 +1,8 @@
 """Is the phone demo ready? Run with `make phone`.
 
 `make check` covers the whole system. This covers one question: can a text reach your
-phone, can your phone open the call page, and will the clinic call ring. Every line that
-is not ready says exactly what to do about it, in the order you should do it.
+phone and can your phone open the call page. Every line that is not ready says exactly
+what to do about it, in the order you should do it.
 """
 
 import base64
@@ -113,16 +113,24 @@ def run() -> list[dict]:
                            f"https URL it prints into PUBLIC_URL in .env and restart make dev. "
                            f"({why})"))
 
-    # 5. Whether a call will actually ring.
-    from .comms import clinic_call
+    # 5. iMessage, which is the channel the link is meant to arrive on. SMS in step 3 is
+    # the fallback for when this cannot deliver, and the message always says which one it
+    # actually went out on.
+    from .comms import notify as texter
 
-    if clinic_call.available():
-        out.append(row(OK, "5. The clinic call will ring",
-                       f"to {mask(cfg.clinic_number)}. Set LIVE_CLINIC_CALL=0 when you are done."))
+    got = texter.status()
+    if got.get("imessage"):
+        sdk = got.get("sidecar") or {}
+        out.append(row(OK, "5. iMessage is configured",
+                       f"over {'Spectrum Cloud' if sdk.get('spectrum_cloud') else 'the sidecar'}. "
+                       "The link arrives as a "
+                       "blue bubble when the transport accepts it, and the stored message "
+                       "says which channel it really went out on."))
     else:
-        out.append(row(NO, "5. Let the clinic call ring",
-                       f"set LIVE_CLINIC_CALL=1 and CLINIC_NUMBER to your number. "
-                       f"({clinic_call.why_mock()})"))
+        out.append(row(MEH, "5. iMessage is not configured, so the link goes by SMS",
+                       "set PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET for iMessage. SMS is a "
+                       "real text and the demo works on it; a message is never labelled "
+                       "iMessage unless a real iMessage transport reported success."))
 
     # 6. What the phone has to download to measure anything.
     model = ROOT / "web" / "public" / "models" / "face_landmarker.task"
@@ -171,7 +179,7 @@ def main() -> int:
     if todo:
         print(f"  {len(todo)} thing(s) left. Do them in the order above.")
     else:
-        print("  All set. On /demo pick a patient and press Send text.")
+        print("  All set. Open a patient and press Call patient.")
     print("")
     return 0
 

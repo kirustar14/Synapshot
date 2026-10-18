@@ -55,18 +55,11 @@ def model():
 def transcribe(wave: np.ndarray | None, sr: int = 16000) -> dict:
     """Words with timestamps from the audio, or an empty list without a backend.
 
-    Local faster-whisper is the default. ASR=elevenlabs sends the audio to the ElevenLabs
-    speech to text API instead, with the same signature and the same return shape, so the
-    recall, fluency and speech tasks run on either. The local path is preferred because it
-    keeps the audio on this machine.
+    Local faster-whisper only. There used to be a switch that sent the recording to a
+    hosted speech to text API instead; it is gone, because the recall, fluency and speech
+    tasks are the one place patient audio exists and it should not leave the machine for a
+    convenience that the local model already covers.
     """
-    from ..config import cfg
-
-    if cfg.asr == "elevenlabs":
-        got = transcribe_eleven(wave, sr)
-        if got["words"] or got["text"]:
-            return got
-
     mod = model()
     if mod is None or wave is None or len(np.asarray(wave)) < sr // 2:
         return {"words": [], "text": "", "how": "none"}
@@ -80,69 +73,6 @@ def transcribe(wave: np.ndarray | None, sr: int = 16000) -> dict:
         return {"words": words, "text": " ".join(text).strip(), "how": "faster_whisper"}
     except Exception:
         return {"words": [], "text": "", "how": "failed"}
-
-
-def wav_bytes(wave: np.ndarray, sr: int = 16000) -> bytes:
-    """A 16 bit mono wav file in memory, for an API that wants a file upload."""
-    import io
-    import wave as wavemod
-
-    buf = io.BytesIO()
-    with wavemod.open(buf, "wb") as fh:
-        fh.setnchannels(1)
-        fh.setsampwidth(2)
-        fh.setframerate(int(sr))
-        fh.writeframes((np.clip(np.asarray(wave, dtype=float), -1, 1) * 32767).astype("<i2").tobytes())
-    return buf.getvalue()
-
-
-def transcribe_eleven(wave: np.ndarray | None, sr: int = 16000) -> dict:
-    """Words with timestamps from the ElevenLabs speech to text API.
-
-    The model name comes from ELEVENLABS_STT_MODEL and defaults to scribe_v1. Any failure
-    returns empty so the caller falls back to the local model.
-    """
-    import json
-    import urllib.error
-    import urllib.request
-    import uuid
-
-    from ..config import cfg
-
-    if wave is None or len(np.asarray(wave)) < sr // 2 or not cfg.eleven_key:
-        return {"words": [], "text": "", "how": "none"}
-
-    bound = f"----unnamed{uuid.uuid4().hex}"
-    parts = [
-        f"--{bound}\r\nContent-Disposition: form-data; name=\"model_id\"\r\n\r\n"
-        f"{cfg.eleven_stt_model}\r\n".encode(),
-        f"--{bound}\r\nContent-Disposition: form-data; name=\"file\"; "
-        "filename=\"task.wav\"\r\nContent-Type: audio/wav\r\n\r\n".encode(),
-        wav_bytes(wave, sr),
-        f"\r\n--{bound}--\r\n".encode(),
-    ]
-    req = urllib.request.Request(
-        "https://api.elevenlabs.io/v1/speech-to-text",
-        data=b"".join(parts),
-        headers={"xi-api-key": cfg.eleven_key,
-                 "Content-Type": f"multipart/form-data; boundary={bound}"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            got = json.loads(resp.read())
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return {"words": [], "text": "", "how": "failed"}
-
-    words = []
-    for row in got.get("words") or []:
-        if str(row.get("type") or "word") != "word":
-            continue
-        text = str(row.get("text") or "").strip()
-        if not text:
-            continue
-        words.append({"w": text, "t0": float(row.get("start") or 0.0),
-                      "t1": float(row.get("end") or 0.0)})
-    return {"words": words, "text": str(got.get("text") or "").strip(), "how": "elevenlabs"}
 
 
 def voiced(wave: np.ndarray, sr: int = 16000, frame_s: float = 0.03, thresh: float = 0.02) -> list[dict]:

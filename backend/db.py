@@ -69,6 +69,11 @@ ADDED = [
     ("messages", "channel", "text default 'mock'"),
     ("messages", "kind", "text"),
     ("patients", "phone", "text"),
+    # Facts read off the documents that the model does not consume: occupation, the
+    # medication list, the symptoms the notes name. They belong on the patient because
+    # the left rail and the Treatment tab show them, and they are deliberately not in
+    # `injury` or `biomarkers`, which are model inputs.
+    ("patients", "chart", "text"),
 ]
 
 
@@ -97,6 +102,21 @@ def conn() -> sqlite3.Connection:
 def now() -> str:
     """Current time as an ISO second string."""
     return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def weeks_ago(weeks: float, hour: int = 10) -> str:
+    """A timestamp that many weeks back, at a plausible hour of the day.
+
+    Seeded history has to be spread out. A patient on week seven whose seven check-ins all
+    carry today's date has no timeline, no "last call" that means anything, and a month
+    calendar with one dot on it. Live calls still use `now`; this is only for building a
+    past that is supposed to have happened.
+    """
+    import datetime as _dt
+
+    when = _dt.datetime.now() - _dt.timedelta(weeks=float(weeks))
+    return when.replace(hour=hour, minute=12, second=0, microsecond=0).isoformat(
+        timespec="seconds")
 
 
 def new_id(prefix: str) -> str:

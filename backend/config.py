@@ -119,7 +119,9 @@ def phones(name: str = "DEMO_PHONES") -> list[str]:
 class Cfg:
     """Resolved configuration for the whole backend."""
 
-    mock_rig: bool = field(default_factory=lambda: flag("MOCK_RIG", ["RIG_FACETIME_NUMBER"]))
+    # Demo mode. With MOCK_RIG=1 a call can be driven from generated frames instead of a
+    # phone, which is how the whole flow runs on a laptop. On by default.
+    mock_rig: bool = field(default_factory=lambda: on("MOCK_RIG", "1"))
     mock_llm: bool = field(default_factory=lambda: flag("MOCK_LLM", ["ANTHROPIC_API_KEY"]))
     # Photon credentials are PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET now. The old
     # PHOTON_API_KEY still counts so an existing .env keeps working.
@@ -131,7 +133,7 @@ class Cfg:
     mock_twilio: bool = field(
         default_factory=lambda: flag(
             "MOCK_TWILIO",
-            ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "CLINIC_NUMBER"],
+            ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM"],
         )
     )
     reach: bool = field(default_factory=lambda: os.environ.get("REACH", "1") not in ("0", ""))
@@ -154,36 +156,19 @@ class Cfg:
     twilio_token: str = field(default_factory=lambda: os.environ.get("TWILIO_AUTH_TOKEN", ""))
     # Spec file 2 names it TWILIO_PHONE_NUMBER. TWILIO_FROM was the old name and still works.
     twilio_from: str = field(default_factory=lambda: first("TWILIO_PHONE_NUMBER", "TWILIO_FROM"))
-    clinic_number: str = field(default_factory=lambda: os.environ.get("CLINIC_NUMBER", ""))
 
-    # ElevenLabs. Voice lines, the optional speech to text backend and the clinic call.
+    # ElevenLabs, for the pre-generated voice lines only. Nothing here places a call:
+    # the outbound clinic call is gone, so an alert lands in the workspace instead.
     eleven_key: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", ""))
     eleven_voice: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_VOICE_ID", ""))
-    eleven_agent: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_AGENT_ID", ""))
-    eleven_phone: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_PHONE_NUMBER_ID", ""))
     eleven_tts_model: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_TTS_MODEL") or "eleven_multilingual_v2"
     )
-    eleven_stt_model: str = field(
-        default_factory=lambda: os.environ.get("ELEVENLABS_STT_MODEL") or "scribe_v1"
-    )
 
-    # The web call. CALL_MODE=facetime keeps the old rig path alive.
-    call_mode: str = field(default_factory=lambda: (os.environ.get("CALL_MODE") or "web").lower())
     public_url: str = field(default_factory=lambda: (os.environ.get("PUBLIC_URL") or "").rstrip("/"))
     demo_phones: list[str] = field(default_factory=phones)
     keep_audio: bool = field(default_factory=lambda: on("KEEP_AUDIO"))
-    # Placing a real phone call needs saying so out loud. Credentials sitting in .env
-    # are not permission to ring somebody, and an alert rule can fire a lot of them.
-    live_clinic_call: bool = field(default_factory=lambda: on("LIVE_CLINIC_CALL"))
-    asr: str = field(default_factory=lambda: (os.environ.get("ASR") or "whisper").lower())
-    live_agent: bool = field(default_factory=lambda: on("LIVE_AGENT"))
     regional_loadings: bool = field(default_factory=lambda: on("REGIONAL_LOADINGS"))
-
-    facetime_number: str = field(default_factory=lambda: os.environ.get("RIG_FACETIME_NUMBER", ""))
-    mic_device: str = field(default_factory=lambda: os.environ.get("MIC_DEVICE", "BlackHole 2ch"))
-    spk_device: str = field(default_factory=lambda: os.environ.get("SPK_DEVICE", "BlackHole 16ch"))
-    capture_fps: float = field(default_factory=lambda: num("CAPTURE_FPS", 30))
 
     # Phone screen geometry. Used to convert normalized gaze to degrees of visual angle.
     screen_w_mm: float = field(default_factory=lambda: num("SCREEN_W_MM", 71.5))
@@ -193,7 +178,7 @@ class Cfg:
     api_base: str = field(default_factory=lambda: os.environ.get("API_BASE", "http://localhost:8000"))
     data_dir: Path = field(default_factory=lambda: ROOT / (os.environ.get("DATA_DIR") or "data"))
     db_path: Path = field(
-        default_factory=lambda: ROOT / (os.environ.get("DB_PATH") or "data/unnamed.db")
+        default_factory=lambda: ROOT / (os.environ.get("DB_PATH") or "data/synapshot.db")
     )
 
     def mode(self) -> str:
@@ -201,10 +186,6 @@ class Cfg:
         mocked = (self.mock_rig or self.mock_llm or self.mock_photon or self.mock_twilio
                   or self.mock_eleven)
         return "mock" if mocked else "live"
-
-    def web_call(self) -> bool:
-        """True when the patient opens a web page instead of answering a FaceTime call."""
-        return self.call_mode != "facetime"
 
     def base_url(self) -> str:
         """The URL a texted link must use. PUBLIC_URL in live mode, else the local base.

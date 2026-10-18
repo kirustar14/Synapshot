@@ -1,20 +1,17 @@
 """The FastAPI app. Every route in the contract, with the contract's exact field names."""
 
-import asyncio
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
-from . import db, demo, logs, models, rig_hub
+from . import db, demo, live, logs, models
 from .agent import safety, summary
-from .agent import summary as agent_summary
 from .calls import audio as callaudio
 from .calls import run as callrun
 from .calls import script as callscript
@@ -24,19 +21,20 @@ from .config import ROOT, cfg
 from .data import upload
 from .features import sem as semmod
 from .features import webframes
+from .ingest import run as ingestrun
+from .ingest import schema as ingest_schema
 from .twin import attribution, build, counterfactual, forecast as fcast, population
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Open the database, mask tokens in the logs, hand the loop to the rig bridge."""
+    """Open the database and mask call tokens in the access log."""
     db.conn()
     logs.install()
-    rig_hub.set_loop(asyncio.get_running_loop())
     yield
 
 
-app = FastAPI(title="UNNAMED", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Synapshot", version="0.2.0", lifespan=lifespan)
 
 # The mesh is about 1.5 MB of JSON and the twin payload is not small either, so every
 # response over a kilobyte is compressed. Measured: the mesh goes to 499 KB and the twin
@@ -54,16 +52,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-STIM_DIR = ROOT / "stimulus"
-if STIM_DIR.exists():
-    app.mount("/stimulus", StaticFiles(directory=str(STIM_DIR), html=True), name="stimulus")
-
-# A dummy test harness, not the product. The clinician frontend is built separately
-# against the contract; this exists so the backend can be seen without curl.
-UI_DIR = ROOT / "frontend"
-if UI_DIR.exists():
-    app.mount("/ui", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
 
 
 def reach_only(name: str) -> None:
@@ -145,6 +133,7 @@ def patient_obj(pid: str) -> dict:
         "sex": row["sex"],
         "week": int(row["week"] or 0),
         "injury": db.dec(row["injury"], {}) or {},
+        "chart": db.dec(row["chart"], {}) or {},
         "inputs": bundle.get("inputs", []),
         "alleles": db.dec(row["alleles"], {}) or {},
         "biomarkers": db.dec(row["biomarkers"], {}) or {},
@@ -193,10 +182,89 @@ def create_patient(body: models.NewPatient) -> dict:
     return patient_obj(pid)
 
 
+@app.post("/api/patients/ingest", response_model=None)
+async def post_ingest(files: list[UploadFile] = File(default=[]), sample: int = Form(default=0)):
+    """Build a patient from their documents, streaming the five steps as they happen.
+
+    The response is an event stream on the POST itself rather than a job id and a second
+    connection: there is one upload, one pipeline and one page waiting on it, and a job
+    table would be three moving parts where one will do. The page reads it with fetch and
+    draws a line per step.
+
+    With sample=1 the bundle comes from backend/data/sample, so the demo works with no
+    files to hand. It is the same code path either way: the sample files are read off disk
+    and pushed through the same reader, the same extractor and the same checks.
+    """
+    import asyncio
+
+    got: list[tuple[str, bytes]] = []
+    for item in files or []:
+        got.append((item.filename or "unnamed", await item.read()))
+    if sample or not got:
+        got = ingestrun.sample_files()
+    if not got:
+        raise HTTPException(
+            400,
+            "no files, and the sample bundle is not on disk. Run `make sample` or attach files.",
+        )
+
+    async def body():
+        # The pipeline is synchronous and CPU bound (the twin fit is numpy), so it runs in
+        # a worker thread. Without that the event loop would block and the events would
+        # all arrive at once at the end, which would make the build log a lie.
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def work():
+            try:
+                for event in ingestrun.stream(got):
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        task = asyncio.get_running_loop().run_in_executor(None, work)
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield live.sse(event)
+        await task
+
+    return StreamingResponse(
+        body(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/patients/{pid}", response_model=models.Patient)
 def get_patient(pid: str) -> dict:
     """One patient, everything the detail view needs."""
     return patient_obj(pid)
+
+
+@app.get("/api/patients/{pid}/provenance")
+def get_provenance(pid: str) -> dict:
+    """Where every extracted field came from: the file, the quote and the confidence.
+
+    This is what the Data tab shows on hover. A patient created without documents has no
+    provenance and says so, rather than returning an empty object that reads like a
+    clean extraction.
+    """
+    need(pid)
+    rows = db.rows("select * from events where patient_id=? and kind='ingest' order by time",
+                   (pid,))
+    if not rows:
+        return {"ok": True, "ingested": False, "threshold": ingest_schema.NEEDS_REVIEW,
+                "fields": {}, "needs_review": [],
+                "note": "This patient was generated, not read from documents. "
+                        "Every value comes from the synthetic generator."}
+    got = db.dec(rows[-1]["payload"], {}) or {}
+    return {"ok": True, "ingested": True, "threshold": ingest_schema.NEEDS_REVIEW,
+            "fields": got.get("sources") or {},
+            "needs_review": got.get("needs_review") or [],
+            "extraction": got.get("extraction") or {},
+            "note": "Hover a value to see the file and the sentence it was read from."}
 
 
 @app.get("/api/patients/{pid}/forecast", response_model=models.Forecast)
@@ -234,6 +302,32 @@ def get_shape(pid: str) -> dict:
     return shapemod.shape_of(pid)
 
 
+@app.get("/api/evidence")
+def get_evidence() -> dict:
+    """What the model rests on, parsed out of docs/RESEARCH.md, plus the live numbers.
+
+    Served from the file rather than a second copy in code, so the drawer and the
+    document cannot drift apart. The validation numbers are read from the cohort fit as
+    it actually is right now, not from a figure somebody typed in once.
+    """
+    from . import evidence as evmod
+
+    return evmod.payload()
+
+
+@app.get("/api/vessels")
+def get_vessels() -> dict:
+    """The schematic vessel layout, in the same millimetre space as the mesh.
+
+    A diagram, not this patient's vessels. The caption says so and the viewer shows it on
+    the layer, because a rendered vessel beside a rendered brain is exactly the thing that
+    gets mistaken for an angiogram.
+    """
+    from .data import vessels as vesselmod
+
+    return vesselmod.load()
+
+
 @app.get("/api/receptors", response_model=models.Receptors)
 def get_receptors() -> dict:
     """Group average receptor maps for the what-if overlay."""
@@ -242,14 +336,53 @@ def get_receptors() -> dict:
     return interv.receptors()
 
 
-@app.post("/api/patients/{pid}/intervention", response_model=models.Intervention)
-def post_intervention(pid: str, body: models.InterventionBody) -> dict:
-    """A clinician only receptor weighted gain what-if. Never reaches a patient."""
+BANNER = ("Hypothetical what-if on a network model. Not a treatment recommendation, not "
+          "a prediction, and no dose is modelled.")
+
+
+@app.get("/api/formulary", response_model=models.Formulary)
+def get_formulary() -> dict:
+    """The drug list, what each one acts on, and what the maps behind it really are.
+
+    Drugs this model cannot represent stay in the list with the reason. Leaving them out
+    would make the formulary look like a complete picture of what somebody is taking.
+    """
+    from .twin import drugs as drugmod
+
+    rec = drugmod.receptor_payload()
+    return {
+        "drugs": drugmod.drugs(),
+        "receptors": rec["names"],
+        "tracers": rec.get("tracers") or {},
+        "stand_in": rec.get("stand_in") or [],
+        "synthetic_template": bool(rec.get("synthetic_template")),
+        "banner": BANNER,
+        "note": rec.get("note", ""),
+    }
+
+
+@app.post("/api/patients/{pid}/intervention", response_model=None)
+def post_intervention(pid: str, body: models.InterventionBody):
+    """A clinician only what-if: a receptor slider, or a drug from the formulary.
+
+    Both are the same perturbation underneath. The slider scales one receptor map; a drug
+    combines its own targets into one weight first. Neither ever reaches a patient: no
+    text, no summary and no forecast sees any of this, and the API test checks that.
+    """
     need(pid)
+    from .twin import drugs as drugmod
     from .twin import intervention as interv
 
+    if body.drugs:
+        picked = [{"name": d.name, "gain": d.gain} for d in body.drugs]
+        gain = next((d.gain for d in body.drugs if d.gain is not None), body.gain)
+        got = drugmod.simulate(pid, picked, float(gain))
+        return {"kind": "drugs", "banner": BANNER, **got}
+
+    if not body.target:
+        raise HTTPException(400, "give either a receptor target or a list of drugs")
     try:
-        return interv.run(pid, body.target, body.gain)
+        return {"kind": "receptor", "banner": BANNER, **interv.run(pid, body.target, body.gain)}
     except KeyError:
         raise HTTPException(400, f"unknown receptor target {body.target}") from None
 
@@ -485,13 +618,49 @@ def ack_alert(aid: str) -> dict:
     return {"ok": True, "id": aid, "acked": True}
 
 
-@app.post("/api/alerts/{aid}/call")
-def call_alert(aid: str) -> dict:
-    """Ring the clinic for an alert now."""
-    got = alertmod.call_now(aid)
-    if not got.get("ok") and got.get("error") == "no such alert":
+@app.get("/api/alerts/{aid}/explain")
+def explain_alert(aid: str) -> dict:
+    """The rule behind one flag, its threshold, and where this patient sits against it.
+
+    The left rail shows one line of reason per flag and clicking it opens this, so a flag
+    is never a coloured dot with an assertion attached.
+    """
+    got = alertmod.explain(aid)
+    if not got.get("ok"):
         raise HTTPException(404, f"no alert {aid}")
-    return {"ok": bool(got.get("ok")), "id": aid, "how": got.get("how"), "called": True}
+    return got
+
+
+@app.get("/api/patients/{pid}/timeline")
+def get_timeline(pid: str) -> dict:
+    """Everything dated that happened to this patient, plus the calendar day summary.
+
+    Four tables, one list. The Timeline tab should not have to know that a check-in, an
+    alert, a text and a document ingest are stored in different places.
+    """
+    need(pid)
+    from . import timeline as tl
+
+    return {
+        "events": tl.events(pid),
+        "days": tl.days(pid),
+        "next_call": tl.next_call(pid),
+        "bands": tl.BANDS,
+    }
+
+
+@app.get("/api/patients/{pid}/percentile")
+def get_percentile(pid: str) -> dict:
+    """Where this patient's fitted recovery rate sits in the cohort.
+
+    A ribbon with a marker on it, not a grade. `limits` is served with it and the panel
+    shows it, because "68th percentile" reads like a result and is a much narrower claim
+    than it looks.
+    """
+    need(pid)
+    from . import timeline as tl
+
+    return tl.percentile(pid)
 
 
 @app.get("/api/cohort", response_model=models.Cohort)
@@ -503,17 +672,6 @@ def get_cohort() -> dict:
 
         got = seed.build(quiet=True)["cohort"]
     return got
-
-
-@app.get("/api/rig/preflight", response_model=list[models.Check])
-def get_preflight() -> list[dict]:
-    """The rig checks, same list the command line prints."""
-    import sys
-
-    sys.path.insert(0, str(ROOT))
-    from rig import preflight
-
-    return preflight.run()
 
 
 # ---------------------------------------------------------------- demo controls
@@ -553,20 +711,12 @@ def demo_drift(body: models.DemoBody) -> dict:
 def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
     """Start a call now.
 
-    In web mode with a real transport, create a session and text the link, then wait for
-    the patient to open it. In web mock mode, run a generated web session through the real
-    ingest and the real pipeline, so the whole web path is exercised with no phone at all.
-    In facetime mode, the old rig path runs unchanged.
+    With a real transport, create a session and text the link, then wait for the patient
+    to open it on their own phone. In demo mode, run a generated session through the real
+    ingest and the real pipeline, so the whole path is exercised with no phone at all.
     """
     pid = body.patient_id or ""
     need(pid)
-
-    if not cfg.web_call():
-        got = rig_hub.start_call(pid)
-        del tasks
-        return {"ok": bool(got.get("ok")), "patient_id": pid, "mode": "facetime",
-                "started": got.get("started", False), "mock": cfg.mock_rig,
-                "error": got.get("error")}
 
     start = sessions.create(pid)
     if photon.available() or cfg.mode() == "live":
@@ -583,135 +733,23 @@ def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
             "waiting": False, "note": "a generated web session is running through the real pipeline"}
 
 
-# ---------------------------------------------------------------- consent and stretch
+# ---------------------------------------------------------------- the event stream
 
-CONSENT_TEXT = [
-    "This is a research check-in, not medical care. The assistant on the call is software, "
-    "not a clinician.",
-    "The assistant will never tell you what is wrong with you, and will never tell you when "
-    "you can return to sport, work or driving. Those are your clinician's decisions.",
-    "Each call takes about 14 minutes. It is recorded: video, audio and the measurements "
-    "taken from them. Your clinician sees all of it.",
-    "What is measured: eye movements, speech, memory and facial movement, plus the symptom "
-    "scores you say out loud.",
-    "If you upload a genetic file, only four specific markers are read and the file is "
-    "deleted straight afterwards. Nothing else in it is looked at or kept.",
-    "You can stop a call at any time by saying stop, and you can withdraw completely by "
-    "replying STOP to any text. Withdrawing deletes nothing you have already given unless "
-    "you ask, and you can ask.",
-    "If anything you say suggests an emergency, the call stops and you will be told to get "
-    "medical help immediately.",
-]
+@app.get("/api/patients/{pid}/stream")
+async def get_stream(pid: str):
+    """Server-sent events for one patient: live call frames, alerts, and call_done.
 
-
-@app.get("/api/consent/{token}", response_model=models.ConsentText)
-def get_consent(token: str) -> dict:
-    """What the consent page shows."""
-    row = db.consent(token)
-    if row is None:
-        raise HTTPException(404, "unknown consent link")
-    pat = db.patient(row["patient_id"])
-    return {"patient_name": str(pat["name"]) if pat else "", "text": CONSENT_TEXT}
-
-
-@app.post("/api/consent/{token}")
-def post_consent(token: str, body: models.ConsentBody) -> dict:
-    """Record the four consent answers."""
-    row = db.consent(token)
-    if row is None:
-        raise HTTPException(404, "unknown consent link")
-    db.patch("consents", token, {
-        "calls": int(body.calls), "ai": int(body.ai), "recording": int(body.recording),
-        "genetic": int(body.genetic), "time": db.now(),
-        "withdrawn": 0 if body.calls else 1,
-    }, key="token")
-    db.event(row["patient_id"], "consent", body.model_dump())
-    return {"ok": True, "token": token, **body.model_dump()}
-
-
-@app.post("/api/stretch/{token}")
-def post_stretch(token: str, body: models.StretchBody) -> dict:
-    """Gait and hearing results from the texted web page. Both exploratory."""
-    reach_only("the gait and hearing stretch")
-    row = db.consent(token)
-    if row is None:
-        raise HTTPException(404, "unknown link")
-    pid = str(row["patient_id"])
-    got: dict = {}
-    feats: list[dict] = []
-    if body.gait:
-        got["gait"] = body.gait.model_dump()
-        feats += [
-            feature_row("gait_cadence", body.gait.cadence, "steps/min"),
-            feature_row("gait_variability", body.gait.variability, "%"),
-            feature_row("gait_steps", float(body.gait.steps), "count"),
-        ]
-    if body.hearing:
-        got["hearing"] = body.hearing.model_dump()
-        vals = list(body.hearing.thresholds.values())
-        if vals:
-            feats.append(feature_row("hearing_mean_db", float(sum(vals) / len(vals)), "dB"))
-    db.event(pid, "stretch", got)
-
-    rows = db.checkins(pid)
-    if rows and feats:
-        latest = rows[-1]
-        have = db.dec(latest["features"], []) or []
-        names = {f["name"] for f in feats}
-        have = [f for f in have if f["name"] not in names] + feats
-        db.patch("checkins", latest["id"], {"features": db.enc(have)})
-    return {"ok": True, "patient_id": pid, "stored": list(got), "features": feats}
-
-
-def feature_row(name: str, value: float, unit: str) -> dict:
-    """One exploratory Feature row in the contract shape."""
-    return {
-        "name": name, "tier": "B", "value": float(value), "prev": None,
-        "mdc": semmod.mdc(name), "unit": unit, "changed": False,
-    }
-
-
-# ---------------------------------------------------------------- websockets
-
-@app.websocket("/ws/rig")
-async def ws_rig(ws: WebSocket) -> None:
-    """Live rig stream: RigEvent JSON out, nothing expected in."""
-    await ws.accept()
-    rig_hub.RIG.append(ws)
-    await ws.send_json({"type": "hello", "mode": cfg.mode(), "state": rig_hub.STATE})
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        if ws in rig_hub.RIG:
-            rig_hub.RIG.remove(ws)
-
-
-@app.websocket("/ws/stimulus")
-async def ws_stimulus(ws: WebSocket) -> None:
-    """The stimulus page: commands out, shown and flashed timestamps back."""
-    await ws.accept()
-    rig_hub.STIM.append(ws)
-    await ws.send_json({"type": "clock", "mono_ns": time.monotonic_ns(), "perf_ns": 0})
-    try:
-        while True:
-            msg = await ws.receive_json()
-            if isinstance(msg, dict):
-                if msg.get("type") == "hello":
-                    await ws.send_json({"type": "clock", "mono_ns": time.monotonic_ns(),
-                                        "perf_ns": int(msg.get("perf_ns", 0))})
-                rig_hub.stim_in(msg)
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        if ws in rig_hub.STIM:
-            rig_hub.STIM.remove(ws)
+    This replaces the rig websocket. The workspace opens it when it loads, so the brain
+    and the flags update themselves rather than waiting for somebody to hit refresh. One
+    stream per patient, so a clinician with one chart open is never sent another
+    patient's measurements.
+    """
+    need(pid)
+    return StreamingResponse(
+        live.stream(pid),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------- pages
@@ -737,9 +775,7 @@ def index_or_json():
         "web": "not built yet, run make web",
         "api": "/api/health",
         "docs": "/docs",
-        "ui": "/ui/",
-        "stimulus": "/stimulus/",
-        "websockets": ["/ws/rig", "/ws/stimulus"],
+        "routes": ["/", "/clinic", "/patients/new", "/patients/:id", "/call/:token"],
     })
 
 
@@ -747,17 +783,6 @@ def index_or_json():
 def root():
     """The clinician app, or a pointer list before the frontend is built."""
     return index_or_json()
-
-
-@app.get("/consent/{token}", response_model=None)
-def consent_page(token: str):
-    """The consent page the text links to."""
-    if (WEB_DIR / "index.html").exists():
-        return index_or_json()
-    got = db.consent(token)
-    if got is None:
-        raise HTTPException(404, "unknown consent link")
-    return JSONResponse(get_consent(token))
 
 
 @app.get("/call/{token}", response_model=None)
@@ -844,14 +869,19 @@ def post_calls(body: models.CallBody) -> dict:
 
 
 @app.get("/api/call/{token}/script", response_model=models.CallScript)
-def get_call_script(token: str) -> dict:
-    """The script the page runs. Marks the session opened."""
+def get_call_script(token: str, full: int = 0) -> dict:
+    """The script the page runs. Marks the session opened.
+
+    The brief four minute version by default, which is what a patient on a phone gets.
+    ?full=1 serves the whole fourteen minute protocol. `short` is the separate symptom
+    rule and applies to either.
+    """
     row = call_row(token, want_consent=False)
     sessions.open_session(token)
     from .agent import voices
 
-    short = bool(row["short"])
-    return callscript.payload(short=short, audio=voices.audio_map())
+    return callscript.payload(short=bool(row["short"]), full=bool(full),
+                              audio=voices.audio_map())
 
 
 @app.post("/api/call/{token}/consent")
@@ -882,12 +912,9 @@ def post_call_redflags(token: str, body: models.RedflagBody) -> dict:
 
     audio = voices.audio_map()
     if got["stop"]:
+        # The patient is told to get help now and the tasks stop. The alert lands in the
+        # clinician's workspace over the event stream; nothing here phones anybody.
         alertmod.red_flag(pid, answers, notify=True)
-        pat = db.patient(pid)
-        from .comms import clinic_call
-
-        clinic_call.call(pid, agent_summary.clinician_text(str(pat["name"]), int(row["week"] or 0),
-                                                           None, got["flags"]))
         sessions.set_state(token, "stopped", finished=db.now())
         db.event(pid, "call_red_flag", {"week": int(row["week"] or 0), "flags": got["flags"]})
         name = audio.get("emergency")
@@ -935,17 +962,22 @@ def post_call_answer(token: str, body: models.AnswerBody) -> dict:
 
 @app.post("/api/call/{token}/live")
 def post_call_live(token: str, body: models.LiveBody, request: Request) -> dict:
-    """Fire and forget live telemetry, forwarded to the R1 console as a RigEvent."""
+    """Fire and forget live telemetry, pushed to the clinician's open call modal.
+
+    The phone posts this about every 200 ms while a task runs. It is numbers only, never
+    video, and it is not stored or scored: the measurements that count arrive in whole
+    chunks on /frames. This exists so the strip in the modal shows something true while
+    the call is happening.
+    """
     row = sessions.live(token)
     if row is None:
         raise HTTPException(404, "unknown link")
     limit(token, request, per=sessions.RATE_MAX * 2)
-    rig_hub.STATE.update({"running": True, "pid": row["patient_id"],
-                          "week": int(row["week"] or 0), "step": body.step})
-    rig_hub.frame_event(
+    live.frame(
+        str(row["patient_id"]),
         body.step,
-        (body.gaze.x, body.gaze.y),
-        (body.target.x, body.target.y),
+        {"x": body.gaze.x, "y": body.gaze.y},
+        {"x": body.target.x, "y": body.target.y},
         body.quality.model_dump(),
         body.pursuit_gain,
         body.line.model_dump() if body.line else None,
@@ -1024,39 +1056,6 @@ def get_call_status(token: str) -> dict:
     return out
 
 
-@app.get("/api/call/{token}/agent")
-def get_call_agent(token: str) -> dict:
-    """Whether the optional question and answer agent is available after the script.
-
-    Off by default. It is never on the safety or the measurement path: the red flag
-    decision is made from the answers by the backend, the script is fixed, and this
-    agent's transcript is stored but never scored and never fed to the twin.
-    """
-    call_row(token, want_consent=False)
-    on = bool(cfg.live_agent and cfg.eleven_agent and cfg.eleven_key)
-    return {
-        "enabled": on,
-        "agent_id": cfg.eleven_agent if on else "",
-        "banner": "This assistant is software and cannot give medical advice. It will not "
-                  "tell you what is wrong with you, and it will not tell you when you can "
-                  "go back to sport, work or driving. Ask your clinician those.",
-        "note": "Anything said here is passed to your clinician but is not measured and "
-                "does not change your results.",
-    }
-
-
-@app.post("/api/call/{token}/agent/transcript")
-def post_call_agent_transcript(token: str, body: models.AgentTranscript) -> dict:
-    """Store what was said to the optional agent. Never used for scoring or safety."""
-    row = call_row(token, want_consent=False)
-    if not cfg.live_agent:
-        raise HTTPException(404, "the question and answer agent is off")
-    sessions.store_chunk(token, "agent", "agent_line",
-                         {"who": body.who, "text": safety.clean(body.text), "t": body.t})
-    db.event(row["patient_id"], "agent_qa", {"who": body.who, "chars": len(body.text)})
-    return {"ok": True, "scored": False}
-
-
 @app.get("/api/voices", response_model=models.Voices)
 def get_voices() -> dict:
     """Every script line, its hash, and whether its mp3 exists."""
@@ -1084,7 +1083,7 @@ def get_summary(pid: str, week: int) -> dict:
     return summary.for_checkin(pid, int(week))
 
 
-RESERVED = ("api", "voice", "ui", "stimulus", "docs", "redoc", "openapi.json", "ws", "assets")
+RESERVED = ("api", "voice", "docs", "redoc", "openapi.json", "assets")
 
 
 @app.get("/{path:path}", response_model=None)

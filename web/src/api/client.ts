@@ -11,7 +11,6 @@ import type {
   CallScript,
   CallStart,
   CallStatus,
-  Check,
   Checkin,
   Cohort,
   Forecast,
@@ -47,21 +46,25 @@ export interface TwinInputs {
   fc_fit: number | null;
   low_fidelity: boolean;
 }
-export interface ConsentDoc {
-  patient_name: string;
-  text: string[];
+/** What a flag fired on, with its threshold and where this patient sits against it. */
+export interface AlertRule {
+  ok: boolean;
+  id: string;
+  type: Alert["type"];
+  trigger: string;
+  time: string;
+  rule: string;
+  detail: string;
+  threshold: number;
+  state: { drift_z?: number; coverage?: number; week?: number };
 }
+
 export interface ConsentChoices {
   calls: boolean;
   ai: boolean;
   recording: boolean;
   genetic: boolean;
 }
-export interface StretchResult {
-  gait?: { cadence: number; variability: number; steps: number };
-  hearing?: { thresholds: Record<string, number> };
-}
-
 let useMock = false;
 let backendMode: Health["mode"] = "live";
 let probe: Promise<void> | null = null;
@@ -185,10 +188,10 @@ export const api = {
   alerts: (patientId?: string) =>
     call<Alert[]>(`/alerts${patientId ? `?patient_id=${patientId}` : ""}`, undefined, () => mock.alerts(patientId)),
   ackAlert: (aid: string) => call(`/alerts/${aid}/ack`, { method: "POST" }, () => mock.ack(aid)),
-  callAlert: (aid: string) => call(`/alerts/${aid}/call`, { method: "POST" }, () => mock.callAlert(aid)),
+  explainAlert: (aid: string) =>
+    call<AlertRule>(`/alerts/${aid}/explain`, undefined, () => mock.explainAlert(aid)),
 
   cohort: () => call<Cohort>("/cohort", undefined, mock.cohort),
-  preflight: () => call<Check[]>("/rig/preflight", undefined, mock.preflight),
 
   demoReset: () => call("/demo/reset", { method: "POST" }, mock.reset),
   advanceWeek: (patientId: string) => call("/demo/advance-week", { body: { patient_id: patientId } }, () => mock.advanceWeek(patientId)),
@@ -196,9 +199,6 @@ export const api = {
     call("/demo/inject-drift", { body: { patient_id: patientId, size } }, () => mock.injectDrift(patientId, size)),
   triggerCall: (patientId: string) => call("/demo/trigger-call", { body: { patient_id: patientId } }, () => mock.triggerCall(patientId)),
 
-  consentDoc: (token: string) => call<ConsentDoc>(`/consent/${token}`, undefined, () => mock.consent(token)),
-  consent: (token: string, b: ConsentChoices) => call(`/consent/${token}`, { body: b }, () => mock.submitConsent(token, b)),
-  stretch: (token: string, b: StretchResult) => call(`/stretch/${token}`, { body: b }, () => mock.submitStretch(token, b)),
 
   mesh: () => call<Mesh>("/mesh", undefined, mock.mesh),
   shape: (id: string) => call<Shape>(`/patients/${id}/shape`, undefined, () => mock.shape(id)),
@@ -235,7 +235,257 @@ export const api = {
   voices: () => call<Voices>("/voices", undefined, mock.voices),
   regenerateVoice: (stepId: string) =>
     call<VoiceLine>(`/voices/${stepId}/regenerate`, { method: "POST" }, () => mock.regenerateVoice(stepId)),
+
+  provenance: (id: string) =>
+    call<Provenance>(`/patients/${id}/provenance`, undefined, () => mock.provenance(id)),
+
+  vessels: () => call<Vessels>("/vessels", undefined, mock.vessels),
+  formulary: () => call<Formulary>("/formulary", undefined, mock.formulary),
+  evidence: () => call<Evidence>("/evidence", undefined, mock.evidence),
+  timeline: (id: string) =>
+    call<Timeline>(`/patients/${id}/timeline`, undefined, () => mock.timeline(id)),
+  percentile: (id: string) =>
+    call<Percentile>(`/patients/${id}/percentile`, undefined, () => mock.percentile(id)),
+  drugImpact: (id: string, drugs: { name: string }[], gain: number) =>
+    call<DrugImpact>(`/patients/${id}/intervention`, { body: { drugs, gain } },
+      () => mock.drugImpact(id, drugs, gain)),
 };
+
+/* ---------------------------------------------------------------- v2 shapes */
+
+export interface Vessel {
+  name: string;
+  group: string;
+  about: string;
+  radius_mm: number;
+  points: number[][];
+}
+
+export interface Vessels {
+  vessels: Vessel[];
+  groups: Record<string, { label: string; colour: string; about: string }>;
+  space: string;
+  caption: string;
+  note: string;
+}
+
+export interface DrugTarget {
+  receptor: string;
+  affinity: number;
+  direction: number;
+  proxy?: boolean;
+  why?: string;
+}
+
+export interface DrugEntry {
+  name: string;
+  class: string;
+  typical_dose: string;
+  modeled: boolean;
+  targets: DrugTarget[];
+  note: string;
+  why_not: string;
+  proxy_targets: string[];
+  stand_in_targets: string[];
+}
+
+export interface Formulary {
+  drugs: DrugEntry[];
+  receptors: string[];
+  tracers: Record<string, string>;
+  stand_in: string[];
+  synthetic_template: boolean;
+  banner: string;
+  note: string;
+}
+
+export interface DrugImpact {
+  kind: "drugs";
+  ok: boolean;
+  modeled: boolean;
+  banner: string;
+  drugs: string[];
+  gain: number;
+  members?: number;
+  receptors?: string[];
+  weight?: number[];
+  region_effect?: number[];
+  lo?: number[];
+  hi?: number[];
+  unclear?: boolean[];
+  unclear_count?: number;
+  top_changed?: number[];
+  baseline_rate?: number[];
+  summary_delta?: { rate: number; fc_strength: number; metastability: number };
+  warnings: string[];
+  interval_covers?: string[];
+  interval_misses?: string[];
+  synthetic_template?: boolean;
+  note: string;
+  say: string;
+}
+
+export interface TimelineEvent {
+  time: string;
+  day: string;
+  kind: string;
+  label: string;
+  band: string;
+  id: string;
+  week?: number;
+  detail: Record<string, unknown>;
+}
+
+export interface Timeline {
+  events: TimelineEvent[];
+  days: { day: string; bands: string[]; count: number; labels: string[] }[];
+  next_call: { due: string | null; last?: string | null; overdue: boolean; days_late?: number; say: string };
+  bands: Record<string, string>;
+}
+
+export interface Percentile {
+  ok: boolean;
+  k?: number;
+  percentile?: number;
+  outside?: string;
+  size?: number;
+  quartiles?: number[];
+  range?: number[];
+  histogram?: { from: number; to: number; count: number }[];
+  say: string;
+  limits?: string[];
+}
+
+export interface EvidenceClaim {
+  section: string;
+  claim: string;
+  source: string;
+  tag: "verified" | "check this" | "";
+  detail: string;
+}
+
+export interface EvidenceNumber {
+  name: string;
+  value: number;
+  target: number | null;
+  ok: boolean;
+  unit: string;
+  say: string;
+  caveat: string;
+  interval?: number[];
+  detail?: string;
+}
+
+export interface Evidence {
+  ok: boolean;
+  claims: EvidenceClaim[];
+  sections: string[];
+  counts: { verified: number; check_this: number };
+  numbers: EvidenceNumber[];
+  weak: string[];
+  limits: string[];
+  doc: string;
+  note: string;
+}
+
+/* ---------------------------------------------------------------- the ingest stream */
+
+export interface FieldSource {
+  confidence: number;
+  source_file: string;
+  source_quote: string;
+  derived_from: string[];
+}
+
+export interface Provenance {
+  ok: boolean;
+  ingested: boolean;
+  threshold: number;
+  fields: Record<string, FieldSource>;
+  needs_review: string[];
+  note: string;
+}
+
+export interface IngestStep {
+  kind: "step";
+  step: string;
+  state: "running" | "done";
+  say: string;
+  detail?: string;
+  items?: { name: string; kind: string; why?: string }[];
+  needs_review?: string[];
+}
+
+export interface IngestDone {
+  kind: "done";
+  patient_id: string;
+  name: string;
+  fields: number;
+  needs_review: string[];
+  threshold: number;
+  how: string;
+  sources: Record<string, FieldSource>;
+  conflicts: { fields: string[]; say: string }[];
+  documents: { name: string; kind: string; why?: string }[];
+}
+
+export interface IngestFailed {
+  kind: "failed";
+  step: string;
+  say: string;
+  error: string;
+}
+
+export type IngestEvent = IngestStep | IngestDone | IngestFailed;
+
+/**
+ * Build a patient from their documents, yielding each step as the server finishes it.
+ *
+ * The response is an event stream on the POST itself, so this reads the body rather than
+ * opening a second EventSource connection. Parsing is deliberately simple: the server
+ * writes one `event:`/`data:` pair per message and this only needs the data line.
+ */
+export async function* ingest(files: File[], sample: boolean): AsyncGenerator<IngestEvent> {
+  await ready();
+  if (useMock) {
+    yield* mock.ingest(sample ? [] : files);
+    return;
+  }
+
+  const form = new FormData();
+  for (const file of files) form.append("files", file, file.name);
+  if (sample) form.append("sample", "1");
+
+  const res = await fetch(`${API}/api/patients/ingest`, { method: "POST", body: form });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(detail.slice(0, 300));
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // Messages are separated by a blank line. Anything after the last one is a partial
+    // message and stays in the buffer until the rest of it arrives.
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      for (const line of part.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          yield JSON.parse(line.slice(6)) as IngestEvent;
+        } catch {
+          // A malformed message is skipped rather than killing the stream: the steps
+          // after it are still worth showing.
+        }
+      }
+    }
+  }
+}
 
 /* ---------------------------------------------------------------- query hooks */
 
@@ -256,18 +506,29 @@ export const useAlerts = (patientId?: string) =>
 export const useCohort = () => useQuery({ queryKey: ["cohort"], queryFn: api.cohort });
 export const useMessages = (id: string) =>
   useQuery({ queryKey: ["messages", id], queryFn: () => api.messages(id), enabled: !!id, refetchInterval: 2000 });
-export const usePreflight = () => useQuery({ queryKey: ["preflight"], queryFn: api.preflight, staleTime: Infinity });
 export const useAttribution = (id: string) =>
   useQuery({ queryKey: ["attribution", id], queryFn: () => api.attribution(id), enabled: !!id });
 export const useTwinInputs = (id: string) =>
   useQuery({ queryKey: ["twin-inputs", id], queryFn: () => api.twinInputs(id), enabled: !!id });
 export const useVoices = () => useQuery({ queryKey: ["voices"], queryFn: api.voices });
+export const useProvenance = (id: string) =>
+  useQuery({ queryKey: ["provenance", id], queryFn: () => api.provenance(id), enabled: !!id });
+export const useVessels = () =>
+  useQuery({ queryKey: ["vessels"], queryFn: api.vessels, staleTime: Infinity });
+export const useFormulary = () =>
+  useQuery({ queryKey: ["formulary"], queryFn: api.formulary, staleTime: Infinity });
+export const useEvidence = () =>
+  useQuery({ queryKey: ["evidence"], queryFn: api.evidence, staleTime: 60000 });
+export const useTimeline = (id: string) =>
+  useQuery({ queryKey: ["timeline", id], queryFn: () => api.timeline(id), enabled: !!id });
+export const usePercentile = (id: string) =>
+  useQuery({ queryKey: ["percentile", id], queryFn: () => api.percentile(id), enabled: !!id });
 export const useCallScript = (token: string) =>
   useQuery({ queryKey: ["call-script", token], queryFn: () => api.callScript(token), enabled: !!token, staleTime: Infinity });
 export const useCallStatus = (token: string) =>
   useQuery({ queryKey: ["call-status", token], queryFn: () => api.callStatus(token), enabled: !!token, refetchInterval: 2000 });
-export const useConsentDoc = (token: string) =>
-  useQuery({ queryKey: ["consent-doc", token], queryFn: () => api.consentDoc(token), enabled: !!token });
+export const useAlertRule = (aid: string | null) =>
+  useQuery({ queryKey: ["alert-rule", aid], queryFn: () => api.explainAlert(aid as string), enabled: !!aid });
 
 /* ---------------------------------------------------------------- mutation hooks */
 
@@ -278,7 +539,7 @@ function useWrite<A, R>(fn: (arg: A) => Promise<R>): UseMutationResult<R, Error,
     mutationFn: fn,
     onSuccess: () =>
       qc.invalidateQueries({
-        predicate: (q) => q.queryKey[0] !== "health" && q.queryKey[0] !== "preflight" && q.queryKey[0] !== "mesh",
+        predicate: (q) => q.queryKey[0] !== "health" && q.queryKey[0] !== "mesh",
       }),
   });
 }
@@ -294,11 +555,18 @@ export const useUpload = () =>
     throw new Error("Upload needs a file, an injury form, a removal, or the synthetic flag");
   });
 export const useAckAlert = () => useWrite((aid: string) => api.ackAlert(aid));
-export const useCallAlert = () => useWrite((aid: string) => api.callAlert(aid));
 export const useNote = () => useWrite((a: { id: string; text: string }) => api.note(a.id, a.text));
 export const useScenarios = () => useWrite((a: { id: string; a: Scenario; b: Scenario }) => api.scenarios(a.id, { a: a.a, b: a.b }));
 export const useCounterfactual = () => useWrite((a: { id: string; k_mult: number; p_add: number }) => api.counterfactual(a.id, a));
 export const useIntervention = () => useWrite((a: { id: string; target: string; gain: number }) => api.intervention(a.id, a));
+/** The drug viewer. Not a useWrite: it changes nothing, so it must not invalidate anything. */
+export const useDrugImpact = (id: string, drugs: { name: string }[], gain: number, on: boolean) =>
+  useQuery({
+    queryKey: ["drug-impact", id, drugs.map((d) => d.name).sort().join(","), gain],
+    queryFn: () => api.drugImpact(id, drugs, gain),
+    enabled: on && !!id && drugs.length > 0,
+    staleTime: Infinity,
+  });
 export const useRescore = () => useWrite((a: { cid: string; task: string }) => api.rescore(a.cid, a.task));
 export const useUnusable = () => useWrite((cid: string) => api.unusable(cid));
 export const useCreateCall = () => useWrite((a: { patientId: string; send: boolean }) => api.createCall(a.patientId, a.send));
@@ -307,5 +575,4 @@ export const useAdvanceWeek = () => useWrite((patientId: string) => api.advanceW
 export const useInjectDrift = () => useWrite((a: { patientId: string; size: number }) => api.injectDrift(a.patientId, a.size));
 export const useTriggerCall = () => useWrite((patientId: string) => api.triggerCall(patientId));
 export const useRegenerateVoice = () => useWrite((stepId: string) => api.regenerateVoice(stepId));
-export const useStretch = () => useWrite((a: { token: string; result: StretchResult }) => api.stretch(a.token, a.result));
-export const useConsent = () => useWrite((a: { token: string; choices: ConsentChoices }) => api.consent(a.token, a.choices));
+

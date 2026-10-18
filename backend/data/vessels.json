@@ -1,0 +1,1224 @@
+{
+ "vessels": [
+  {
+   "name": "Superior sagittal sinus",
+   "group": "dural_sinus",
+   "about": "Runs back along the attached margin of the falx, in the midline, from the crista galli to the confluence of sinuses.",
+   "radius_mm": 5.0,
+   "points": [
+    [
+     0.0,
+     72.0,
+     18.0
+    ],
+    [
+     0.0,
+     66.0,
+     36.0
+    ],
+    [
+     0.0,
+     54.0,
+     52.0
+    ],
+    [
+     0.0,
+     36.0,
+     66.0
+    ],
+    [
+     0.0,
+     14.0,
+     76.0
+    ],
+    [
+     0.0,
+     -10.0,
+     78.0
+    ],
+    [
+     0.0,
+     -34.0,
+     72.0
+    ],
+    [
+     0.0,
+     -56.0,
+     56.0
+    ],
+    [
+     0.0,
+     -72.0,
+     34.0
+    ],
+    [
+     0.0,
+     -80.0,
+     12.0
+    ],
+    [
+     0.0,
+     -84.0,
+     -4.0
+    ]
+   ]
+  },
+  {
+   "name": "Inferior sagittal sinus",
+   "group": "dural_sinus",
+   "about": "In the free lower margin of the falx, above the corpus callosum, joining the great cerebral vein to form the straight sinus.",
+   "radius_mm": 2.0,
+   "points": [
+    [
+     0.0,
+     34.0,
+     20.0
+    ],
+    [
+     0.0,
+     22.0,
+     30.0
+    ],
+    [
+     0.0,
+     4.0,
+     36.0
+    ],
+    [
+     0.0,
+     -16.0,
+     36.0
+    ],
+    [
+     0.0,
+     -32.0,
+     28.0
+    ]
+   ]
+  },
+  {
+   "name": "Straight sinus",
+   "group": "dural_sinus",
+   "about": "Runs back and down in the junction of the falx and tentorium, from the great cerebral vein to the confluence.",
+   "radius_mm": 3.5,
+   "points": [
+    [
+     0.0,
+     -32.0,
+     28.0
+    ],
+    [
+     0.0,
+     -48.0,
+     16.0
+    ],
+    [
+     0.0,
+     -66.0,
+     4.0
+    ],
+    [
+     0.0,
+     -84.0,
+     -4.0
+    ]
+   ]
+  },
+  {
+   "name": "Transverse sinus, left",
+   "group": "dural_sinus",
+   "about": "From the confluence, laterally in the attached margin of the tentorium along the occipital bone.",
+   "radius_mm": 4.5,
+   "points": [
+    [
+     0.0,
+     -84.0,
+     -4.0
+    ],
+    [
+     -18.0,
+     -82.0,
+     -4.0
+    ],
+    [
+     -36.0,
+     -74.0,
+     -6.0
+    ],
+    [
+     -50.0,
+     -60.0,
+     -8.0
+    ],
+    [
+     -58.0,
+     -44.0,
+     -12.0
+    ]
+   ]
+  },
+  {
+   "name": "Transverse sinus, right",
+   "group": "dural_sinus",
+   "about": "The right transverse sinus is usually the larger of the two and usually drains the superior sagittal sinus.",
+   "radius_mm": 5.0,
+   "points": [
+    [
+     0.0,
+     -84.0,
+     -4.0
+    ],
+    [
+     18.0,
+     -82.0,
+     -4.0
+    ],
+    [
+     36.0,
+     -74.0,
+     -6.0
+    ],
+    [
+     50.0,
+     -60.0,
+     -8.0
+    ],
+    [
+     58.0,
+     -44.0,
+     -12.0
+    ]
+   ]
+  },
+  {
+   "name": "Sigmoid sinus, left",
+   "group": "dural_sinus",
+   "about": "The S-shaped continuation of the transverse sinus, curving down and forward to the jugular bulb.",
+   "radius_mm": 4.5,
+   "points": [
+    [
+     -58.0,
+     -44.0,
+     -12.0
+    ],
+    [
+     -60.0,
+     -34.0,
+     -22.0
+    ],
+    [
+     -56.0,
+     -26.0,
+     -34.0
+    ],
+    [
+     -46.0,
+     -18.0,
+     -42.0
+    ],
+    [
+     -38.0,
+     -12.0,
+     -46.0
+    ]
+   ]
+  },
+  {
+   "name": "Sigmoid sinus, right",
+   "group": "dural_sinus",
+   "about": "As on the left, continuing into the internal jugular vein.",
+   "radius_mm": 5.0,
+   "points": [
+    [
+     58.0,
+     -44.0,
+     -12.0
+    ],
+    [
+     60.0,
+     -34.0,
+     -22.0
+    ],
+    [
+     56.0,
+     -26.0,
+     -34.0
+    ],
+    [
+     46.0,
+     -18.0,
+     -42.0
+    ],
+    [
+     38.0,
+     -12.0,
+     -46.0
+    ]
+   ]
+  },
+  {
+   "name": "Cavernous sinus, left",
+   "group": "dural_sinus",
+   "about": "Beside the sella, carrying the internal carotid artery and the third, fourth, sixth and two branches of the fifth cranial nerve through it.",
+   "radius_mm": 3.0,
+   "points": [
+    [
+     -12.0,
+     8.0,
+     -22.0
+    ],
+    [
+     -14.0,
+     0.0,
+     -24.0
+    ],
+    [
+     -14.0,
+     -8.0,
+     -24.0
+    ]
+   ]
+  },
+  {
+   "name": "Cavernous sinus, right",
+   "group": "dural_sinus",
+   "about": "The right cavernous sinus, communicating with the left across the midline in front of and behind the pituitary.",
+   "radius_mm": 3.0,
+   "points": [
+    [
+     12.0,
+     8.0,
+     -22.0
+    ],
+    [
+     14.0,
+     0.0,
+     -24.0
+    ],
+    [
+     14.0,
+     -8.0,
+     -24.0
+    ]
+   ]
+  },
+  {
+   "name": "Great cerebral vein of Galen",
+   "group": "deep_vein",
+   "about": "A short midline trunk under the splenium, formed by the two internal cerebral veins and the basal veins, draining into the straight sinus.",
+   "radius_mm": 2.5,
+   "points": [
+    [
+     0.0,
+     -26.0,
+     20.0
+    ],
+    [
+     0.0,
+     -30.0,
+     25.0
+    ],
+    [
+     0.0,
+     -32.0,
+     28.0
+    ]
+   ]
+  },
+  {
+   "name": "Internal cerebral vein, left",
+   "group": "deep_vein",
+   "about": "Runs back in the roof of the third ventricle, close to the midline, joining its fellow to form the vein of Galen.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     -4.0,
+     6.0,
+     18.0
+    ],
+    [
+     -4.0,
+     -6.0,
+     20.0
+    ],
+    [
+     -3.0,
+     -16.0,
+     21.0
+    ],
+    [
+     -1.0,
+     -24.0,
+     20.0
+    ]
+   ]
+  },
+  {
+   "name": "Internal cerebral vein, right",
+   "group": "deep_vein",
+   "about": "The right internal cerebral vein, paired with the left.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     4.0,
+     6.0,
+     18.0
+    ],
+    [
+     4.0,
+     -6.0,
+     20.0
+    ],
+    [
+     3.0,
+     -16.0,
+     21.0
+    ],
+    [
+     1.0,
+     -24.0,
+     20.0
+    ]
+   ]
+  },
+  {
+   "name": "Basal vein of Rosenthal, left",
+   "group": "deep_vein",
+   "about": "Begins at the anterior perforated substance, curves round the midbrain and joins the vein of Galen.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     -22.0,
+     6.0,
+     -16.0
+    ],
+    [
+     -28.0,
+     -4.0,
+     -14.0
+    ],
+    [
+     -28.0,
+     -16.0,
+     -8.0
+    ],
+    [
+     -20.0,
+     -24.0,
+     2.0
+    ],
+    [
+     -8.0,
+     -26.0,
+     14.0
+    ],
+    [
+     -2.0,
+     -26.0,
+     19.0
+    ]
+   ]
+  },
+  {
+   "name": "Basal vein of Rosenthal, right",
+   "group": "deep_vein",
+   "about": "The right basal vein, taking the same course round the midbrain.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     22.0,
+     6.0,
+     -16.0
+    ],
+    [
+     28.0,
+     -4.0,
+     -14.0
+    ],
+    [
+     28.0,
+     -16.0,
+     -8.0
+    ],
+    [
+     20.0,
+     -24.0,
+     2.0
+    ],
+    [
+     8.0,
+     -26.0,
+     14.0
+    ],
+    [
+     2.0,
+     -26.0,
+     19.0
+    ]
+   ]
+  },
+  {
+   "name": "Thalamostriate vein, left",
+   "group": "deep_vein",
+   "about": "Runs in the groove between the thalamus and the caudate, turning sharply at the venous angle to join the internal cerebral vein.",
+   "radius_mm": 1.2,
+   "points": [
+    [
+     -18.0,
+     -22.0,
+     14.0
+    ],
+    [
+     -14.0,
+     -12.0,
+     16.0
+    ],
+    [
+     -8.0,
+     -2.0,
+     18.0
+    ],
+    [
+     -4.0,
+     6.0,
+     18.0
+    ]
+   ]
+  },
+  {
+   "name": "Thalamostriate vein, right",
+   "group": "deep_vein",
+   "about": "The right thalamostriate vein, mirroring the left.",
+   "radius_mm": 1.2,
+   "points": [
+    [
+     18.0,
+     -22.0,
+     14.0
+    ],
+    [
+     14.0,
+     -12.0,
+     16.0
+    ],
+    [
+     8.0,
+     -2.0,
+     18.0
+    ],
+    [
+     4.0,
+     6.0,
+     18.0
+    ]
+   ]
+  },
+  {
+   "name": "Superficial middle cerebral vein, left",
+   "group": "cortical_vein",
+   "about": "Runs forward along the Sylvian fissure to drain into the cavernous or sphenoparietal sinus.",
+   "radius_mm": 1.8,
+   "points": [
+    [
+     -54.0,
+     -34.0,
+     14.0
+    ],
+    [
+     -58.0,
+     -18.0,
+     10.0
+    ],
+    [
+     -56.0,
+     -2.0,
+     4.0
+    ],
+    [
+     -46.0,
+     10.0,
+     -6.0
+    ],
+    [
+     -30.0,
+     14.0,
+     -16.0
+    ],
+    [
+     -16.0,
+     8.0,
+     -22.0
+    ]
+   ]
+  },
+  {
+   "name": "Superficial middle cerebral vein, right",
+   "group": "cortical_vein",
+   "about": "The right Sylvian vein, taking the same course.",
+   "radius_mm": 1.8,
+   "points": [
+    [
+     54.0,
+     -34.0,
+     14.0
+    ],
+    [
+     58.0,
+     -18.0,
+     10.0
+    ],
+    [
+     56.0,
+     -2.0,
+     4.0
+    ],
+    [
+     46.0,
+     10.0,
+     -6.0
+    ],
+    [
+     30.0,
+     14.0,
+     -16.0
+    ],
+    [
+     16.0,
+     8.0,
+     -22.0
+    ]
+   ]
+  },
+  {
+   "name": "Vein of Trolard, left",
+   "group": "cortical_vein",
+   "about": "The superior anastomotic vein: the largest link from the Sylvian vein up to the superior sagittal sinus, usually crossing the parietal lobe.",
+   "radius_mm": 1.8,
+   "points": [
+    [
+     -56.0,
+     -22.0,
+     12.0
+    ],
+    [
+     -52.0,
+     -24.0,
+     30.0
+    ],
+    [
+     -42.0,
+     -26.0,
+     48.0
+    ],
+    [
+     -26.0,
+     -26.0,
+     62.0
+    ],
+    [
+     -10.0,
+     -24.0,
+     72.0
+    ],
+    [
+     0.0,
+     -22.0,
+     76.0
+    ]
+   ]
+  },
+  {
+   "name": "Vein of Trolard, right",
+   "group": "cortical_vein",
+   "about": "The right superior anastomotic vein. Trolard and Labbe are reciprocal: where one is large the other is usually small.",
+   "radius_mm": 1.8,
+   "points": [
+    [
+     56.0,
+     -22.0,
+     12.0
+    ],
+    [
+     52.0,
+     -24.0,
+     30.0
+    ],
+    [
+     42.0,
+     -26.0,
+     48.0
+    ],
+    [
+     26.0,
+     -26.0,
+     62.0
+    ],
+    [
+     10.0,
+     -24.0,
+     72.0
+    ],
+    [
+     0.0,
+     -22.0,
+     76.0
+    ]
+   ]
+  },
+  {
+   "name": "Vein of Labbe, left",
+   "group": "cortical_vein",
+   "about": "The inferior anastomotic vein: from the Sylvian vein back across the temporal lobe to the transverse sinus.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     -56.0,
+     -20.0,
+     8.0
+    ],
+    [
+     -58.0,
+     -34.0,
+     2.0
+    ],
+    [
+     -56.0,
+     -48.0,
+     -2.0
+    ],
+    [
+     -50.0,
+     -58.0,
+     -6.0
+    ],
+    [
+     -56.0,
+     -46.0,
+     -11.0
+    ]
+   ]
+  },
+  {
+   "name": "Vein of Labbe, right",
+   "group": "cortical_vein",
+   "about": "The right inferior anastomotic vein, draining into the right transverse sinus, which is usually the dominant one.",
+   "radius_mm": 1.8,
+   "points": [
+    [
+     56.0,
+     -20.0,
+     8.0
+    ],
+    [
+     58.0,
+     -34.0,
+     2.0
+    ],
+    [
+     56.0,
+     -48.0,
+     -2.0
+    ],
+    [
+     50.0,
+     -58.0,
+     -6.0
+    ],
+    [
+     56.0,
+     -46.0,
+     -11.0
+    ]
+   ]
+  },
+  {
+   "name": "Frontal bridging veins, left",
+   "group": "cortical_vein",
+   "about": "Short veins crossing the subdural space to enter the superior sagittal sinus. These are the ones that tear in an acceleration injury.",
+   "radius_mm": 1.0,
+   "points": [
+    [
+     -30.0,
+     50.0,
+     28.0
+    ],
+    [
+     -20.0,
+     52.0,
+     44.0
+    ],
+    [
+     -10.0,
+     48.0,
+     60.0
+    ],
+    [
+     -2.0,
+     42.0,
+     68.0
+    ]
+   ]
+  },
+  {
+   "name": "Frontal bridging veins, right",
+   "group": "cortical_vein",
+   "about": "The right frontal bridging veins, entering the sinus against the direction of blood flow, which is why they are vulnerable.",
+   "radius_mm": 1.0,
+   "points": [
+    [
+     30.0,
+     50.0,
+     28.0
+    ],
+    [
+     20.0,
+     52.0,
+     44.0
+    ],
+    [
+     10.0,
+     48.0,
+     60.0
+    ],
+    [
+     2.0,
+     42.0,
+     68.0
+    ]
+   ]
+  },
+  {
+   "name": "Parieto-occipital bridging veins, left",
+   "group": "cortical_vein",
+   "about": "Posterior bridging veins entering the superior sagittal sinus.",
+   "radius_mm": 1.0,
+   "points": [
+    [
+     -26.0,
+     -62.0,
+     40.0
+    ],
+    [
+     -16.0,
+     -66.0,
+     54.0
+    ],
+    [
+     -6.0,
+     -66.0,
+     64.0
+    ],
+    [
+     -1.0,
+     -62.0,
+     70.0
+    ]
+   ]
+  },
+  {
+   "name": "Parieto-occipital bridging veins, right",
+   "group": "cortical_vein",
+   "about": "The right posterior bridging veins.",
+   "radius_mm": 1.0,
+   "points": [
+    [
+     26.0,
+     -62.0,
+     40.0
+    ],
+    [
+     16.0,
+     -66.0,
+     54.0
+    ],
+    [
+     6.0,
+     -66.0,
+     64.0
+    ],
+    [
+     1.0,
+     -62.0,
+     70.0
+    ]
+   ]
+  },
+  {
+   "name": "Internal carotid artery, left",
+   "group": "artery",
+   "about": "Enters the skull base, turns through the cavernous sinus in the carotid siphon, and divides into the anterior and middle cerebral arteries.",
+   "radius_mm": 2.5,
+   "points": [
+    [
+     -20.0,
+     -6.0,
+     -46.0
+    ],
+    [
+     -18.0,
+     2.0,
+     -36.0
+    ],
+    [
+     -16.0,
+     10.0,
+     -28.0
+    ],
+    [
+     -14.0,
+     14.0,
+     -20.0
+    ],
+    [
+     -18.0,
+     12.0,
+     -12.0
+    ],
+    [
+     -22.0,
+     8.0,
+     -8.0
+    ]
+   ]
+  },
+  {
+   "name": "Internal carotid artery, right",
+   "group": "artery",
+   "about": "The right internal carotid, taking the same course through the siphon.",
+   "radius_mm": 2.5,
+   "points": [
+    [
+     20.0,
+     -6.0,
+     -46.0
+    ],
+    [
+     18.0,
+     2.0,
+     -36.0
+    ],
+    [
+     16.0,
+     10.0,
+     -28.0
+    ],
+    [
+     14.0,
+     14.0,
+     -20.0
+    ],
+    [
+     18.0,
+     12.0,
+     -12.0
+    ],
+    [
+     22.0,
+     8.0,
+     -8.0
+    ]
+   ]
+  },
+  {
+   "name": "Middle cerebral artery, left",
+   "group": "artery",
+   "about": "The largest branch of the carotid. Runs laterally into the Sylvian fissure and fans out over the insula and the convexity.",
+   "radius_mm": 2.0,
+   "points": [
+    [
+     -22.0,
+     8.0,
+     -8.0
+    ],
+    [
+     -32.0,
+     6.0,
+     -4.0
+    ],
+    [
+     -42.0,
+     2.0,
+     2.0
+    ],
+    [
+     -52.0,
+     -6.0,
+     8.0
+    ],
+    [
+     -56.0,
+     -20.0,
+     14.0
+    ],
+    [
+     -52.0,
+     -36.0,
+     20.0
+    ]
+   ]
+  },
+  {
+   "name": "Middle cerebral artery, right",
+   "group": "artery",
+   "about": "The right middle cerebral artery and its Sylvian course.",
+   "radius_mm": 2.0,
+   "points": [
+    [
+     22.0,
+     8.0,
+     -8.0
+    ],
+    [
+     32.0,
+     6.0,
+     -4.0
+    ],
+    [
+     42.0,
+     2.0,
+     2.0
+    ],
+    [
+     52.0,
+     -6.0,
+     8.0
+    ],
+    [
+     56.0,
+     -20.0,
+     14.0
+    ],
+    [
+     52.0,
+     -36.0,
+     20.0
+    ]
+   ]
+  },
+  {
+   "name": "Anterior cerebral artery, left",
+   "group": "artery",
+   "about": "Runs forward and up round the genu of the corpus callosum, supplying the medial frontal lobe.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     -22.0,
+     8.0,
+     -8.0
+    ],
+    [
+     -10.0,
+     18.0,
+     -8.0
+    ],
+    [
+     -4.0,
+     30.0,
+     0.0
+    ],
+    [
+     -3.0,
+     38.0,
+     14.0
+    ],
+    [
+     -3.0,
+     34.0,
+     28.0
+    ],
+    [
+     -3.0,
+     18.0,
+     36.0
+    ],
+    [
+     -3.0,
+     -8.0,
+     38.0
+    ],
+    [
+     -3.0,
+     -30.0,
+     34.0
+    ]
+   ]
+  },
+  {
+   "name": "Anterior cerebral artery, right",
+   "group": "artery",
+   "about": "The right anterior cerebral artery, joined to the left by the anterior communicating artery.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     22.0,
+     8.0,
+     -8.0
+    ],
+    [
+     10.0,
+     18.0,
+     -8.0
+    ],
+    [
+     4.0,
+     30.0,
+     0.0
+    ],
+    [
+     3.0,
+     38.0,
+     14.0
+    ],
+    [
+     3.0,
+     34.0,
+     28.0
+    ],
+    [
+     3.0,
+     18.0,
+     36.0
+    ],
+    [
+     3.0,
+     -8.0,
+     38.0
+    ],
+    [
+     3.0,
+     -30.0,
+     34.0
+    ]
+   ]
+  },
+  {
+   "name": "Basilar artery",
+   "group": "artery",
+   "about": "Formed by the two vertebral arteries, runs up the front of the pons and divides into the posterior cerebral arteries.",
+   "radius_mm": 2.0,
+   "points": [
+    [
+     0.0,
+     -28.0,
+     -48.0
+    ],
+    [
+     0.0,
+     -26.0,
+     -40.0
+    ],
+    [
+     0.0,
+     -24.0,
+     -32.0
+    ],
+    [
+     0.0,
+     -20.0,
+     -24.0
+    ]
+   ]
+  },
+  {
+   "name": "Posterior cerebral artery, left",
+   "group": "artery",
+   "about": "Curves round the midbrain to supply the occipital lobe and the inferomedial temporal lobe.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     0.0,
+     -20.0,
+     -24.0
+    ],
+    [
+     -12.0,
+     -24.0,
+     -20.0
+    ],
+    [
+     -22.0,
+     -34.0,
+     -14.0
+    ],
+    [
+     -24.0,
+     -50.0,
+     -6.0
+    ],
+    [
+     -18.0,
+     -66.0,
+     2.0
+    ],
+    [
+     -10.0,
+     -78.0,
+     6.0
+    ]
+   ]
+  },
+  {
+   "name": "Posterior cerebral artery, right",
+   "group": "artery",
+   "about": "The right posterior cerebral artery, from the basilar tip.",
+   "radius_mm": 1.6,
+   "points": [
+    [
+     0.0,
+     -20.0,
+     -24.0
+    ],
+    [
+     12.0,
+     -24.0,
+     -20.0
+    ],
+    [
+     22.0,
+     -34.0,
+     -14.0
+    ],
+    [
+     24.0,
+     -50.0,
+     -6.0
+    ],
+    [
+     18.0,
+     -66.0,
+     2.0
+    ],
+    [
+     10.0,
+     -78.0,
+     6.0
+    ]
+   ]
+  }
+ ],
+ "groups": {
+  "dural_sinus": {
+   "label": "Dural sinuses",
+   "colour": "#3b82f6",
+   "about": "The large venous channels between the layers of the dura."
+  },
+  "deep_vein": {
+   "label": "Deep veins",
+   "colour": "#60a5fa",
+   "about": "The internal cerebral, basal and great cerebral veins, draining the deep white matter and the basal ganglia."
+  },
+  "cortical_vein": {
+   "label": "Cortical veins",
+   "colour": "#93c5fd",
+   "about": "Superficial veins on the surface, including the named anastomotic veins of Trolard and Labbe and the bridging veins that tear in an acceleration injury."
+  },
+  "artery": {
+   "label": "Arteries",
+   "colour": "#ef4444",
+   "about": "The carotid and vertebrobasilar trunks and their main branches. Off by default: in a head injury the venous side is what usually matters."
+  }
+ },
+ "space": "MNI152 millimetres, same frame as /api/mesh",
+ "caption": "Schematic vessel layout from anatomical atlases. Not patient-specific.",
+ "note": "Polylines through anatomical landmarks, at atlas scale. No angiogram went into this and it is not anyone's own anatomy. Superficial venous anatomy varies more than almost anything else in the head."
+}

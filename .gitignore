@@ -6,7 +6,9 @@ __pycache__/
 /data/uploads/
 /data/voice/
 /data/unnamed.db
+/data/synapshot.db
 /data/test_unnamed.db
+/data/test_synapshot.db
 /data/cohort.json
 /data/mesh.json
 /exports/
@@ -21,4 +23,5 @@ web/public/models/*.task
 .pytest_cache/
 .gstack/
 web/public/mesh.json
-.env.backup-before-live
+# Any .env backup is still a file full of keys.
+.env.backup*

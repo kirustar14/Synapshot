@@ -8,7 +8,6 @@ import type {
   CallScript,
   CallStart,
   CallStatus,
-  Check,
   Checkin,
   Cohort,
   Edge,
@@ -34,6 +33,7 @@ import type {
   VoiceLine,
   Voices,
 } from "@/api/types";
+import type { DrugEntry } from "@/api/client";
 import { ATLAS, NETWORKS, REGION_NAMES } from "./atlas";
 import { callScript, voices as voiceInventory } from "./call";
 import { nearestVertex, proceduralMesh } from "./mesh";
@@ -86,12 +86,6 @@ interface PState {
   lastIntervention: Intervention | null;
 }
 
-interface RigState {
-  status: "idle" | "ringing" | "in_call" | "failed";
-  since: number;
-  patient_id: string | null;
-}
-
 interface CallRecord {
   token: string;
   patient_id: string;
@@ -109,10 +103,8 @@ interface CallRecord {
 interface DB {
   patients: PState[];
   alerts: Alert[];
-  rig: RigState;
-  preflightRuns: number;
-  consents: Record<string, unknown>;
-  stretch: Record<string, unknown>;
+  /** Patients built by the ingest, so a mock-mode Add patient run lands somewhere. */
+  ingested: string[];
   calls: Record<string, CallRecord>;
   voices: Voices;
 }
@@ -420,7 +412,7 @@ function makePatient(id: string, seed: Seed, now: number): PState {
   const first = seed.name.split(" ")[0];
   const t0 = base - DAY / 2;
   s.messages = [
-    { dir: "out", body: `Hello ${first}, this is the UNNAMED care line. Your clinic set up weekly video check-ins. Reply YES to open the consent page.`, time: new Date(t0).toISOString(), channel: "mock" },
+    { dir: "out", body: `Hello ${first}, this is the Synapshot care line. Your clinic set up weekly video check-ins. Reply YES to open the consent page.`, time: new Date(t0).toISOString(), channel: "mock" },
     { dir: "in", body: "YES", time: new Date(t0 + 120000).toISOString(), channel: "mock" },
     { dir: "out", body: "Thank you. Your first call link arrives tomorrow at 10:00. It takes about ten minutes.", time: new Date(t0 + 180000).toISOString(), channel: "mock" },
   ];
@@ -465,10 +457,7 @@ function build(): DB {
   const d: DB = {
     patients,
     alerts: [],
-    rig: { status: "idle", since: now, patient_id: null },
-    preflightRuns: 0,
-    consents: {},
-    stretch: {},
+    ingested: [],
     calls: {},
     voices: voiceInventory(),
   };
@@ -950,17 +939,45 @@ export const mock = {
     return { ok: true };
   },
 
-  callAlert: (aid: string) => {
+  // The rules behind each flag, matching backend/alerts.py so the mock layer cannot
+  // show a different threshold from the one the real backend enforces.
+  explainAlert: (aid: string) => {
     const a = db().alerts.find((x) => x.id === aid);
-    if (!a) return { ok: true };
-    a.called = true;
-    get(a.patient_id).messages.push({
-      dir: "out",
-      body: "Your clinic is calling you now. Please pick up if you can.",
-      time: new Date().toISOString(),
-      channel: "mock",
-    });
-    return { ok: true };
+    const rules: Record<string, { rule: string; detail: string; threshold: number }> = {
+      drift: {
+        rule: "drift z above 2.0 for two consecutive weeks",
+        detail:
+          "drift z is the mean standardized residual of the last two weeks, signed so positive means reality is worse than the twin expected. One bad week is noise, two in a row is a trend.",
+        threshold: 2.0,
+      },
+      low_quality: {
+        rule: "a face in under 70% of frames, or calibration error above 3 degrees, or the flash timing test failed",
+        detail: "the eye measures are deleted rather than reported through a channel that cannot support them.",
+        threshold: 0.7,
+      },
+      red_flag: {
+        rule: "any yes on the seven item safety screen",
+        detail:
+          "the check-in stops before anything is measured and the patient is told to get medical help now. A clinician must confirm this question list before any use outside the team.",
+        threshold: 1,
+      },
+      missed_call: {
+        rule: "no completed check-in for the week",
+        detail: "no measurements, so the filter has nothing to assimilate and the band widens.",
+        threshold: 0,
+      },
+    };
+    if (!a) return { ok: false, id: aid, type: "drift", trigger: "", time: "", ...rules.drift, state: {} };
+    const s = get(a.patient_id);
+    return {
+      ok: true,
+      id: a.id,
+      type: a.type,
+      trigger: a.trigger,
+      time: a.time,
+      ...(rules[a.type] ?? rules.drift),
+      state: { drift_z: s.patient.drift_z, coverage: s.patient.coverage, week: s.patient.week },
+    };
   },
 
   cohort: (): Cohort => {
@@ -980,27 +997,6 @@ export const mock = {
         { name: "b_fe4", true: -0.02, est: 0.018, lo: -0.015, hi: 0.06 },
       ],
     };
-  },
-
-  preflight: (): Check[] => {
-    const d = db();
-    d.preflightRuns++;
-    const r = rng(d.preflightRuns * 13);
-    // Every third run fails one check, so the Re-run button visibly does something.
-    const failIndex = d.preflightRuns % 3 === 2 ? r.int(0, 5) : -1;
-    const checks: [string, string][] = [
-      ["Camera", "1080p capture at 30 fps"],
-      ["Call link", "Token signing key loaded, link expiry 24 h"],
-      ["Stimulus display", "Second screen at 60 Hz, gamma calibrated"],
-      ["Gaze model", "Face landmarker loaded, calibration RMS 0.6 deg on the test video"],
-      ["Audio", "Mic and speaker routed, echo cancel on"],
-      ["Backend link", "WebSocket round trip 38 ms"],
-    ];
-    return checks.map(([name, detail], i) =>
-      i === failIndex
-        ? { name, ok: false, detail: `${detail.split(",")[0]} is not responding. Check the connection and re-run.` }
-        : { name, ok: true, detail },
-    );
   },
 
   reset: () => {
@@ -1046,38 +1042,13 @@ export const mock = {
   },
 
   triggerCall: (patientId: string) => {
-    const d = db();
     const s = get(patientId);
-    d.rig = { status: "ringing", since: Date.now(), patient_id: patientId };
     s.messages.push({
       dir: "out",
       body: "Heads up, your weekly video check-in starts in a moment.",
       time: new Date().toISOString(),
       channel: "mock",
     });
-    return { ok: true };
-  },
-
-  rigStatus: (): RigState => {
-    const d = db();
-    const elapsed = Date.now() - d.rig.since;
-    if (d.rig.status === "ringing" && elapsed > 3500) d.rig = { ...d.rig, status: "in_call", since: Date.now() };
-    else if (d.rig.status === "in_call" && elapsed > 120000) d.rig = { status: "idle", since: Date.now(), patient_id: null };
-    return d.rig;
-  },
-
-  consent: (token: string) => {
-    const found = db().patients.find((s) => s.patient.id === token);
-    return { patient_name: found?.patient.name ?? db().patients[0].patient.name, text: callScript().consent };
-  },
-
-  submitConsent: (token: string, body: unknown) => {
-    db().consents[token] = body;
-    return { ok: true };
-  },
-
-  submitStretch: (token: string, body: unknown) => {
-    db().stretch[token] = body;
     return { ok: true };
   },
 
@@ -1182,6 +1153,470 @@ export const mock = {
     line.exists = true;
     line.duration_s = round((line.duration_s ?? 2) + 0.05, 2);
     return clone(line);
+  },
+
+  /* ---- v2: vessels, formulary, evidence, timeline, percentile ---- */
+
+  // A handful of vessels so the layer draws something without a backend. The real list
+  // is 35; this is the subset that reads as a venous system at a glance, and the caption
+  // is the same one, because a schematic is a schematic either way.
+  vessels: () => ({
+    vessels: [
+      { name: "Superior sagittal sinus", group: "dural_sinus", radius_mm: 5,
+        about: "Midline, along the attached margin of the falx.",
+        points: [[0, 72, 18], [0, 54, 52], [0, 14, 76], [0, -34, 72], [0, -80, 12], [0, -84, -4]] },
+      { name: "Straight sinus", group: "dural_sinus", radius_mm: 3.5,
+        about: "From the great cerebral vein back to the confluence.",
+        points: [[0, -32, 28], [0, -48, 16], [0, -66, 4], [0, -84, -4]] },
+      { name: "Transverse sinus, right", group: "dural_sinus", radius_mm: 5,
+        about: "Usually the larger of the two.",
+        points: [[0, -84, -4], [18, -82, -4], [36, -74, -6], [58, -44, -12]] },
+      { name: "Transverse sinus, left", group: "dural_sinus", radius_mm: 4.5,
+        about: "Laterally in the margin of the tentorium.",
+        points: [[0, -84, -4], [-18, -82, -4], [-36, -74, -6], [-58, -44, -12]] },
+      { name: "Great cerebral vein of Galen", group: "deep_vein", radius_mm: 2.5,
+        about: "Short midline trunk under the splenium.",
+        points: [[0, -26, 20], [0, -30, 25], [0, -32, 28]] },
+      { name: "Internal cerebral vein, left", group: "deep_vein", radius_mm: 1.6,
+        about: "In the roof of the third ventricle.",
+        points: [[-4, 6, 18], [-4, -6, 20], [-1, -24, 20]] },
+      { name: "Internal cerebral vein, right", group: "deep_vein", radius_mm: 1.6,
+        about: "Paired with the left.",
+        points: [[4, 6, 18], [4, -6, 20], [1, -24, 20]] },
+      { name: "Vein of Trolard, right", group: "cortical_vein", radius_mm: 1.8,
+        about: "Superior anastomotic vein, Sylvian fissure up to the sagittal sinus.",
+        points: [[56, -22, 12], [42, -26, 48], [10, -24, 72], [0, -22, 76]] },
+      { name: "Vein of Labbe, right", group: "cortical_vein", radius_mm: 1.8,
+        about: "Inferior anastomotic vein, across the temporal lobe.",
+        points: [[56, -20, 8], [56, -48, -2], [50, -58, -6], [56, -46, -11]] },
+      { name: "Middle cerebral artery, right", group: "artery", radius_mm: 2,
+        about: "Into the Sylvian fissure and over the convexity.",
+        points: [[22, 8, -8], [42, 2, 2], [56, -20, 14], [52, -36, 20]] },
+    ],
+    groups: {
+      dural_sinus: { label: "Dural sinuses", colour: "#3b82f6", about: "Venous channels between the layers of the dura." },
+      deep_vein: { label: "Deep veins", colour: "#60a5fa", about: "Draining the deep white matter and basal ganglia." },
+      cortical_vein: { label: "Cortical veins", colour: "#93c5fd", about: "Surface veins, including the bridging veins that tear in an acceleration injury." },
+      artery: { label: "Arteries", colour: "#ef4444", about: "Carotid and vertebrobasilar trunks. Off by default." },
+    },
+    space: "MNI152 millimetres, same frame as /api/mesh",
+    caption: "Schematic vessel layout from anatomical atlases. Not patient-specific.",
+    note: "Polylines through anatomical landmarks, at atlas scale. No angiogram went into this.",
+  }),
+
+  formulary: () => ({
+    drugs: [
+      { name: "sertraline", class: "SSRI", typical_dose: "25 to 200 mg daily", modeled: true,
+        targets: [{ receptor: "5-HTT", affinity: 1, direction: 1, why: "blocks the serotonin transporter" },
+                  { receptor: "DAT", affinity: 0.15, direction: 1, why: "weak at higher doses" }],
+        note: "Onset over weeks, which this model does not represent.", why_not: "",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "amitriptyline", class: "tricyclic antidepressant", typical_dose: "10 to 50 mg at night", modeled: true,
+        targets: [{ receptor: "5-HTT", affinity: 0.8, direction: 1, why: "serotonin reuptake inhibition" },
+                  { receptor: "NET", affinity: 0.7, direction: 1, why: "noradrenaline reuptake inhibition" },
+                  { receptor: "5-HT2A", affinity: 0.6, direction: -1, why: "5-HT2A antagonist" }],
+        note: "Its antihistamine and antimuscarinic actions have no map here.", why_not: "",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "methylphenidate", class: "stimulant", typical_dose: "5 to 20 mg twice daily", modeled: true,
+        targets: [{ receptor: "DAT", affinity: 1, direction: 1, why: "blocks the dopamine transporter" },
+                  { receptor: "NET", affinity: 0.6, direction: 1, why: "blocks the noradrenaline transporter" }],
+        note: "The striatum is outside this cortical parcellation.", why_not: "",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "amantadine", class: "NMDA antagonist and dopaminergic", typical_dose: "100 mg twice daily", modeled: true,
+        targets: [{ receptor: "NMDA", affinity: 0.8, direction: -1, why: "weak NMDA antagonist" },
+                  { receptor: "DAT", affinity: 0.4, direction: 1, why: "increases dopamine release" }],
+        note: "Best studied after severe TBI. Thinner evidence in mild TBI.", why_not: "",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "propranolol", class: "beta blocker", typical_dose: "20 to 80 mg twice daily", modeled: true,
+        targets: [{ receptor: "NET", affinity: 0.5, direction: -1, proxy: true,
+                    why: "no beta-adrenoceptor map exists. NET shows where noradrenergic terminals are." }],
+        note: "Shown against a proxy map: treat the location as indicative, the size as uninformative.",
+        why_not: "", proxy_targets: ["NET"], stand_in_targets: [] },
+      { name: "levetiracetam", class: "antiseizure", typical_dose: "250 to 1000 mg twice daily", modeled: true,
+        targets: [{ receptor: "SV2A", affinity: 1, direction: -1, why: "binds SV2A, reducing vesicular release" }],
+        note: "SV2A is close to a synaptic density marker.", why_not: "",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "ondansetron", class: "antiemetic", typical_dose: "4 to 8 mg as needed", modeled: false, targets: [],
+        note: "", why_not: "5-HT3 is its target and there is no 5-HT3 map in this atlas set.",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "gabapentin", class: "alpha-2-delta ligand", typical_dose: "300 to 900 mg three times daily", modeled: false, targets: [],
+        note: "", why_not: "Its target is a calcium channel subunit. There is no PET map of it.",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "melatonin", class: "hormone", typical_dose: "2 to 5 mg at night", modeled: false, targets: [],
+        note: "", why_not: "MT1 and MT2 have no map, and the effect that matters is on sleep timing.",
+        proxy_targets: [], stand_in_targets: [] },
+      { name: "acetaminophen", class: "analgesic", typical_dose: "500 to 1000 mg every 6 hours", modeled: false, targets: [],
+        note: "", why_not: "Its mechanism is still argued over and none of the candidates has a receptor map.",
+        proxy_targets: [], stand_in_targets: [] },
+    ],
+    receptors: ["GABA-A", "NMDA", "D1", "D2", "DAT", "NET", "5-HT1A", "5-HT2A", "5-HTT", "SV2A", "mGluR5", "mu-opioid"],
+    tracers: {
+      "GABA-A": "[11C]flumazenil", NMDA: "[18F]GE-179", D1: "[11C]SCH23390", D2: "[11C]FLB457",
+      DAT: "[123I]FP-CIT", NET: "[18F]MeNER", "5-HT1A": "[11C]CUMI-101", "5-HT2A": "[11C]Cimbi-36",
+      "5-HTT": "[11C]DASB", SV2A: "[11C]UCB-J", mGluR5: "[11C]ABP688", "mu-opioid": "[11C]carfentanil",
+    },
+    stand_in: [],
+    synthetic_template: false,
+    banner: "Hypothetical what-if on a network model. Not a treatment recommendation, not a prediction, and no dose is modelled.",
+    note: "Group average PET and SPECT maps from healthy volunteers, parcellated onto Schaefer-100 and z scored.",
+  }),
+
+  evidence: () => ({
+    ok: true,
+    claims: [
+      { section: "Parcellation and surface", tag: "verified" as const,
+        claim: "The cortex is divided into 100 regions using the Schaefer 7-network parcellation.",
+        source: "Schaefer et al., Cerebral Cortex 2018;28(9):3095-3114.",
+        detail: "The loader refuses the annotation files unless the region names match the connectome's own order." },
+      { section: "Network model", tag: "check this" as const,
+        claim: "Regional activity is simulated with a dynamic mean field reduction with feedback inhibition control.",
+        source: "Deco et al., J Neurosci 2014;34(23):7886-7898.",
+        detail: "The constants were written from memory and should be checked against the paper." },
+      { section: "Receptor maps and the drug viewer", tag: "verified" as const,
+        claim: "The twelve receptor and transporter maps are group-average PET and SPECT images.",
+        source: "Hansen et al., Nature Neuroscience 2022;25(11):1569-1581, and the individual tracer studies.",
+        detail: "All twelve load from real data." },
+      { section: "Biomarkers", tag: "verified" as const,
+        claim: "GFAP and UCH-L1 decision cutoffs are 22 and 327 pg/mL.",
+        source: "Bazarian et al., Lancet Neurology 2018;17(9):782-789.",
+        detail: "These are cutoffs for ruling out injury on CT, not reference intervals." },
+      { section: "What the call measures", tag: "verified" as const,
+        claim: "Near point of convergence of 5 cm or more discriminates concussed from control.",
+        source: "Mucha et al., Am J Sports Med 2014;42(10):2479-2486.",
+        detail: "64 concussed patients, preliminary findings, adolescents." },
+      { section: "What the call measures", tag: "check this" as const,
+        claim: "The seven red flag questions are in the style of the CDC HEADS UP materials.",
+        source: "CDC HEADS UP.",
+        detail: "This one needs a clinician. Nobody has reviewed this list." },
+    ],
+    sections: ["Parcellation and surface", "Network model", "Receptor maps and the drug viewer",
+               "Biomarkers", "What the call measures"],
+    counts: { verified: 4, check_this: 2 },
+    numbers: [
+      { name: "Forecast band coverage", value: 0.84, target: 0.8, ok: true,
+        unit: "share of weeks inside the 80% band",
+        say: "The 80% band should contain the truth about 80% of the time. It contains it 84% of the time.",
+        caveat: "Measured on synthetic patients generated by the same model family that is fitting them." },
+      { name: "Recovery rate recovery", value: 0.72, target: 0.7, ok: true,
+        unit: "correlation of true and fitted k over 50 patients",
+        say: "Fitted recovery rate correlates 0.72 with the true one.",
+        caveat: "Measures whether the filter can invert the simulator." },
+      { name: "Population effect: b_e4", value: 0.154, interval: [-0.092, 0.367], target: null, ok: false,
+        unit: "posterior mean with 90% interval",
+        say: "Estimated +0.154, interval [-0.092, +0.367], which includes zero.",
+        caveat: "An interval that includes zero means this covariate is not distinguishable from nothing." },
+      { name: "Receptor maps loaded from real data", value: 12, target: 12, ok: true,
+        unit: "of 12 targets",
+        say: "12 of 12 receptor and transporter maps are real PET or SPECT group averages.",
+        caveat: "Group averages from healthy volunteers, not this patient's receptors." },
+      { name: "Document extraction accuracy", value: 0.952, target: 0.9, ok: true,
+        unit: "20 of 21 fields on the sample pack",
+        say: "The built-in extractor reads 20 of 21 fields correctly with no API key.",
+        caveat: "Missed: occupation" },
+    ],
+    weak: ["Population effect: b_e4"],
+    limits: [
+      "Every patient in this system is synthetic. No real person's data has been used anywhere.",
+      "The validation is circular: the population layer recovers parameters from patients generated by the same model that is fitting them.",
+      "Nothing here has been shown to predict anything about a person. There is no held-out clinical data.",
+      "The drug viewer is a what-if, not advice. No dose and no time course is modelled.",
+      "A rendered brain looks like a scan. It is not one.",
+      "The measurements come from a phone camera held by a patient, and the quality gates are there because they are often not met.",
+      "The brief script trades accuracy for four minutes. Several tasks are absent, not estimated badly.",
+      "No clinician has reviewed any of this.",
+    ],
+    doc: "docs/RESEARCH.md",
+    note: "Every claim carries whether anybody checked it. There is no state of this panel that hides a weak result.",
+  }),
+
+  timeline: (id: string) => {
+    const s = get(id);
+    const events: ReturnType<typeof makeEvent>[] = [];
+    function makeEvent(time: string, kind: string, labelText: string, band: string, detail: Record<string, unknown>) {
+      return { time, day: time.slice(0, 10), kind, label: labelText, band, id: `${kind}-${time}`, detail };
+    }
+    for (const c of s.checkins) {
+      events.push(makeEvent(c.date, "checkin", c.unusable ? "Check-in, unusable" : "Check-in completed",
+        c.unusable ? "warn" : "call",
+        { duration_s: c.duration_s, face_share: c.channel.face_share, fps: c.channel.fps,
+          flash_ok: c.channel.flash_ok, unusable: c.unusable }));
+    }
+    for (const a of db().alerts.filter((x) => x.patient_id === id)) {
+      events.push(makeEvent(a.time, "alert", `Flag raised: ${a.type.replace(/_/g, " ")}`, "flag",
+        { type: a.type, trigger: a.trigger }));
+    }
+    for (const m of s.messages) {
+      events.push(makeEvent(m.time, "message", `Message ${m.dir === "out" ? "out" : "in"} by ${m.channel}`,
+        "message", { dir: m.dir, channel: m.channel, body: m.body.slice(0, 300) }));
+    }
+    events.sort((a, b) => a.time.localeCompare(b.time));
+
+    const byDay = new Map<string, { day: string; bands: string[]; count: number; labels: string[] }>();
+    for (const e of events) {
+      const got = byDay.get(e.day) ?? { day: e.day, bands: [], count: 0, labels: [] };
+      got.count += 1;
+      if (!got.bands.includes(e.band)) got.bands.push(e.band);
+      if (got.labels.length < 4) got.labels.push(e.label);
+      byDay.set(e.day, got);
+    }
+    const last = s.checkins.length ? s.checkins[s.checkins.length - 1].date : null;
+    const due = last ? new Date(new Date(last).getTime() + 7 * 864e5) : null;
+    const late = due ? Math.floor((Date.now() - due.getTime()) / 864e5) : 0;
+    return {
+      events,
+      days: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)),
+      next_call: {
+        due: due ? due.toISOString().slice(0, 19) : null,
+        last,
+        overdue: late > 0,
+        days_late: Math.max(0, late),
+        say: due ? `Due ${due.toISOString().slice(0, 10)}${late > 0 ? `, ${late} day${late === 1 ? "" : "s"} overdue` : ""}`
+                 : "No check-in yet. The first one sets the baseline.",
+      },
+      bands: {
+        call: "A check-in happened on this day.",
+        flag: "A flag was raised on this day.",
+        warn: "Something did not complete on this day.",
+        note: "A record was added on this day.",
+        message: "A message went out on this day.",
+      },
+    };
+  },
+
+  percentile: (id: string) => {
+    const s = get(id);
+    const r = rng(hashStr(`${id}:cohort`));
+    const ks = Array.from({ length: 50 }, () => clamp(0.25 + r.normal() * 0.07, 0.05, 0.6));
+    const k = s.patient.params.k;
+    const below = ks.filter((v) => v < k).length;
+    const sorted = [...ks].sort((a, b) => a - b);
+    const q = (p: number) => round(sorted[Math.floor(p * (sorted.length - 1))], 4);
+    const outside = k < sorted[0] ? "below" : k > sorted[sorted.length - 1] ? "above" : "";
+    const pct = (below / ks.length) * 100;
+    const lo = sorted[0];
+    const hi = sorted[sorted.length - 1];
+    const bins = 20;
+    const histogram = Array.from({ length: bins }, (_, i) => {
+      const from = lo + ((hi - lo) * i) / bins;
+      const to = lo + ((hi - lo) * (i + 1)) / bins;
+      return { from: round(from, 4), to: round(to, 4), count: ks.filter((v) => v >= from && v < to).length };
+    });
+    return {
+      ok: true,
+      k: round(k, 4),
+      percentile: round(pct, 1),
+      outside,
+      size: ks.length,
+      quartiles: [q(0.25), q(0.5), q(0.75)],
+      range: [round(lo, 4), round(hi, 4)],
+      histogram,
+      say: outside === "below"
+        ? "This patient's fitted recovery rate is slower than every patient in the cohort, so there is no percentile to give."
+        : outside === "above"
+        ? "This patient's fitted recovery rate is faster than every patient in the cohort, so there is no percentile to give."
+        : `This patient's fitted recovery rate sits ${pct >= 50 ? "in the faster" : "in the slower"} ${pct >= 75 || pct < 25 ? "quarter" : "half"} of the cohort, at the ${Math.round(pct)}th percentile.`,
+      limits: [
+        "The cohort is 50 synthetic patients fitted by this same model, so this says where they sit among people the model has seen, not among people.",
+        "k is one number for the whole brain. Two patients with the same k can be recovering differently in different regions.",
+        "A percentile is not a target. Nothing here says a faster rate is the right outcome for this person.",
+      ],
+    };
+  },
+
+  drugImpact: (id: string, drugs: { name: string }[], gain: number) => {
+    const s = get(id);
+    const book = mock.formulary().drugs;
+    const picked = drugs.map((d) => book.find((b) => b.name === d.name)).filter((d): d is DrugEntry => !!d && d.modeled);
+    const receptors = [...new Set(picked.flatMap((d) => d.targets.map((t) => t.receptor)))];
+    if (!picked.length) {
+      return { kind: "drugs" as const, ok: true, modeled: false, banner: mock.formulary().banner,
+               drugs: [], gain, warnings: [], note: "Hypothetical what-if.",
+               say: "Nothing selected that this model can represent." };
+    }
+    // Per region: the drug's combined receptor weight, scaled, times the gain. Same shape
+    // as the backend so the map and the legend read the same either way.
+    const r = rng(hashStr(`${id}:${picked.map((d) => d.name).join(",")}:${gain}`));
+    const weight = Array.from({ length: REGION_NAMES.length }, (_, i) => {
+      let w = 0;
+      for (const d of picked) for (const t of d.targets) {
+        w += t.affinity * t.direction * Math.sin(i * 0.37 + hashStr(t.receptor) * 0.0013);
+      }
+      return w;
+    });
+    const peak = Math.max(...weight.map(Math.abs)) || 1;
+    const effect = weight.map((w) => round((w / peak) * gain * 0.4 * (1 - 0.3 * s.severity), 6));
+    const half = effect.map(() => round(Math.abs(r.normal()) * 0.004 + 0.0006, 6));
+    const lo = effect.map((e, i) => round(e - half[i], 6));
+    const hi = effect.map((e, i) => round(e + half[i], 6));
+    const unclear = lo.map((v, i) => v <= 0 && hi[i] >= 0);
+    const clear = unclear.filter((u) => !u).length;
+    const order = effect.map((e, i) => i).filter((i) => !unclear[i])
+      .sort((a, b) => Math.abs(effect[b]) - Math.abs(effect[a]));
+    return {
+      kind: "drugs" as const, ok: true, modeled: true,
+      banner: mock.formulary().banner,
+      drugs: picked.map((d) => d.name), gain, members: 8, receptors,
+      weight: weight.map((w) => round(w / peak, 5)),
+      region_effect: effect, lo, hi, unclear, unclear_count: unclear.filter(Boolean).length,
+      top_changed: order.slice(0, 8),
+      baseline_rate: effect.map(() => round(1.2 + r.normal() * 0.05, 5)),
+      summary_delta: { rate: round(effect.reduce((a, b) => a + b, 0) / effect.length, 6), fc_strength: 0.0004, metastability: 0.0004 },
+      warnings: picked.flatMap((d) => d.proxy_targets.map((t) => `${d.name}: ${t} is a proxy map, not its own target`)),
+      interval_covers: [
+        "uncertainty in this patient's current damage, from the filter's own posterior",
+        "uncertainty in the affinity weights, which are a judgement call",
+        "simulation noise",
+      ],
+      interval_misses: [
+        "the receptor maps are group averages from tens of healthy volunteers, not this patient's receptors",
+        "a regional gain perturbation is one way of representing a drug's effect among several",
+        "the network model itself may be wrong, which no interval computed inside it can say",
+      ],
+      synthetic_template: false,
+      note: "Hypothetical what-if, not a treatment recommendation. No dose is modelled and no timing is modelled.",
+      say: `Inside this model, ${clear} of ${effect.length} regions hold their sign across this patient's posterior, weighted by the ${receptors.join(", ")} ${receptors.length === 1 ? "map" : "maps"}. That is self-consistency, not evidence about the drug.`,
+    };
+  },
+
+  /* ---- the event stream and the ingest ---- */
+
+  /**
+   * One generated measurement tick, shaped exactly like the backend's frame event.
+   *
+   * The gaze follows the target with a lag and a little noise, which is what smooth
+   * pursuit looks like. It is generated, the strip says so, and nothing here is ever
+   * stored or scored.
+   */
+  frameEvent: (patientId: string) => {
+    const s = get(patientId);
+    const t = Date.now() / 1000;
+    const r = rng(Math.floor(t * 5) + hashStr(patientId));
+    const tx = 0.5 + 0.3 * Math.sin(t * 2 * Math.PI * 0.4);
+    const ty = 0.5 + 0.05 * Math.sin(t * 2 * Math.PI * 0.11);
+    // A healthier patient tracks more closely. Gain is the ratio of eye to target speed.
+    const gain = Math.max(0.3, Math.min(0.99, 0.92 - 0.12 * s.severity));
+    return {
+      kind: "frame" as const,
+      t,
+      step: "pursuit_h",
+      gaze: { x: round(0.5 + (tx - 0.5) * gain + r.normal() * 0.012, 4), y: round(ty + r.normal() * 0.01, 4) },
+      target: { x: round(tx, 4), y: round(ty, 4) },
+      quality: { face: true, dist: true, light: true, fps: round(29 + r.normal() * 1.2, 1) },
+      pursuit_gain: round(gain, 3),
+      line: null,
+    };
+  },
+
+  provenance: (id: string) => {
+    const s = get(id);
+    const d = db();
+    if (!d.ingested.includes(id)) {
+      return {
+        ok: true,
+        ingested: false,
+        threshold: 0.6,
+        fields: {} as Record<string, never>,
+        needs_review: [] as string[],
+        note:
+          "This patient was generated, not read from documents. Every value comes from the synthetic generator.",
+      };
+    }
+    const cite = (file: string, quote: string, confidence: number) => ({
+      confidence,
+      source_file: file,
+      source_quote: quote,
+      derived_from: [] as string[],
+    });
+    return {
+      ok: true,
+      ingested: true,
+      threshold: 0.6,
+      fields: {
+        name: cite("01_ed_triage_note.pdf", `Patient name:\n${s.patient.name}`, 0.95),
+        age: cite("01_ed_triage_note.pdf", `Date of birth:\n2004-03-22  (age ${s.patient.age})`, 0.95),
+        gcs: cite("01_ed_triage_note.pdf", "GCS:\n15 (E4 V5 M6)", 0.95),
+        gfap_pg_ml: cite("05_serum_biomarkers.pdf", "GFAP\n412.0", 0.95),
+        apoe: cite("06_genotyping_report.pdf", "APOE genotype:\ne3/e4", 0.95),
+        mri_finding: cite(
+          "04_mri_brain_report.pdf",
+          "Small right frontal cortical contusion measuring 9 x 6 mm with mild surrounding oedema.",
+          0.92,
+        ),
+      },
+      needs_review: ["occupation"],
+      note: "Hover a value to see the file and the sentence it was read from.",
+    };
+  },
+
+  /**
+   * The five ingest steps, as an async generator with the same event shapes the backend
+   * streams. Pacing matches the real thing so the build log is not a different animation
+   * in mock mode.
+   */
+  ingest: async function* (files: File[]) {
+    const names = files.length
+      ? files.map((f) => f.name)
+      : [
+          "01_ed_triage_note.pdf",
+          "02_ed_physician_note.pdf",
+          "03_ct_head_report.pdf",
+          "04_mri_brain_report.pdf",
+          "05_serum_biomarkers.pdf",
+          "06_genotyping_report.pdf",
+          "07_sports_medicine_followup.pdf",
+          "08_medication_reconciliation.pdf",
+          "09_referral_letter_scan.png",
+          "10_symptom_diary_scan.png",
+        ];
+    const scans = names.filter((n) => n.endsWith(".png")).length;
+    const steps: [string, string, string][] = [
+      ["read", "Reading the files", `${names.length} of ${names.length} files readable`],
+      ["extract", "Pulling out the facts", "21 fields read by the built-in extractor"],
+      ["check", "Checking them against the schema", "21 fields kept, 1 needs review"],
+      ["twin", "Building the twin", "built on the patient's own inputs"],
+      ["forecast", "Fitting the first forecast", "13 weeks with 80 percent bands"],
+    ];
+
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    for (const [step, say, detail] of steps) {
+      yield { kind: "step" as const, step, state: "running" as const, say };
+      await wait(620);
+      yield {
+        kind: "step" as const,
+        step,
+        state: "done" as const,
+        say,
+        detail,
+        ...(step === "read"
+          ? {
+              items: names.map((name) => ({
+                name,
+                kind: name.endsWith(".png") ? "image" : "text",
+                ...(name.endsWith(".png") ? { why: "a scan, read as an image" } : {}),
+              })),
+            }
+          : {}),
+      };
+    }
+
+    // The ingested patient is a real row in the mock store, so the workspace it opens
+    // afterwards has a twin, a forecast and a timeline like any other.
+    const d = db();
+    const s = d.patients[0];
+    d.ingested.push(s.patient.id);
+    yield {
+      kind: "done" as const,
+      patient_id: s.patient.id,
+      name: s.patient.name,
+      fields: 21,
+      needs_review: ["occupation"],
+      threshold: 0.6,
+      how: "template",
+      sources: {},
+      conflicts: [],
+      documents: names.map((name) => ({ name, kind: name.endsWith(".png") ? "image" : "text" })),
+      ...(scans ? {} : {}),
+    };
   },
 };
 
