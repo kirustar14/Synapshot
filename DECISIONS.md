@@ -368,3 +368,250 @@ sources are the default and the fallbacks are the safety net.
   brain fits reach 0.3 to 0.5 with per subject parameter tuning, so this is the right sign
   and not competitive. Before, no number in the project compared the model to real data at
   all.
+
+---
+
+## Phase 9: the real 3D brain, and the web call
+
+Two interfaces on top of a twin that was already built and tested. Authority order for
+this phase was the master prompt header, then spec file 1, then 2, then 3, then 4.
+
+### The cortical surface
+
+- **fsaverage5, 20484 vertices.** `nilearn.datasets.fetch_surf_fsaverage("fsaverage5")`
+  gives pial and inflated for both hemispheres at 10242 vertices each, which is the "about
+  20k vertices" the viewer is budgeted for. 40960 faces, re-indexed into one mesh.
+- **Labels come from the CBIG annotation files, and they were verified rather than
+  trusted.** `lh.Schaefer2018_100Parcels_7Networks_order.annot` and the rh one, read with
+  `nibabel.freesurfer.read_annot`. The URL was written from memory and then checked: both
+  files download, and critically their 100 region names match `templates()["names"]` in
+  order, region for region, with the `7Networks_` prefix and all. That equality is what
+  makes it safe to paint region 37's damage on the vertices the connectome calls 37. The
+  fallback projects the nilearn volume atlas onto the surface with
+  `vol_to_surf(interpolation="nearest_most_frequent")`; the last resort is a procedural
+  folded ellipsoid flagged `source: "procedural"`.
+- **The medial wall takes its neighbour's label.** 1743 vertices (8.5%) are the medial
+  wall, which is genuinely not cortex. Leaving them unlabelled puts 1743 holes in the
+  hologram, so each takes the label of its nearest labelled vertex. Every vertex therefore
+  has a label 0 to 99 and no vertex is -1. The parcellation is approximate there and the
+  viewer says so.
+- **Region centroids are a vertex, not a mean.** The spec asks for the mean of each
+  region's pial vertices. Measured, that mean sits up to 6.17 mm inside a curved parcel,
+  which both fails the 5 mm check and leaves tract endpoints floating under the cortex. So
+  the centroid is the region's own vertex nearest that mean: exactly on the surface, 0.00
+  mm worst case.
+- **Two coordinate spaces, on purpose.** `templates()["xyz"]` stays the nilearn MNI volume
+  centroids, because the strain model's edge directions, the distance decay fallback and
+  the smooth maps were all tuned against them and the cohort numbers rest on them.
+  `Twin.regions[].x,y,z` are now the surface centroids, because the only consumer of those
+  is the viewer and its tracts have to land on the cortex it draws. The two agree to 3.3 mm
+  on average and 8.6 mm at worst. Strain only uses unit edge directions, which are
+  translation invariant, so centring the mesh on the origin changes nothing in the model.
+- **The inflated surface is centred on its own centroid**, not shifted by the pial offset.
+  Each fsaverage5 inflated hemisphere arrives centred on the origin and would occupy the
+  same space as its partner, so each slides sideways until its medial face is at x = 0 with
+  a 2 mm gap, and then the joined surface is centred. Inflating expands the cortex in place
+  instead of sliding the whole brain forward and down.
+- **Border flags are 30.3% of vertices and that is correct.** The flag is 1 when any
+  neighbouring vertex has a different label, computed from the face adjacency. With 100
+  parcels over 20k vertices a parcel averages 205 vertices, so perimeters are a large share
+  of the surface. It is still a minority, and the shader draws it thin with a falloff
+  rather than as a band.
+- **Lobe tags are approximate and labelled so.** One plain English area per region, derived
+  from the Schaefer name token: Vis to occipital, SomMot to sensorimotor, DorsAttn_Post to
+  parietal, DorsAttn_FEF to frontal, SalVentAttn_FrOperIns to insula, Limbic_TempPole to
+  temporal pole, Default_pCunPCC to cingulate, and so on across all 23 tokens. These are
+  network parcels, not anatomical ones, so the tag is the lobe the parcel mostly sits in.
+  It is a reading aid for the callouts, not an anatomical claim.
+
+### Per person shape
+
+- **The synthetic T1 is an 8 cubed placeholder volume with no segmentation**, so the per
+  region thickness z scores are drawn from the patient's seed rather than measured:
+  `thick_z_i = Normal(0,1) - 1.5*(damage_i - mean damage)`. The second term is what makes
+  the damaged side visibly thinner, so the personalization slider shows something tied to
+  the injury instead of pure noise. Illustrative, and said to be on screen.
+- **The shader and the backend share one deformation formula.** `shape.deform` in Python
+  and the vertex shader run the same four steps in the same order, so `template_diff` is
+  the displacement the viewer actually draws rather than a second guess at it.
+- **The impact site is the opposite of the strain direction.** `strain.HITS` points from the
+  blow into the head, so the surface site is `-dir`, rotated about z by the same obliquity
+  angle the strain model uses. The impact vertex is the pial vertex whose direction from the
+  head centre best matches it, which keeps the marker and the tract damage from one impact.
+- **FreeSurfer uploads are a hook, not a feature.** `shape._freesurfer_base` reads
+  `data/uploads/<patient id>/surf/{lh,rh}.pial` when they exist and match the fsaverage5
+  vertex count, and sets `source: "freesurfer"`. Nothing in the UI writes to that path, so
+  in practice every patient is synthetic. The spec allowed skipping this if it ran past 30
+  minutes; the read path was cheap enough to keep, the upload path was not built.
+
+### Per region damage, healing and activity
+
+- **The damage band is the ensemble, not an assumption.** For member m,
+  `D_i(t,m) = dreg_i * exp(log d0_scale_m) * (p_m + (1-p_m)*exp(-k_m*t))`, and
+  `damage_lo` and `damage_hi` are the 10th and 90th percentiles over the 200 members. That
+  is why the band narrows as calls arrive and the filter tightens k and p, and why the
+  uncertainty layer is the one place with genuine spatial structure.
+- **The healing layer is uniform, and that is a real limit rather than a missing feature.**
+  `recovery` is this patient's k over the population mean k (the cohort mean estimate when
+  `cohort.json` exists, otherwise the prior median exp(mu_k) = 0.25). The model has exactly
+  one global recovery rate, so this number is identical for every region and the layer is
+  flat. Regional detail would need a regional k. The viewer says this on the layer.
+- **Activity is now a real per region firing rate.** It used to be one global emulator
+  summary scaled by region damage, which could not tell where the injury was. Now
+  `dmf.rates_at` evaluates the DMF transfer function at the healthy gating value with the
+  damaged SC, holding the inhibition that was tuned on the healthy brain, which is one
+  matrix product per week instead of a 30 s simulation.
+- **Activity is standardized against the deviation field, not the healthy spread.** The
+  first attempt z scored against the spread of the healthy rates across regions and
+  produced values from -24 to -1. Feedback inhibition pins every healthy region at the same
+  1.2 Hz working point by construction, so that spread is numerically zero and dividing by
+  it is meaningless. The deviation `r_i(t) - r_healthy_i` is standardized by its own spread
+  over the whole region by week block instead. Zero means healthy, negative means firing
+  below normal, and the range is about -6 to 0. Measured: week 0 mean -3.54 with a regional
+  sd of 0.99, recovering to -0.70 by week 12.
+
+### The receptor what-if
+
+- **Scope**: this is a visualization of receptor weighted gain changes in a whole brain
+  model. It is not medication advice and not a treatment recommendation. Medication stays
+  out of the agent, out of the patient texts and out of every summary, and three tests
+  enforce that: the what-if cannot move the forecast, the filter or the alerts, no summary
+  may contain a receptor or drug word, and every patient facing string still passes the
+  banned phrase filter.
+- **The maps are group averages and are currently a stand-in.** `neuromaps` is not
+  installed, so the five maps (GABA-A, NMDA, D2, 5-HT2A, mu-opioid) are smooth random maps
+  from a fixed seed and the response carries `synthetic_template: true`. The real path is
+  written against the Hansen annotations and parcellates them onto the same Schaefer-100
+  atlas the rest of the model uses.
+- **Luppi style perturbation**: each region's local recurrent weight is scaled by
+  `1 + gain * receptor_z_scaled[region]`, with the receptor map min-max scaled to 0 to 1
+  and the gain clamped to -0.5 to 0.5. Both sides are simulated for 20 s with this
+  patient's own SC and current damage, so the reported difference is the effect. All five
+  targets return a finite per region effect in about 0.7 to 1.3 s.
+
+### Regional loadings, behind REGIONAL_LOADINGS=1
+
+- **The weights are my design assumption, not a result.** Loosely motivated by what each
+  task involves and taken from no paper, which is why the API labels them a hypothesis and
+  the UI carries that badge. pursuit_gain on DorsAttn and Visual; antisaccade_err on Cont
+  and DorsAttn; saccade_latency on DorsAttn and SalVentAttn; speech_rate on SomMot and
+  SalVentAttn with the left hemisphere weighted 1.5x; recall_delayed on Default and Limbic;
+  symptom_total on Limbic, Default and Cont. Within a signal, a region's weight is also
+  multiplied by its structural strength so a hub counts for more than a sliver, and then the
+  row is normalized.
+- **Each row sums to 1, which is what keeps the forecast calibrated.** A uniformly damaged
+  brain gives every signal the same level, so turning the flag on cannot shift the overall
+  scale, only separate the signals by the spatial pattern of the injury. Measured on a
+  synthetic patient: the scalar d0 was 0.1456 and the six per signal levels came out 0.1440
+  to 0.1465.
+- **The forecast refactor is numerically identical when the level is a scalar.** `y_of` plus
+  `d_of` became `y_signals`, which evaluates each observable at its own damage level. With
+  one scalar level that is the same arithmetic in the same order, which is why the 76
+  existing tests did not move. The per signal levels live in `state["d0_vec"]`, absent
+  unless the flag is on.
+- **The loadings were re-verified with the flag on.** All 31 EnKF and API tests pass with
+  `REGIONAL_LOADINGS=1`, including the coverage and contraction gates, so no retuning was
+  needed. Attribution now gives genuinely different top tracts per signal: pursuit picks a
+  visual to visual tract, speech picks a left SomMot to SalVentAttn one, recall picks
+  Limbic to Default. Four distinct top tracts across the six signals; the two pairs that
+  share one load on overlapping networks, which is honest rather than a bug.
+
+### Why the web call replaced the FaceTime rig, and what was lost
+
+- **What it fixes.** The rig needed OBS, BlackHole, macOS screen and microphone
+  permissions, and a second device, and the FaceTime round trip put a variable delay
+  between the stimulus and the response. On the phone, the page draws the stimulus and the
+  camera records the eye on one clock, so the timing is direct.
+- **What was lost, honestly.** The phone physically ringing was the best moment in the demo
+  and it is gone; a link arriving is less theatrical. The call lag trick is gone too, and
+  with it a property worth having: on FaceTime the flash and the response came back in the
+  same returned video, so the delay cancelled exactly and nothing had to be estimated. In
+  the browser the camera lag has to be measured and subtracted, which adds its own error.
+  Measured cost: the camera lag is recovered within 7 ms of a known 80 ms, and the saccade
+  latency within 13.7 ms of its target over eight seeds, against a 20 ms gate.
+- **The rig is not deleted.** `CALL_MODE=facetime` runs the old path unchanged, and the
+  tests assert both hubs are still importable.
+
+### The web call's own decisions
+
+- **Camera latency, and a gate the FaceTime path never needed.**
+  `camera_latency = median over trials of (brightness rise in the frames) - (flash drawn)`.
+  Beyond the existing "8 of 10 flashes must come back" rule there is now a spread gate: if
+  the per trial standard deviation is above 25 ms the camera is not steady enough to time
+  anything, `flash_ok` is false and every tier B measure is dropped.
+- **The mock generator's saccades cross over 45 ms.** The first version stepped the gaze
+  instantaneously between frames. A step discontinuity makes the numerical velocity
+  gradient rise one sample before the movement starts, which biased the recovered latency
+  by -27 ms on every seed. A raised cosine crossing over 45 ms, which is what a real 10
+  degree saccade takes, brought the bias to +6 ms and the worst error to 13.7 ms.
+- **The test flashes are jittered.** Flashes exactly 1500 ms apart all land on the same
+  phase of the 30 fps frame grid, which makes the per trial spread exactly zero and leaves
+  the 25 ms gate untested. Up to 33 ms of jitter is added, which also dithers the
+  quantization and improves the estimate.
+- **Trial times are window relative.** Each task's gaze trace starts its clock at that
+  task's own first frame, so trial times are measured from the task marker in the stimulus
+  log, not from the session start. Getting this wrong silently produced no saccade latency
+  and no antisaccade error rate at all rather than a wrong number.
+- **The browser reports brow lowering where the rig reported brow raising.** The contract
+  sends `brow_down`, stored as `browDownLeft`, and the pipeline reads whichever blendshape
+  is present. Both are exploratory, but `brow_mean` therefore means different things on the
+  two capture paths and the two are not comparable week to week. Since `CALL_MODE` is global
+  and web is the default, no real patient mixes them.
+- **One task per screen.** The FaceTime script bundled several tasks into one step because
+  one agent spoke them all down a phone line. The page needs one task per screen, so the
+  same fourteen minutes is expanded from 12 steps to 19, keeping the order, the tiers and
+  the short version rule identical.
+- **The consent text changed in exactly one substantive way**: it now says the video never
+  leaves the phone and only the measurements are sent, and that the recorded voice is sent
+  for the speaking tasks because the measurements need the sound itself. That is the one
+  genuine difference in the privacy story.
+- **The page never decides a safety outcome.** It posts the seven answers and obeys the
+  returned `stop`. A red flag stops the session server side, so frames posted afterwards
+  are refused with a 409.
+- **Token handling.** 32 random bytes urlsafe, one session each, 24 hours, rate limited per
+  token and per address in process. An expired link returns 410 rather than 404 so the page
+  can say which it was. Session events record only the last six characters of a token.
+
+### Voices, comms and serving
+
+- **Generation is refused, never substituted.** The banned phrase filter runs before the
+  API call, and a line that fails it produces an error in the manifest instead of a quietly
+  swapped line. A refusal is visible; a substitution is not.
+- **The voice id is resolved, and the swap is announced.** The configured
+  `ELEVENLABS_VOICE_ID` was not on the account at all, and a free plan cannot use a library
+  voice through the API (HTTP 402). `make voices` now lists the account's usable voices,
+  picks a calm premade one, records it in the manifest and prints the id to put in `.env`.
+  25 of 45 lines generated before the free quota ran out; the other 20 fall back to the
+  browser's own speech synthesis, which is the designed behaviour and what the manifest
+  reports.
+- **The iMessage call shapes were checked against the installed packages, not guessed.**
+  Both SDKs are TypeScript, so the send happens in a Node sidecar. `spectrum-ts` 12.11
+  wants `Spectrum({projectId, projectSecret, providers: [imessage.config({})]})` and sends
+  through a space resolved from the handle; `imessage.config` is the provider builder and
+  the bare `imessage` export is a narrowing function, which is why passing it directly
+  fails. Verified by reaching a Spectrum Cloud validation error on a fake project id, which
+  means only the credentials were missing. `@photon-ai/imessage-kit` 3.0 takes
+  `{to, text}` on `sdk.send` and needs macOS.
+- **Credentials go to the sidecar in its environment, never in argv**, because argv is
+  visible to anything that can run `ps`. The sidecar redacts any long token from an error
+  string before printing it.
+- **A channel is never guessed.** `notify()` writes exactly one message row, after the
+  channel is known, and only calls it `imessage` when a real iMessage transport reported
+  success. Otherwise the row says `sms` or `mock` and the UI repeats that. An earlier
+  version let each transport write its own mock row and the thread showed the same summary
+  three times.
+- **The clinician sentence is appended outside any model's reach.** It goes on in
+  `notify.with_close`, after any model has finished with the text, and only if it is not
+  already there. A model asked to rephrase the whole message once dropped exactly that
+  sentence.
+- **The ElevenLabs clinic call is wired but not placed.** The endpoint and body shape were
+  read off this account's own convai API, which lists one agent and one Twilio backed
+  number, so the ids are real. No outbound call has actually been dialled from here, so
+  that path is untested end to end and falls back to Twilio and then to mock.
+- **cloudflared over ngrok.** The free ngrok tier shows an interstitial warning page on the
+  first visit from each browser. A patient who was told to tap a link and follow
+  instructions should not meet a warning page first. `make tunnel` prints the cloudflared
+  steps and says why.
+- **CORS closes in live mode.** The frontend is served from the same origin, so with
+  `PUBLIC_URL` set and nothing mocked the only allowed origin is that URL. Mock mode stays
+  open so a separate `npm run dev` on another port still works.

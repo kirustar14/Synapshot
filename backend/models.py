@@ -670,6 +670,14 @@ class CallStatus(BaseModel):
     error: str | None = None
 
 
+class AgentTranscript(BaseModel):
+    """One line said to the optional question and answer agent. Never scored."""
+
+    who: Literal["agent", "patient"] = "patient"
+    text: str = ""
+    t: float = 0.0
+
+
 class VoiceLine(BaseModel):
     """One generated line for the demo console voices panel."""
 

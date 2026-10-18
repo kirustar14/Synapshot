@@ -980,6 +980,39 @@ def get_call_status(token: str) -> dict:
     return out
 
 
+@app.get("/api/call/{token}/agent")
+def get_call_agent(token: str) -> dict:
+    """Whether the optional question and answer agent is available after the script.
+
+    Off by default. It is never on the safety or the measurement path: the red flag
+    decision is made from the answers by the backend, the script is fixed, and this
+    agent's transcript is stored but never scored and never fed to the twin.
+    """
+    call_row(token, want_consent=False)
+    on = bool(cfg.live_agent and cfg.eleven_agent and cfg.eleven_key)
+    return {
+        "enabled": on,
+        "agent_id": cfg.eleven_agent if on else "",
+        "banner": "This assistant is software and cannot give medical advice. It will not "
+                  "tell you what is wrong with you, and it will not tell you when you can "
+                  "go back to sport, work or driving. Ask your clinician those.",
+        "note": "Anything said here is passed to your clinician but is not measured and "
+                "does not change your results.",
+    }
+
+
+@app.post("/api/call/{token}/agent/transcript")
+def post_call_agent_transcript(token: str, body: models.AgentTranscript) -> dict:
+    """Store what was said to the optional agent. Never used for scoring or safety."""
+    row = call_row(token, want_consent=False)
+    if not cfg.live_agent:
+        raise HTTPException(404, "the question and answer agent is off")
+    sessions.store_chunk(token, "agent", "agent_line",
+                         {"who": body.who, "text": safety.clean(body.text), "t": body.t})
+    db.event(row["patient_id"], "agent_qa", {"who": body.who, "chars": len(body.text)})
+    return {"ok": True, "scored": False}
+
+
 @app.get("/api/voices", response_model=models.Voices)
 def get_voices() -> dict:
     """Every script line, its hash, and whether its mp3 exists."""
