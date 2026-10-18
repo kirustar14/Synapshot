@@ -34,11 +34,12 @@ describe("app routing", () => {
 
   it("opens on the landing page, not on a list", async () => {
     renderAt("/");
-    expect(await screen.findByRole("heading", { name: /Synapshot/ })).toBeInTheDocument();
-    expect(screen.getByText("A snapshot of your brain, every week.")).toBeInTheDocument();
-    // The landing page is a wordmark, a line and two buttons. The disclaimer footer that
-    // used to sit under them is gone; that framing lives in the Evidence drawer now.
-    expect(screen.queryByText(/Not a medical device/)).toBeNull();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /Ongoing insight for recovering minds/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Login" })).toHaveAttribute("href", "/clinic");
+    expect(screen.getByRole("heading", { name: "How Synapshot works" })).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
   });
 
   it("renders the clinic list against the mock layer", async () => {

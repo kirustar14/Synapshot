@@ -21,7 +21,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useApp } from "@/store/app";
 import Clinic from "@/pages/Clinic";
-import Home from "@/pages/Home";
+import Landing from "@/pages/Landing";
 import NotFound from "@/pages/NotFound";
 import PatientCall from "@/pages/PatientCall";
 import PatientNew from "@/pages/PatientNew";
@@ -34,7 +34,7 @@ export const queryClient = new QueryClient({
 });
 
 export const routes = [
-  { path: "/", element: <Home /> },
+  { path: "/", element: <Landing /> },
   {
     // Only the clinician routes sit behind the optional login. The patient page must
     // open from a texted link with no account, so it stays outside it.
