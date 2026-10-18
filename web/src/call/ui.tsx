@@ -353,7 +353,7 @@ export function Stage({
 }) {
   return (
     <div className="mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-[520px] flex-col px-5 pb-10 pt-[88px]">
-      {title && <h1 className="mb-2 text-xl font-extrabold">{title}</h1>}
+      {title && <h1 className="mb-3 text-[26px] font-extrabold leading-8">{title}</h1>}
       {caption !== undefined && <Captions text={caption} />}
       <div className="min-w-0 flex-1">{children}</div>
       {footer && <div className="mt-5 space-y-3">{footer}</div>}

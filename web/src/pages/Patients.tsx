@@ -1,22 +1,15 @@
 // C1 Patients, the clinic worklist. Sorted by drift z descending so the patient whose
 // measurements sit furthest from the forecast is always the first row.
 
-import { Plus } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCreatePatient, usePatients } from "@/api/client";
-import {
-  Empty,
-  ErrorState,
-  FlagChip,
-  Loading,
-  PageHeader,
-  Panel,
-  SyntheticBadge,
-  fmtDate,
-} from "@/components/common";
-import { DriftBar } from "@/components/panels/DriftBar";
+import { Empty, ErrorState, FlagChip, Loading, fmtDate } from "@/components/common";
+import { CohortRadar } from "@/components/panels/CohortRadar";
+import { DriftTrack, driftState } from "@/components/panels/DriftTrack";
+import type { PatientRow } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 /** The add patient dialog. Creates a synthetic patient, then opens its model inputs screen. */
 function AddPatient() {
@@ -62,7 +55,10 @@ function AddPatient() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      <Button
+        onClick={() => setOpen(true)}
+        className="bg-[var(--signal)] text-[var(--instrument-ink)] shadow-[0_0_28px_-6px_rgb(95_227_192/0.7)] hover:bg-[var(--signal)]/90"
+      >
         <Plus aria-hidden /> Add patient
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -111,93 +107,182 @@ function AddPatient() {
   );
 }
 
+const needsLook = (p: PatientRow) => p.drift_z > 2 || p.flags.length > 0;
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+const NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
+
+/** The page headline says who needs attention, in words, before any table. */
+function headline(rows: PatientRow[]): { title: string; detail: string } {
+  const flagged = rows.filter(needsLook);
+  if (flagged.length === 0)
+    return { title: "Everyone is on track", detail: "Every check-in this week landed where the twin expected it." };
+  const n = flagged.length;
+  const count = NUMBER_WORDS[n] ?? String(n);
+  const title = `${count} patient${n === 1 ? " needs" : "s need"} a look`;
+  const drifting = flagged.filter((p) => p.drift_z > 2).sort((a, b) => b.drift_z - a.drift_z);
+  const first = drifting[0]?.name.split(" ")[0];
+  const rest = n - (first ? 1 : 0);
+  const restLine = rest > 0 ? `${(NUMBER_WORDS[rest] ?? String(rest)).toLowerCase()} more ${rest === 1 ? "has" : "have"} an open flag from the check-in` : "";
+  const detail = first
+    ? `${first}'s measurements have left the forecast band${restLine ? `, and ${restLine}` : ""}. Everyone else is tracking where the twin expected.`
+    : `${restLine.charAt(0).toUpperCase()}${restLine.slice(1)}. Everyone else is tracking where the twin expected.`;
+  return { title, detail };
+}
+
+function Status({ p }: { p: PatientRow }) {
+  if (p.flags.length > 0)
+    return (
+      <span className="flex flex-wrap gap-1.5">
+        {p.flags.map((f) => (
+          <FlagChip key={f} flag={f} />
+        ))}
+      </span>
+    );
+  const { tone, word } = driftState(p.drift_z);
+  return (
+    <span className="flex items-center gap-2 text-sm font-bold text-foreground/80">
+      <span className={cn("h-2 w-2 rounded-full", tone === "ok" ? "bg-success" : "bg-synthetic")} aria-hidden />
+      {tone === "ok" ? "On track" : word}
+    </span>
+  );
+}
+
+/** "today", "yesterday", "3 days ago", then a date. */
+function relDay(iso: string): string {
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  return `on ${fmtDate(iso)}`;
+}
+
+const GRID = "grid grid-cols-[minmax(220px,1.3fr)_150px_minmax(240px,1.6fr)_150px_20px] items-center gap-4";
+
 export default function Patients() {
   const { data, isLoading, error, refetch } = usePatients();
   const [alertsOnly, setAlertsOnly] = useState(false);
 
   const rows = useMemo(() => {
-    const all = [...(data ?? [])].sort((a, b) => b.drift_z - a.drift_z);
-    return alertsOnly ? all.filter((p) => p.flags.length > 0) : all;
+    const all = [...(data ?? [])].sort((a, b) => Number(needsLook(b)) - Number(needsLook(a)) || b.drift_z - a.drift_z);
+    return alertsOnly ? all.filter(needsLook) : all;
   }, [data, alertsOnly]);
+
+  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const { title, detail } = headline(data ?? []);
 
   return (
     <>
-      <PageHeader
-        title="Patient workspace"
-        subtitle="Everyone on weekly video check-ins, sorted by how far this week's measurements sit from the forecast."
-        actions={
-          <>
-            <SyntheticBadge label="Synthetic cohort" className="self-center" />
+      <section className="instrument mb-6 grid gap-8 p-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] xl:items-center">
+        <div className="min-w-0">
+          <p className="font-mono text-xs font-semibold tracking-wide text-[var(--on-instrument)]/60">{today}</p>
+          <h1 className="mt-2 text-[34px] font-extrabold leading-10 text-white">{data ? title : "Patients"}</h1>
+          {data && <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-[var(--on-instrument)]/75">{detail}</p>}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <AddPatient />
-          </>
-        }
-      />
+            <label
+              htmlFor="alerts-only"
+              className="glass flex h-11 cursor-pointer items-center gap-3 rounded-full px-4 text-sm font-bold text-[var(--on-instrument)]"
+            >
+              <Switch id="alerts-only" checked={alertsOnly} onCheckedChange={setAlertsOnly} />
+              Needs a look only
+            </label>
+          </div>
+        </div>
+        {data && data.length > 0 && (
+          <div className="glass min-w-0 rounded-[22px] px-8 pb-5 pt-6">
+            <p className="mb-2 text-xs font-bold text-[var(--on-instrument)]/60">Everyone, this week against their forecast</p>
+            <CohortRadar rows={data} />
+          </div>
+        )}
+      </section>
 
       {isLoading && <Loading label="Loading patients" />}
       {error && <ErrorState error={error} onRetry={() => refetch()} />}
 
       {data && (
         <>
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              {data.length} patients loaded from the data layer, {data.filter((p) => p.flags.length > 0).length} with an
-              open flag.
-            </p>
-            <span className="flex items-center gap-2">
-              <Switch id="alerts-only" checked={alertsOnly} onCheckedChange={setAlertsOnly} />
-              <Label htmlFor="alerts-only" className="text-sm">
-                Alerts only
-              </Label>
-            </span>
-          </div>
-
           {data.length === 0 && <Empty>No patients yet. Add one to get started.</Empty>}
-          {data.length > 0 && rows.length === 0 && <Empty>No patient has an open flag right now.</Empty>}
+          {data.length > 0 && rows.length === 0 && <Empty>Nobody needs a look right now.</Empty>}
 
           {rows.length > 0 && (
-            <Panel className="p-0 sm:p-2">
-              <Table className="patient-table">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Patient</TableHead>
-                    <TableHead>Week</TableHead>
-                    <TableHead>Drift z, highest first</TableHead>
-                    <TableHead>Last call</TableHead>
-                    <TableHead>Flags</TableHead>
-                    <TableHead>Data</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        <Link to={`/patients/${p.id}`} className="font-bold hover:underline">
-                          {p.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{p.week} of 12</TableCell>
-                      <TableCell>
-                        <DriftBar z={p.drift_z} />
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{fmtDate(p.last_call)}</TableCell>
-                      <TableCell>
-                        {p.flags.length === 0 ? (
-                          <span className="text-xs text-muted-foreground">none</span>
-                        ) : (
-                          <span className="flex flex-wrap gap-1.5">
-                            {p.flags.map((f) => (
-                              <FlagChip key={f} flag={f} />
-                            ))}
-                          </span>
+            <section className="panel overflow-x-auto p-2" aria-label="Patients">
+              <div className={cn(GRID, "h-11 min-w-[860px] px-5 text-[13px] font-bold text-muted-foreground")}>
+                <span>Patient</span>
+                <span>Progress</span>
+                <span>This week against the forecast</span>
+                <span>Status</span>
+                <span />
+              </div>
+              <ul className="min-w-[860px] space-y-1">
+                {rows.map((p) => {
+                  const alert = p.drift_z > 2;
+                  return (
+                    <li key={p.id}>
+                      <Link
+                        to={`/patients/${p.id}`}
+                        className={cn(
+                          GRID,
+                          "group min-h-[76px] rounded-[18px] px-5 py-3 transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+                          alert ? "bg-destructive-soft/70 hover:bg-destructive-soft" : "hover:bg-muted/70",
                         )}
-                      </TableCell>
-                      <TableCell>{p.synthetic && <SyntheticBadge />}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Panel>
+                      >
+                        <span className="flex min-w-0 items-center gap-3.5">
+                          <span
+                            className={cn(
+                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-extrabold text-foreground/75",
+                              alert ? "bg-card" : "bg-muted",
+                            )}
+                            aria-hidden
+                          >
+                            {initials(p.name)}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-base font-extrabold">{p.name}</span>
+                            <span className="block text-[13px] font-semibold text-muted-foreground">
+                              {p.last_call ? `Checked in ${relDay(p.last_call)}` : "No check-in yet"}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="space-y-1.5">
+                          <span className="block text-sm font-bold">Week {p.week} of 12</span>
+                          <span className="block h-1.5 w-28 overflow-hidden rounded-full bg-muted" aria-hidden>
+                            <span
+                              className="block h-full rounded-full bg-primary"
+                              style={{ width: `${Math.max(4, (p.week / 12) * 100)}%` }}
+                            />
+                          </span>
+                        </span>
+                        <DriftTrack z={p.drift_z} />
+                        <Status p={p} />
+                        <ChevronRight
+                          className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                          aria-hidden
+                        />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-7 text-[13px] font-semibold text-muted-foreground">
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-7 rounded-full bg-primary-soft" aria-hidden /> Where the twin expected this week
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden /> What the check-in measured
+            </span>
+            {data.every((p) => p.synthetic) && <span>Every patient here is synthetic.</span>}
+          </div>
         </>
       )}
     </>

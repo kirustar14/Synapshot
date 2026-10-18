@@ -63,28 +63,31 @@ export function SignalChart({
   weeks,
   week,
   height = 150,
+  caption = true,
 }: {
   signal: Signal;
   weeks: number[];
   week: number;
   height?: number;
+  caption?: boolean;
 }) {
   const rows = toRows(signal, weeks);
 
   return (
     <figure className="m-0">
-      <figcaption className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+      <figcaption className={caption ? "mb-1 flex flex-wrap items-baseline justify-between gap-2" : "sr-only"}>
         <span className="text-sm font-bold">{signal.label}</span>
         <span className="text-[11px] text-muted-foreground">
-          {signal.unit} &middot; tier {signal.tier} &middot; {signal.obs.length} measured
+          {signal.unit ? `${signal.unit}, ` : ""}
+          {signal.obs.length} measured
         </span>
       </figcaption>
       <div style={{ height }} role="img" aria-label={`${signal.label} forecast in ${signal.unit} with an 80 percent band`}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+          <ComposedChart data={rows} margin={{ top: 6, right: 8, bottom: 0, left: -6 }}>
             <CartesianGrid stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="week" {...axisProps} />
-            <YAxis {...axisProps} width={46} domain={["auto", "auto"]} />
+            <YAxis {...axisProps} width={44} domain={["auto", "auto"]} tickFormatter={(v: number) => String(+v.toFixed(2))} />
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={tooltipLabelStyle}

@@ -59,58 +59,60 @@
   --color-lab-lilac: var(--lab-lilac);
   --color-lab-peach: var(--lab-peach);
   --color-lab-surface: var(--lab-surface);
-  --shadow-soft: 0 3px 20px -8px oklch(0.28 0.015 250 / 0.06);
-  --shadow-lift: 0 8px 32px -10px oklch(0.28 0.015 250 / 0.12);
+  --shadow-soft: 0 4px 24px -12px rgb(23 34 31 / 0.14);
+  --shadow-lift: 0 14px 40px -16px rgb(23 34 31 / 0.22);
 }
 
 :root {
-  --radius: 1.25rem;
-  --background: oklch(0.985 0.002 260);
-  --foreground: oklch(0.29 0.017 255);
-  --lab-lilac: oklch(0.935 0.022 285);
-  --lab-peach: oklch(0.945 0.032 55);
-  --lab-surface: oklch(0.964 0.006 255);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.02 220);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.02 220);
-  --primary: oklch(0.43 0.065 172);
-  --primary-foreground: oklch(0.99 0.005 186);
-  --primary-soft: oklch(0.946 0.024 166);
-  --secondary: oklch(0.958 0.006 255);
-  --secondary-foreground: oklch(0.28 0.02 220);
-  --muted: oklch(0.958 0.006 255);
-  --muted-foreground: oklch(0.53 0.015 255);
-  --accent: oklch(0.946 0.024 166);
-  --accent-foreground: oklch(0.37 0.06 172);
-  --destructive: oklch(0.56 0.21 25);
-  --destructive-foreground: oklch(0.99 0 0);
-  --destructive-soft: oklch(0.96 0.03 25);
-  --synthetic: oklch(0.78 0.15 75);
-  --synthetic-foreground: oklch(0.38 0.09 60);
-  --synthetic-soft: oklch(0.96 0.05 85);
-  --success: oklch(0.58 0.13 155);
-  --success-soft: oklch(0.95 0.04 155);
-  --band: oklch(0.51 0.09 186 / 0.16);
-  --bubble-out: oklch(0.62 0.19 255);
-  --bubble-in: oklch(0.92 0.004 250);
-  --bubble-in-foreground: oklch(0.2 0 0);
-  --border: oklch(0.928 0.006 255);
-  --input: oklch(0.9 0.008 255);
-  --ring: oklch(0.43 0.065 172);
-  --chart-1: oklch(0.43 0.065 172);
-  --chart-2: oklch(0.6 0.12 240);
-  --chart-3: oklch(0.7 0.14 75);
-  --chart-4: oklch(0.55 0.15 300);
-  --chart-5: oklch(0.56 0.21 25);
-  --sidebar: oklch(0.976 0.004 255);
-  --sidebar-foreground: oklch(0.3 0.02 220);
-  --sidebar-primary: oklch(0.51 0.09 186);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(1 0 0);
-  --sidebar-accent-foreground: oklch(0.37 0.06 172);
-  --sidebar-border: oklch(0.928 0.006 255);
-  --sidebar-ring: oklch(0.51 0.09 186);
+  /* Alpine morning: snow ground, white surfaces, evergreen primary. Designed in Paper,
+     "Clinic app · polish" page of the UNNAMED file. */
+  --radius: 1.5rem;
+  --background: #f4f6f5;
+  --foreground: #17221f;
+  --lab-lilac: #e9eeec;
+  --lab-peach: #f8eed9;
+  --lab-surface: #f7f9f8;
+  --card: #ffffff;
+  --card-foreground: #17221f;
+  --popover: #ffffff;
+  --popover-foreground: #17221f;
+  --primary: #1d5f53;
+  --primary-foreground: #ffffff;
+  --primary-soft: #e5f1ed;
+  --secondary: #eef2f0;
+  --secondary-foreground: #17221f;
+  --muted: #eef2f0;
+  --muted-foreground: #5f6b67;
+  --accent: #e5f1ed;
+  --accent-foreground: #1d5f53;
+  --destructive: #c8463b;
+  --destructive-foreground: #ffffff;
+  --destructive-soft: #fbe7e4;
+  --synthetic: #c98a1b;
+  --synthetic-foreground: #7a5410;
+  --synthetic-soft: #f8eed9;
+  --success: #2e8b6e;
+  --success-soft: #e3f3ec;
+  --band: rgb(29 95 83 / 0.13);
+  --bubble-out: #1d5f53;
+  --bubble-in: #eef2f0;
+  --bubble-in-foreground: #17221f;
+  --border: #e3e8e6;
+  --input: #dbe2df;
+  --ring: #1d5f53;
+  --chart-1: #1d5f53;
+  --chart-2: #3f7fb0;
+  --chart-3: #c98a1b;
+  --chart-4: #7b62a8;
+  --chart-5: #c8463b;
+  --sidebar: #f4f6f5;
+  --sidebar-foreground: #3e4a46;
+  --sidebar-primary: #1d5f53;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #1d5f53;
+  --sidebar-border: transparent;
+  --sidebar-ring: #1d5f53;
 }
 
 .dark {
@@ -162,14 +164,96 @@
     font-feature-settings: "tnum";
     -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3, p, a, span, th, dt { letter-spacing: 0; }
+  p, a, span, th, dt { letter-spacing: 0; }
+  h1, h2 { letter-spacing: -0.02em; }
+  :focus-visible { outline-color: var(--color-ring); }
   button, input, textarea, select { font: inherit; }
 }
 
+/* Surfaces float on the tinted ground with one soft shadow and no outline. Dark mode has no
+   ground contrast to lean on, so it keeps a hairline instead. */
 @utility panel {
   background: var(--color-card);
   border-radius: var(--radius);
-  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
+}
+.dark .panel { box-shadow: none; border: 1px solid var(--color-border); }
+
+/* ---------------------------------------------------------------- lab instrument
+   The one dark, glowing surface per screen: deep evergreen glass with a faint dot grid and
+   mint readouts. Everything else stays light and quiet so this reads as the signature. */
+:root {
+  --instrument-ink: #0c211d;
+  --instrument: #123630;
+  --instrument-hi: #1b4a41;
+  --signal: #5fe3c0;
+  --signal-soft: rgb(95 227 192 / 0.14);
+  --alarm: #ff7a6b;
+  --alarm-text: #ff9b8f;
+  --on-instrument: #e7f4ef;
+}
+
+@utility instrument {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  color: var(--on-instrument);
+  background: radial-gradient(120% 140% at 85% 15%, var(--instrument-hi) 0%, var(--instrument) 45%, var(--instrument-ink) 100%);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: 0 24px 60px -28px rgb(12 33 29 / 0.55);
+}
+.instrument::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(circle, rgb(95 227 192 / 0.13) 1px, transparent 1.3px);
+  background-size: 18px 18px;
+  mask-image: linear-gradient(115deg, transparent 0%, black 45%, black 100%);
+  pointer-events: none;
+}
+
+/* Glass tiles and buttons that sit on the instrument. */
+@utility glass {
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid rgb(95 227 192 / 0.16);
+}
+
+/* The light ground carries the same dot grid, much fainter, so the whole app shares a texture. */
+.lab-ground {
+  background-image:
+    radial-gradient(600px 360px at 0% 0%, rgb(95 227 192 / 0.16), transparent 70%),
+    radial-gradient(circle, rgb(29 95 83 / 0.09) 1px, transparent 1.2px);
+  background-size: auto, 22px 22px;
+  background-attachment: fixed;
+}
+.dark .lab-ground { background-image: none; }
+
+/* The one orchestrated motion: dots glide into place and lines draw themselves, once, on load.
+   The reduced motion rule further down switches all of it off. */
+/* Animates the standalone scale property, so it never fights the translate that centres a dot. */
+@keyframes dot-in {
+  from { opacity: 0; scale: 0.3; }
+  to { opacity: 1; scale: 1; }
+}
+@utility dot-in {
+  animation: dot-in 520ms cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+@keyframes draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@utility draw-in {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw 1100ms cubic-bezier(0.65, 0, 0.35, 1) 150ms forwards;
+}
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(255 122 107 / 0.45); }
+  50% { box-shadow: 0 0 0 7px rgb(255 122 107 / 0); }
+}
+@utility breathe {
+  animation: breathe 2.4s ease-in-out infinite;
 }
 
 .patient-table th { white-space: nowrap; font-weight: 700; text-transform: none; font-size: 12px; }

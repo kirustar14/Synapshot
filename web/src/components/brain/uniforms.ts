@@ -24,6 +24,7 @@ export function cortexUniforms(tex: ViewerTextures): Uniforms {
     uPersonal: { value: 1 },
     uBump: { value: 0 },
     uRadius: { value: 25 },
+    uImpactGlow: { value: 0 },
     uScale: { value: new THREE.Vector3(1, 1, 1) },
     uHemi: { value: 0 },
     uSplit: { value: 0 },

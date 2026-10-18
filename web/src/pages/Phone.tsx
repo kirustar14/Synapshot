@@ -44,7 +44,7 @@ function Thread({ patientId }: { patientId: string }) {
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-soft text-primary">
           <Brain className="h-4 w-4" strokeWidth={1.6} aria-hidden />
         </span>
-        <span className="text-sm font-bold">UNNAMED care line</span>
+        <span className="text-sm font-bold">Synapshot care line</span>
       </div>
       <div ref={box} className="flex-1 space-y-3 overflow-y-auto px-3 py-4" aria-live="polite" aria-label="Message thread">
         {isLoading && <Loading label="Loading messages" />}
@@ -99,7 +99,7 @@ export default function Phone() {
           <Smartphone className="h-5 w-5" strokeWidth={1.5} aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="text-lg font-black leading-tight">unnamed.</p>
+          <p className="text-lg font-black leading-tight">synapshot.</p>
           <p className="truncate text-[11px] text-muted-foreground">
             Phone mock{patient.data ? ` for ${patient.data.name}` : ""}
           </p>

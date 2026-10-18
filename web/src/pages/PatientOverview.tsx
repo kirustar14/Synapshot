@@ -1,12 +1,12 @@
 // C2 Patient overview. The one screen a clinician reads before a call, and the one that prints
 // as a single page report.
 
-import { Boxes, Eye, FileDown, GitCompare, ListChecks, PhoneCall, StickyNote } from "lucide-react";
+import { Boxes, Eye, FileDown, GitCompare, ListChecks, MoreHorizontal, PhoneCall, StickyNote } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { useForecast, useNote } from "@/api/client";
-import type { Signal } from "@/api/types";
+import { useForecast, useNote, usePatients } from "@/api/client";
+import type { Alert, Patient, Signal } from "@/api/types";
 import {
   Empty,
   ErrorState,
@@ -35,6 +35,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { SignalTile } from "@/components/panels/SignalTile";
+import { cn } from "@/lib/utils";
 import { usePatientContext } from "./PatientLayout";
 
 const GROUPS: { key: Signal["group"]; label: string }[] = [
@@ -44,8 +52,34 @@ const GROUPS: { key: Signal["group"]; label: string }[] = [
   { key: "symptoms", label: "Symptoms" },
 ];
 
+/** The one sentence a clinician needs before anything else, built from the open alerts. */
+function status(patient: Patient): { tone: "alert" | "watch" | "ok"; chip: string; title: string; detail: string } {
+  const by = (t: Alert["type"]) => patient.alerts.find((a) => a.type === t);
+  const red = by("red_flag");
+  const drift = by("drift");
+  const poor = by("low_quality");
+  const missed = by("missed_call");
+  const called = (a: Alert) => (a.called ? " The clinic has been called." : "");
+  if (red)
+    return { tone: "alert", chip: "Red flag", title: "A safety question was answered yes", detail: red.trigger + called(red) };
+  if (drift)
+    return { tone: "alert", chip: "Drifting", title: "Recovery has slipped outside the forecast", detail: drift.trigger + called(drift) };
+  if (poor)
+    return { tone: "watch", chip: "Poor video", title: "The last check-in could not be measured well", detail: poor.trigger };
+  if (missed)
+    return { tone: "watch", chip: "Missed call", title: "This week's check-in was missed", detail: missed.trigger };
+  return {
+    tone: "ok",
+    chip: "On track",
+    title: "Recovering the way the twin expected",
+    detail: patient.last_call
+      ? "Every measurement from the last check-in landed inside its forecast band."
+      : "No check-in yet. The first call link has not been opened.",
+  };
+}
+
 /** The add note dialog. Notes go to the patient record, never to the patient. */
-function AddNote({ patientId }: { patientId: string }) {
+function AddNote({ patientId, onDark = false }: { patientId: string; onDark?: boolean }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const note = useNote();
@@ -65,7 +99,11 @@ function AddNote({ patientId }: { patientId: string }) {
 
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
+      <Button
+        variant="outline"
+        onClick={() => setOpen(true)}
+        className={onDark ? "glass text-[var(--on-instrument)] hover:bg-white/10 hover:text-white" : undefined}
+      >
         <StickyNote aria-hidden /> Add note
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -109,6 +147,13 @@ export default function PatientOverview() {
   const saccade = useMemo(() => signals.find((s) => s.key === "saccade_latency"), [signals]);
   const saccadeFeature = lastCall?.features.find((f) => f.name === "Saccade latency") ?? null;
 
+  const st = status(patient);
+  const drift = usePatients().data?.find((r) => r.id === patient.id)?.drift_z ?? null;
+  const tiles = GROUPS.flatMap((g) => {
+    const signal = signals.find((x) => x.group === g.key && x.tier === "A" && x.obs.length > 0);
+    return signal ? [{ group: g.label, signal }] : [];
+  });
+
   const requestCallback = () =>
     note.mutate(
       { id: patient.id, text: "Callback requested by the clinician from the overview screen." },
@@ -120,30 +165,124 @@ export default function PatientOverview() {
 
   return (
     <div className="space-y-5">
-      <div className="no-print flex flex-wrap gap-2">
-        <Button asChild variant="outline">
-          <Link to={`/patients/${patient.id}/twin`}>
-            <Boxes aria-hidden /> Open twin viewer
+      <section className="instrument flex flex-col gap-7 p-8 xl:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-3.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className={cn(
+                "flex h-7 items-center gap-2 rounded-full border px-3 text-[13px] font-extrabold",
+                st.tone === "alert" && "border-[var(--alarm)]/45 bg-[var(--alarm)]/15 text-[var(--alarm-text)]",
+                st.tone === "watch" && "border-synthetic/50 bg-synthetic/15 text-[#f3c76b]",
+                st.tone === "ok" && "border-[var(--signal)]/40 bg-[var(--signal-soft)] text-[var(--signal)]",
+              )}
+            >
+              <span
+                className={cn(
+                  "h-[7px] w-[7px] rounded-full",
+                  st.tone === "alert" && "breathe bg-[var(--alarm)]",
+                  st.tone === "watch" && "bg-[#f3c76b]",
+                  st.tone === "ok" && "bg-[var(--signal)]",
+                )}
+                aria-hidden
+              />
+              {st.chip}
+            </span>
+            <span className="font-mono text-xs font-semibold tracking-wide text-[var(--on-instrument)]/60">
+              Week {String(patient.week).padStart(2, "0")}/12
+              {lastCall ? `, last check-in ${fmtDate(lastCall.date)}` : ""}
+            </span>
+          </div>
+          <h2 className="max-w-[520px] text-[30px] font-extrabold leading-9 tracking-tight text-white">{st.title}</h2>
+          <p className="max-w-[500px] text-[15px] leading-[23px] text-[var(--on-instrument)]/75">{st.detail}</p>
+
+          <dl className="mt-1.5 flex flex-wrap gap-2.5">
+            {[
+              {
+                k: "Drift",
+                v: drift == null ? "None" : `${drift > 0 ? "+" : drift < 0 ? "\u2212" : ""}${Math.abs(drift).toFixed(1)}z`,
+                alarm: (drift ?? 0) > 2,
+              },
+              { k: "Inside the band", v: `${Math.round(patient.coverage * 100)}%`, alarm: false },
+              { k: "Twin fit", v: patient.fc_fit == null ? "None" : patient.fc_fit.toFixed(2), alarm: false },
+            ].map((r) => (
+              <div key={r.k} className="glass w-[136px] rounded-2xl px-4 py-3">
+                <dt className="text-xs font-bold text-[var(--on-instrument)]/60">{r.k}</dt>
+                <dd
+                  className={cn(
+                    "mt-1 font-mono text-[22px] font-bold leading-7",
+                    r.alarm ? "text-[var(--alarm-text)]" : "text-[var(--signal)]",
+                  )}
+                >
+                  {r.v}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="no-print mt-3 flex flex-wrap items-center gap-2.5">
+            <Button
+              onClick={requestCallback}
+              disabled={note.isPending}
+              className="bg-[var(--signal)] text-[var(--instrument-ink)] shadow-[0_0_28px_-6px_rgb(95_227_192/0.7)] hover:bg-[var(--signal)]/90"
+            >
+              <PhoneCall aria-hidden /> Request callback
+            </Button>
+            <AddNote patientId={patient.id} onDark />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="glass h-11 w-11 text-[var(--on-instrument)] hover:bg-white/10 hover:text-white"
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="rounded-2xl p-1.5">
+                <DropdownMenuItem asChild className="rounded-xl">
+                  <Link to={`/patients/${patient.id}/twin`}>
+                    <Boxes aria-hidden /> Open brain twin
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className="rounded-xl">
+                  <Link to={`/patients/${patient.id}/compare`}>
+                    <GitCompare aria-hidden /> Compare scenarios
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className="rounded-xl">
+                  <Link to={`/patients/${patient.id}/calls`}>
+                    <ListChecks aria-hidden /> Check-in log
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="rounded-xl" onSelect={() => window.print()}>
+                  <FileDown aria-hidden /> Export report
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        <div className="no-print w-full shrink-0 xl:w-[460px]">
+          <div className="glass rounded-[22px] p-2 [&_.text-muted-foreground]:text-[var(--on-instrument)]/55">
+            <CompactTwin patientId={patient.id} week={patient.week} />
+          </div>
+          <Link
+            to={`/patients/${patient.id}/twin`}
+            className="mt-2 inline-flex items-center gap-1 px-2 text-[13px] font-bold text-[var(--signal)] hover:underline"
+          >
+            Open the full brain twin
           </Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to={`/patients/${patient.id}/compare`}>
-            <GitCompare aria-hidden /> Open scenario compare
-          </Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link to={`/patients/${patient.id}/calls`}>
-            <ListChecks aria-hidden /> Open call log
-          </Link>
-        </Button>
-        <Button variant="outline" onClick={requestCallback} disabled={note.isPending}>
-          <PhoneCall aria-hidden /> Request callback
-        </Button>
-        <AddNote patientId={patient.id} />
-        <Button variant="outline" onClick={() => window.print()}>
-          <FileDown aria-hidden /> Export report
-        </Button>
-      </div>
+        </div>
+      </section>
+
+      {tiles.length > 0 && (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {tiles.map(({ group, signal }) => (
+            <SignalTile key={signal.key} title={group} signal={signal} weeks={weeks} />
+          ))}
+        </div>
+      )}
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Injury summary" subtitle="From the injury form, not from any scan.">
@@ -222,7 +361,7 @@ export default function PatientOverview() {
               {GROUPS.map((g) => {
                 const group = signals.filter((s) => s.group === g.key && s.tier === "A");
                 return (
-                  <section key={g.key} className="rounded-xl border p-4">
+                  <section key={g.key} className="rounded-[20px] bg-lab-surface p-5">
                     <h3 className="mb-2 text-sm font-extrabold">{g.label}</h3>
                     {group.length === 0 ? (
                       <Empty>Nothing in this group was measurable on the calls so far.</Empty>
@@ -241,7 +380,7 @@ export default function PatientOverview() {
         )}
       </Panel>
 
-      <div className="grid gap-5 xl:grid-cols-3">
+      <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Calibration" subtitle="Is the band honest, and is the model getting surer?">
           <p className="text-3xl font-extrabold">{Math.round(patient.coverage * 100)}%</p>
           <p className="text-xs text-muted-foreground">
@@ -297,7 +436,7 @@ export default function PatientOverview() {
               )}
             </>
           ) : (
-            <div className="rounded-xl border bg-muted p-4">
+            <div className="rounded-2xl bg-lab-surface p-4">
               <p className="flex items-center gap-2 text-sm font-bold text-muted-foreground">
                 <Eye className="h-4 w-4" aria-hidden /> Not measured
                 <TierChip tier="B" />
@@ -311,18 +450,6 @@ export default function PatientOverview() {
           )}
         </Panel>
 
-        <Panel title="Pupil light reflex" subtitle="Roadmap, not built.">
-          <div className="rounded-xl border border-dashed bg-muted/50 p-4 opacity-70">
-            <p className="text-sm font-bold text-muted-foreground">Roadmap tile</p>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              A pupil light reflex measure would need a controlled flash and a known screen brightness. The phone camera
-              can do it in principle, but it is not built and nothing on this screen uses it.
-            </p>
-            <Button variant="outline" size="sm" className="mt-3" disabled>
-              Not available
-            </Button>
-          </div>
-        </Panel>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
@@ -380,13 +507,6 @@ export default function PatientOverview() {
         </Panel>
       </div>
 
-      <Panel
-        className="no-print"
-        title="Damage at this week"
-        subtitle={`Where the model puts the damage at week ${patient.week}. A model output, not a scan.`}
-      >
-        <CompactTwin patientId={patient.id} week={patient.week} />
-      </Panel>
     </div>
   );
 }

@@ -1,4 +1,5 @@
-// Shared header for the five patient routes: facts, badges, and the tab strip.
+// Shared header for the five patient routes: who this is, any open flags, and the section tabs
+// as one segmented control.
 
 import { ChevronLeft } from "lucide-react";
 import { Link, NavLink } from "react-router-dom";
@@ -8,42 +9,52 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { path: "", label: "Overview", end: true },
-  { path: "upload", label: "Model inputs" },
   { path: "twin", label: "Brain twin" },
-  { path: "compare", label: "Scenarios" },
   { path: "calls", label: "Check-ins" },
+  { path: "compare", label: "Scenarios" },
+  { path: "upload", label: "Model inputs" },
 ];
+
+const injuredOn = (iso: string) =>
+  new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric" });
 
 export function PatientHeader({ patient }: { patient: Patient }) {
   const flags = Array.from(new Set(patient.alerts.map((a) => a.type)));
   return (
-    <div className="mb-6">
-      <Link
-        to="/"
-        className="no-print mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <ChevronLeft className="h-3 w-3" aria-hidden /> Patients
-      </Link>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-extrabold">{patient.name}</h1>
-        <SyntheticBadge />
-        {patient.template_only && (
-          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">Template only</span>
-        )}
-        {patient.low_fidelity && (
-          <span className="rounded-full border border-synthetic/40 bg-synthetic-soft px-2 py-0.5 text-[11px] text-synthetic-foreground">
-            Low fidelity
-          </span>
-        )}
-        {flags.map((f) => (
-          <FlagChip key={f} flag={f} />
-        ))}
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
+      <div className="min-w-0">
+        <Link
+          to="/"
+          className="no-print mb-2 inline-flex items-center gap-1 text-sm font-bold text-primary hover:underline"
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden /> Patients
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-[34px] font-extrabold leading-10">{patient.name}</h1>
+          <SyntheticBadge />
+          {patient.template_only && (
+            <span className="flex h-6 items-center rounded-full bg-muted px-2.5 text-xs font-bold text-muted-foreground">
+              Template only
+            </span>
+          )}
+          {patient.low_fidelity && (
+            <span className="flex h-6 items-center rounded-full bg-synthetic-soft px-2.5 text-xs font-bold text-synthetic-foreground">
+              Low fidelity
+            </span>
+          )}
+          {flags.map((f) => (
+            <FlagChip key={f} flag={f} />
+          ))}
+        </div>
+        <p className="mt-1.5 text-[15px] font-semibold text-muted-foreground">
+          {patient.age} years old, {patient.sex === "F" ? "female" : "male"}, injured {injuredOn(patient.injury.date)},{" "}
+          {patient.injury.mechanism}
+        </p>
       </div>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {patient.age} y, {patient.sex} &middot; Week {patient.week} of 12 &middot; Injured {patient.injury.date} &middot;{" "}
-        {patient.injury.mechanism}
-      </p>
-      <nav aria-label="Patient sections" className="no-print mt-5 flex gap-2 overflow-x-auto border-b pb-3">
+      <nav
+        aria-label="Patient sections"
+        className="no-print flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-secondary p-1"
+      >
         {TABS.map((t) => (
           <NavLink
             key={t.label}
@@ -51,10 +62,10 @@ export function PatientHeader({ patient }: { patient: Patient }) {
             end={t.end}
             className={({ isActive }) =>
               cn(
-                "whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold transition-colors",
+                "flex h-9 items-center whitespace-nowrap rounded-full px-4 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-ring",
                 isActive
-                  ? "bg-primary-soft text-primary"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "bg-card font-extrabold text-foreground shadow-soft"
+                  : "font-bold text-muted-foreground hover:text-foreground",
               )
             }
           >

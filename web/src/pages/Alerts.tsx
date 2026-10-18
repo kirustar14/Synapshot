@@ -44,7 +44,7 @@ export default function Alerts() {
     <>
       <Button
         size="sm"
-        variant="outline"
+        variant="secondary"
         onClick={() =>
           ack.mutate(a.id, {
             onSuccess: () => toast.success("Alert acknowledged"),
@@ -57,7 +57,7 @@ export default function Alerts() {
       </Button>
       <Button
         size="sm"
-        variant="outline"
+        variant="secondary"
         onClick={() =>
           callPatient.mutate(a.id, {
             onSuccess: () => toast.success("Clinic call recorded, the patient has been told to expect it"),
@@ -68,7 +68,7 @@ export default function Alerts() {
       >
         <PhoneCall aria-hidden /> {a.called ? "Patient called" : "Call patient"}
       </Button>
-      <Button size="sm" variant="outline" onClick={() => resolve(a)} disabled={ack.isPending}>
+      <Button size="sm" variant="secondary" onClick={() => resolve(a)} disabled={ack.isPending}>
         <CheckCheck aria-hidden /> Resolve
       </Button>
       <Button size="sm" variant="ghost" asChild>
@@ -83,7 +83,7 @@ export default function Alerts() {
     <>
       <PageHeader
         title="Alerts"
-        subtitle="Raised when a measurement leaves the forecast band, a call is missed, the channel quality fails, or a safety question is answered yes. Acknowledge records that a person has read it. Resolve does the same and writes a note on the record."
+        subtitle="An alert opens when a check-in leaves the forecast band, a call is missed, the video is too poor to measure, or a safety question is answered yes. Acknowledge marks it read. Resolve also writes a note on the record."
       />
       <div className="space-y-5">
         <Panel title={`Needs attention (${open.length})`}>

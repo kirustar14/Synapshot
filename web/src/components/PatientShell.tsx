@@ -12,7 +12,7 @@ export function PatientShell({ title, children }: { title: string; children: Rea
           <Brain className="h-5 w-5" strokeWidth={1.5} aria-hidden />
         </span>
         <div className="min-w-0">
-          <p className="text-lg font-black leading-tight">unnamed.</p>
+          <p className="text-lg font-black leading-tight">synapshot.</p>
           <p className="truncate text-[11px] text-muted-foreground">{title}</p>
         </div>
       </header>

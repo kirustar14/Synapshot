@@ -1,4 +1,4 @@
-// Procedural stand-in for the real fsaverage5 surface. Two noisy folded ellipsoids, one per
+// Procedural stand-in for the real fsaverage6 surface. Two noisy folded ellipsoids, one per
 // hemisphere, about 20k vertices in total. Used only when the backend has no /api/mesh and
 // public/mesh.json is absent. Anything built from this must carry a visible placeholder badge.
 
@@ -87,7 +87,7 @@ export function proceduralMesh(): Mesh {
   buildHemisphere("L", pial, inflated, labels, faces);
   buildHemisphere("R", pial, inflated, labels, faces);
   cached = {
-    space: "fsaverage5",
+    space: "fsaverage6",
     pial,
     inflated,
     faces,

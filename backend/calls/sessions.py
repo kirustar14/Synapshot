@@ -35,8 +35,9 @@ _HITS: dict[str, list[float]] = {}
 
 def setup() -> None:
     """Create the two call tables. Safe to call repeatedly."""
-    db.conn().executescript(SCHEMA)
-    db.conn().commit()
+    with db.LOCK:
+        db.conn().executescript(SCHEMA)
+        db.conn().commit()
 
 
 def create(pid: str, week: int | None = None) -> dict:

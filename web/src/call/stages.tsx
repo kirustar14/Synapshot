@@ -55,20 +55,26 @@ export function ConsentForm({
 }) {
   return (
     <>
-      <div className="space-y-3 text-sm leading-relaxed">
-        {text.map((line, i) => (
-          <p key={i}>{line}</p>
-        ))}
-      </div>
+      {/* Reading after a head injury is tiring, so listening comes first, not after the text. */}
       {onRead && (
         <button
           type="button"
           onClick={onRead}
-          className="mt-4 inline-flex h-12 items-center gap-2 rounded-full border border-border bg-card px-4 text-sm font-bold"
+          className="mb-4 flex h-14 w-full items-center gap-3 rounded-2xl bg-primary-soft px-4 text-left text-[15px] font-extrabold text-accent-foreground"
         >
-          <Volume2 className="h-4 w-4" aria-hidden /> Read this to me
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Volume2 className="h-4 w-4" aria-hidden />
+          </span>
+          Read this to me instead
         </button>
       )}
+      <div className="divide-y divide-border rounded-3xl bg-card px-5 shadow-soft">
+        {text.map((line, i) => (
+          <p key={i} className="py-4 text-[15px] leading-relaxed">
+            {line}
+          </p>
+        ))}
+      </div>
       <ul className="mt-6 space-y-3">
         {TOGGLES.map((row) => {
           const on = choices[row.key];
@@ -80,8 +86,8 @@ export function ConsentForm({
                 aria-checked={on}
                 onClick={() => onChange({ ...choices, [row.key]: !on })}
                 className={cn(
-                  "flex min-h-[64px] w-full items-start gap-3 rounded-2xl border p-4 text-left",
-                  on ? "border-primary bg-primary-soft" : "border-border bg-card",
+                  "flex min-h-[64px] w-full items-start gap-3 rounded-2xl border-2 p-4 text-left transition-colors",
+                  on ? "border-primary bg-primary-soft" : "border-transparent bg-card shadow-soft",
                 )}
               >
                 <span

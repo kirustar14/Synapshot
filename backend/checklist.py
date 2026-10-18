@@ -10,6 +10,7 @@ import json
 
 from . import config, db, models
 from .config import ROOT, cfg
+from .agent import llm
 from .twin import population
 
 GREEN = "PASS"
@@ -27,7 +28,6 @@ OPTIONAL = {
     "librosa": "spectral extras",
     "mss": "screen capture of the FaceTime window",
     "sounddevice": "audio in and out of FaceTime",
-    "anthropic": "natural phrasing and summaries, falls back to templates",
     "twilio": "the clinic call, falls back to logging the script",
     "numpyro": "the hierarchical population fit, falls back to weighted least squares",
     "sbi": "optional emulator upgrade behind USE_SBI",
@@ -146,11 +146,9 @@ def mock_check() -> list[dict]:
         line(MOCK if cfg.mock_rig else GREEN, "rig",
              "replaying a generated session, set RIG_FACETIME_NUMBER for a real call"
              if cfg.mock_rig else f"live, calling {cfg.facetime_number}"),
-        # A bad model id is a fallback, not a failure: a real one is substituted and the
-        # LLM still works. The detail says so loudly rather than exiting non-zero.
-        line(MOCK if (cfg.mock_llm or config.MODEL_NOTE) else GREEN, "LLM",
-             "template lines, set ANTHROPIC_API_KEY for natural phrasing"
-             if cfg.mock_llm else (config.MODEL_NOTE or f"live on {cfg.claude_model}")),
+        line(MOCK if cfg.mock_llm else GREEN, "LLM",
+             "template lines, set GEMINI_API_KEY for natural phrasing"
+             if cfg.mock_llm else f"live on Gemini {llm.model_name()}"),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"
@@ -311,10 +309,10 @@ def webcall_check() -> list[dict]:
 
     if meshmod.path_json().exists():
         got = meshmod.mesh()
-        real = got["source"] == "fsaverage5"
+        real = got["source"] == "fsaverage6"
         out.append(line(GREEN if real else MOCK,
                         f"mesh: {got['source']}, {got['verts']} vertices",
-                        "real fsaverage5 surface with Schaefer-100 labels" if real
+                        "real fsaverage6 surface with Schaefer-100 labels" if real
                         else "procedural stand-in, set OFFLINE=0 and run make mesh"))
     else:
         out.append(line(RED, "mesh", "not built, run make mesh"))
@@ -372,7 +370,7 @@ def main() -> int:
     db.conn()
     got = run()
     print("")
-    print("  UNNAMED final checklist")
+    print("  Synapshot final checklist")
     print("  " + "=" * 74)
     for title, rows in got["sections"].items():
         print(f"\n  {title}")

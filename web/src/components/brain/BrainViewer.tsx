@@ -161,7 +161,7 @@ export default function BrainViewer(props: BrainViewerProps) {
 
   const readout = v.hovered ?? v.selected;
   const def = LAYER_BY_ID[layer];
-  const placeholder = !!mesh.data && mesh.data.source !== "fsaverage5";
+  const placeholder = !!mesh.data && mesh.data.source !== "fsaverage6";
   const stageHeight = height ?? (compact ? 300 : 460);
 
   if (mesh.isLoading || twin.isLoading) return <Loading label="Loading the cortical surface" />;
@@ -185,7 +185,7 @@ export default function BrainViewer(props: BrainViewerProps) {
   return (
     <div
       className={cn(
-        "workspace-visual relative overflow-hidden rounded-xl border border-[#1e3a44] bg-[#070e12]",
+        "workspace-visual relative overflow-hidden rounded-xl border border-[#c9c9c4] bg-[#e4e4e0]",
         big && "fixed inset-4 z-50",
       )}
       style={big ? undefined : { height: stageHeight }}
@@ -196,7 +196,7 @@ export default function BrainViewer(props: BrainViewerProps) {
         camera={{ fov: 34, near: 1, far: 4000, position: [-240, 90, -160] }}
         style={{ touchAction: "pan-y" }}
       >
-        <color attach="background" args={["#070e12"]} />
+        <color attach="background" args={["#e4e4e0"]} />
         <Scene
           cortex={cortex}
           mesh={mesh.data}
@@ -216,7 +216,7 @@ export default function BrainViewer(props: BrainViewerProps) {
 
       <div
         className="pointer-events-none absolute inset-0"
-        style={{ boxShadow: v.hologram ? "inset 0 0 140px 40px rgba(2,10,14,0.85)" : "none" }}
+        style={{ boxShadow: "none" }}
         aria-hidden
       />
 
@@ -229,7 +229,7 @@ export default function BrainViewer(props: BrainViewerProps) {
               : "border-cyan-300/40 bg-cyan-950/70 text-cyan-100",
           )}
         >
-          {placeholder ? "Placeholder mesh" : "fsaverage5 surface"}
+          {placeholder ? "Placeholder mesh" : "fsaverage6 surface"}
         </span>
         <span className="rounded-full border border-synthetic/50 bg-synthetic-soft/90 px-2 py-0.5 text-synthetic-foreground">
           <FlaskConical className="mr-1 inline h-2.5 w-2.5" aria-hidden />

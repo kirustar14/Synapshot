@@ -43,7 +43,7 @@ def _freesurfer_base(pid: str) -> np.ndarray | None:
     Nothing in the UI writes here yet, so in practice every patient is synthetic. The
     path exists so a real FreeSurfer run can be dropped in without a code change: put
     lh.pial and rh.pial in data/uploads/<patient id>/surf/ and the vertex counts must
-    match fsaverage5. See DECISIONS.md.
+    match fsaverage6. See DECISIONS.md.
     """
     base = cfg.data_dir / "uploads" / pid / "surf"
     left, right = base / "lh.pial", base / "rh.pial"
