@@ -36,9 +36,9 @@ describe("app routing", () => {
     renderAt("/");
     expect(await screen.findByRole("heading", { name: /Synapshot/ })).toBeInTheDocument();
     expect(screen.getByText("A snapshot of your brain, every week.")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Research prototype. Not a medical device. Synthetic data./),
-    ).toBeInTheDocument();
+    // The landing page is a wordmark, a line and two buttons. The disclaimer footer that
+    // used to sit under them is gone; that framing lives in the Evidence drawer now.
+    expect(screen.queryByText(/Not a medical device/)).toBeNull();
   });
 
   it("renders the clinic list against the mock layer", async () => {
@@ -46,8 +46,10 @@ describe("app routing", () => {
     expect(await screen.findByRole("heading", { name: "Clinic" })).toBeInTheDocument();
     expect(await screen.findByText(/patients,.*open flag/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Add patient/ })).toBeInTheDocument();
-    // Every row says the data is synthetic, on the row rather than once in a footnote.
-    expect((await screen.findAllByText("Synthetic")).length).toBeGreaterThan(0);
+    // The per-row Synthetic badge and the Data column it sat in are gone. A label on
+    // every row of every screen is one nobody reads by the second screen.
+    expect(screen.queryByText("Synthetic")).toBeNull();
+    expect(screen.queryByText("Research prototype")).toBeNull();
   });
 
   it("renders the add patient page with its build log", async () => {

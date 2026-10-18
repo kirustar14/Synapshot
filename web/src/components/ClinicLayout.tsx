@@ -4,11 +4,9 @@
 // no longer exist is worse than no nav rail, so this is a bar with the wordmark, the demo
 // switch and the theme toggle.
 
-import { FlaskConical, Laptop, LogOut, Moon, Smartphone, Sun } from "lucide-react";
+import { Laptop, LogOut, Moon, Smartphone, Sun } from "lucide-react";
 import { Link, Outlet } from "react-router-dom";
-import { isMock, useHealth } from "@/api/client";
 import { authEnabled, useLogout } from "@/components/AuthGate";
-import { SyntheticBadge } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -58,7 +56,6 @@ export function DemoSwitch() {
 }
 
 export function ClinicLayout() {
-  const { data: health } = useHealth();
   const dark = useApp((s) => s.dark);
   const setDark = useApp((s) => s.setDark);
   const logout = useLogout();
@@ -67,14 +64,9 @@ export function ClinicLayout() {
     <div className="flex min-h-screen flex-col bg-background">
       <header className="no-print sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border/70 bg-background/95 px-4 backdrop-blur lg:px-8">
         <Wordmark />
-        <span className="hidden items-center gap-1.5 text-[11px] font-bold text-muted-foreground sm:flex">
-          <FlaskConical className="h-3.5 w-3.5 text-primary" aria-hidden /> Research prototype
-        </span>
 
         <div className="ml-auto flex items-center gap-2">
           <DemoSwitch />
-          {health?.mode === "mock" && <SyntheticBadge label="Synthetic data" className="hidden px-3 py-1.5 font-bold sm:inline-flex" />}
-          {isMock() && <SyntheticBadge label="Mock data" className="px-3 py-1.5 font-bold" />}
           <Button
             variant="ghost"
             size="icon"

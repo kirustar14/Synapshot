@@ -13,7 +13,6 @@ import {
   ErrorState,
   FlagChip,
   Loading,
-  SyntheticBadge,
   fmtDate,
 } from "@/components/common";
 import { DriftBar } from "@/components/panels/DriftBar";
@@ -82,7 +81,6 @@ export default function Clinic() {
                 <TableHead>Drift z, highest first</TableHead>
                 <TableHead className="hidden md:table-cell">Last check-in</TableHead>
                 <TableHead>Flags</TableHead>
-                <TableHead className="hidden sm:table-cell">Data</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -111,19 +109,12 @@ export default function Clinic() {
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    {p.synthetic && <SyntheticBadge />}
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
-
-      <p className="mt-6 text-xs text-muted-foreground">
-        Every patient here is synthetic. Not a real person, and not a medical device.
-      </p>
     </main>
   );
 }

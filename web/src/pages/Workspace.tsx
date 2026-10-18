@@ -127,6 +127,16 @@ export default function Workspace() {
         <CenterBrain patient={patient.data} />
         <RightPanel patient={patient.data} />
       </div>
+
+      {/* One of the three places the framing is kept. It is invisible on screen and on
+          every printed page, which is the version that leaves the building and the one
+          most likely to be read by somebody who never saw the Evidence drawer. */}
+      <footer className="hidden print:block border-t pt-2 text-[9px] leading-snug text-muted-foreground">
+        Synapshot, {patient.data.name}, week {patient.data.week} of 12. Research prototype,
+        not a medical device. This patient is synthetic and is not a real person. The brain
+        is a model output and not a scan. Nothing here is a diagnosis or a clearance
+        decision.
+      </footer>
       </div>
 
       <CallModal

@@ -56,10 +56,6 @@ export default function Home() {
           </Button>
         </div>
       </main>
-
-      <footer className="relative z-10 px-6 pb-8 text-center text-xs text-cyan-200/60">
-        Research prototype. Not a medical device. Synthetic data.
-      </footer>
     </div>
   );
 }

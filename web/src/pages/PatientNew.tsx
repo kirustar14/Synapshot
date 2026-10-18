@@ -313,10 +313,6 @@ export default function PatientNew() {
           )}
         </aside>
       </div>
-
-      <p className="mt-8 text-xs text-muted-foreground">
-        Every patient here is synthetic. Not a real person, and not a medical device.
-      </p>
     </main>
   );
 }

@@ -287,9 +287,12 @@ Read this part if you read nothing else.
    marked not modelled, because the honest answer for them is that this has nothing to
    say.
 
-5. **A rendered brain looks like a scan.** It is not one. Every viewer carries "Model
-   output, not a scan", the vessels carry their own caption, and the shape slider says
-   what the personal and the template ends of it mean.
+5. **A rendered brain looks like a scan.** It is not one. Nothing in this app is measured
+   from imaging of the person it is shown for: the cortex is a template surface on
+   fsaverage5, the shape is parameters fitted to the chart rather than a reconstruction,
+   and every colour on it is model output. The vessels are drawn from an atlas and carry
+   their own caption. This used to be repeated as a chip on every viewer, which taught
+   people to stop seeing it, so it is said once, here, instead.
 
 6. **The measurements are from a phone camera held by a patient.** The quality gates are
    there because they are often not met. A call that fails them has its eye measures

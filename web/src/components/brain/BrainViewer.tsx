@@ -2,7 +2,7 @@
 // imports it through React.lazy keeps three, drei and postprocessing out of the main chunk.
 
 import { Canvas } from "@react-three/fiber";
-import { Eye, FlaskConical, Info, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
+import { Eye, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePatient, useMesh, useShape, useTwin, useVessels } from "@/api/client";
 import type { Shape } from "@/api/types";
@@ -267,22 +267,18 @@ export default function BrainViewer(props: BrainViewerProps) {
         aria-hidden
       />
 
-      {!bare && (
+      {/* The surface space, the shape source and the "model output" line all used to sit
+          here as permanent chips. They say the same thing on every frame of every
+          patient, so they stopped being read; they live in the Evidence drawer now. What
+          is left is the failure case, which is not permanent and does change what you
+          should believe, plus any caption a layer asks for. */}
+      {!bare && (placeholder || caption) && (
       <div className="pointer-events-none absolute left-3 top-3 flex max-w-[55%] flex-wrap items-center gap-1.5 text-[10px] font-bold">
-        <span
-          className={cn(
-            "rounded-full border px-2 py-0.5",
-            placeholder
-              ? "border-synthetic/60 bg-synthetic-soft/90 text-synthetic-foreground"
-              : "border-cyan-300/40 bg-cyan-950/70 text-cyan-100",
-          )}
-        >
-          {placeholder ? "Placeholder mesh" : "fsaverage5 surface"}
-        </span>
-        <span className="rounded-full border border-synthetic/50 bg-synthetic-soft/90 px-2 py-0.5 text-synthetic-foreground">
-          <FlaskConical className="mr-1 inline h-2.5 w-2.5" aria-hidden />
-          {liveShape?.source === "freesurfer" ? "Own surface" : "Synthetic shape"}
-        </span>
+        {placeholder && (
+          <span className="rounded-full border border-synthetic/60 bg-synthetic-soft/90 px-2 py-0.5 text-synthetic-foreground">
+            Placeholder mesh
+          </span>
+        )}
         {caption && <span className="rounded-full border border-white/20 bg-black/60 px-2 py-0.5 text-white">{caption}</span>}
       </div>
       )}
@@ -377,14 +373,6 @@ export default function BrainViewer(props: BrainViewerProps) {
         )}
       </div>
       )}
-
-      {/* The one label that survives `bare`. A rendered surface can look like a scan, so
-          it has to say what it is wherever it appears. On the landing page there is no
-          patient behind it at all, and it says that instead. */}
-      <p className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 text-[10px] text-cyan-200/80">
-        <Info className="h-3 w-3" aria-hidden />
-        {patientId ? "Model output, not a scan" : "Template surface. Not patient data."}
-      </p>
 
       {shape.error && (
         <p className="pointer-events-none absolute bottom-10 right-3 text-[10px] text-synthetic">

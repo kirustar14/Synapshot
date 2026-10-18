@@ -1049,3 +1049,40 @@ closed "Live call" section that opens itself the moment frames start arriving, w
 the one moment anybody wants to watch it. Below 640 the code and the link stack, because
 a 160 pixel square next to a URL leaves the URL about four characters wide. Checked at
 1440 and 390 in a browser, not from the code.
+
+## Polish pass, step 1: the framing is said three times, not thirty
+
+Every surface carried a disclaimer. The header had "Research prototype" and a "Synthetic
+data" pill, the patient name had a "Synthetic" chip, every clinic row had another one in
+a column of its own, the brain carried "fsaverage5 surface" and "Synthetic shape" and
+"Model output, not a scan" at the same time, and the landing page and the add-patient
+page each ended in a footer saying the same thing again.
+
+Repetition at that volume is not honesty. By the second screen it reads as furniture, and
+the one place it genuinely matters, a rendered cortex that looks like a scan, is the place
+it gets ignored hardest because it has been on screen since the landing page.
+
+It is now in exactly three places, each one somewhere a person is actually reading rather
+than glancing:
+
+1. **The Honest limits block in the Evidence drawer.** Opened deliberately, read
+   deliberately. Limit 5 was rewritten: it used to say every viewer carries a label, which
+   is no longer true, so it now says the whole thing once instead. The cortex is a template
+   surface on fsaverage5, the shape is fitted to the chart rather than reconstructed, every
+   colour is model output, and the vessels are from an atlas.
+2. **The footer of a printed summary.** Invisible on screen, on every printed page. This
+   is the version that leaves the building and the one most likely to reach somebody who
+   never opened the drawer.
+3. **The footer of every page of the sample PDFs.** Already there, unchanged:
+   SYNTHETIC RECORD. NOT A REAL PERSON. NOT FOR CLINICAL USE.
+
+### What stayed, and why it is not the same thing
+
+Two things on the brain look like labels and are not. "Placeholder mesh" appears only when
+the real surface failed to load, and "Shape parameters unavailable, showing the template
+surface" only when the fit is missing. Both are failure states: they are not true on every
+frame, and they change what you should believe about what is in front of you. A permanent
+chip is furniture; an intermittent one is information.
+
+The Data tab's provenance rows still say whether each input is real or synthetic per file,
+because there it is the value of a field somebody is reading, not a banner over it.

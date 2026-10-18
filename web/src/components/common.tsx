@@ -1,39 +1,16 @@
 // Shared chips, panels and states. Every screen uses these, so the theme stays in one place.
 
-import { AlertTriangle, CheckCircle2, CircleDashed, FlaskConical, Info, Loader2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, XCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Flag, InputFile } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-export function SyntheticBadge({ className, label = "Synthetic" }: { className?: string; label?: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border border-synthetic/50 bg-synthetic-soft px-2 py-0.5 text-[11px] font-medium text-synthetic-foreground",
-        className,
-      )}
-    >
-      <FlaskConical className="h-3 w-3" aria-hidden /> {label}
-    </span>
-  );
-}
-
-export function RealBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-accent-foreground">
-      Real
-    </span>
-  );
-}
-
-export function ModelLabel({ className }: { className?: string }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1 text-[11px] text-muted-foreground", className)}>
-      <Info className="h-3 w-3" aria-hidden /> Model output, not a scan
-    </span>
-  );
-}
+// The Synthetic, Real and Model output badges used to live here and were on nearly every
+// surface. They are gone. The framing they carried now sits in the three places somebody
+// actually reads it: the Honest limits block in the Evidence drawer, the footer of a
+// printed summary, and the footer of every page of the sample PDFs. Repeating it on every
+// chip taught people to stop seeing it, which is the opposite of the point.
 
 const FLAG: Record<Flag, { label: string; cls: string }> = {
   red_flag: { label: "Red flag", cls: "border-destructive/40 bg-destructive-soft text-destructive" },

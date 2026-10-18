@@ -4,7 +4,7 @@
 // clinician says out loud when they pick up a chart: name, age, what happened, how long
 // ago, which week of follow-up.
 
-import { BookOpenCheck, FlaskConical, Phone, Printer, Radio } from "lucide-react";
+import { BookOpenCheck, Phone, Printer, Radio } from "lucide-react";
 import type { Patient } from "@/api/types";
 import type { StreamState } from "@/api/stream";
 import { Button } from "@/components/ui/button";
@@ -68,9 +68,6 @@ export function TopBar({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h1 className="truncate text-xl font-black">{patient.name}</h1>
-          <span className="inline-flex items-center gap-1 rounded-full border border-synthetic/50 bg-synthetic-soft px-2 py-0.5 text-[10px] font-bold text-synthetic-foreground">
-            <FlaskConical className="h-3 w-3" aria-hidden /> Synthetic
-          </span>
           {stream.connected && stream.rate > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full bg-destructive-soft px-2 py-0.5 text-[10px] font-bold text-destructive">
               <Radio className="h-3 w-3 animate-pulse" aria-hidden /> Live, {stream.rate}/s
