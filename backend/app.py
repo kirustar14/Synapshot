@@ -761,6 +761,65 @@ def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
             "waiting": False, "note": "a generated web session is running through the real pipeline"}
 
 
+@app.get("/api/patients/{pid}/baseline", response_model=None)
+def get_baseline(pid: str) -> dict:
+    """The brain as it was first built, plus every check-in appended since.
+
+    The viewer's Baseline and Latest toggle reads this. Before it existed there was one
+    copy of the brain and a check-in overwrote it, so the state the patient was built
+    from could not be got back and a call looked like it had replaced them.
+    """
+    need(pid)
+    from .twin import build as buildmod
+
+    points = buildmod.timepoints_of(pid)
+    return {
+        "baseline": buildmod.baseline_of(pid),
+        "timepoints": points,
+        "count": len(points),
+        "note": "The baseline is the brain as first built from this patient's documents. "
+                "It is never rewritten. Each check-in is appended on top of it.",
+    }
+
+
+@app.post("/api/dev/reset-demo-patient", response_model=None)
+def post_reset_demo_patient(pid: str = "") -> dict:
+    """Put the flagship demo patient back to pristine, so the demo can be run again.
+
+    Demo mode only. It rebuilds from the sample documents, which is the same path the
+    Add patient screen uses, so what comes back is what a judge would have seen the first
+    time rather than a special case.
+    """
+    if cfg.mode() != "mock":
+        raise HTTPException(403, "only available in demo mode")
+
+    from .twin import build as buildmod
+
+    want = pid
+    if not want:
+        # The flagship one by name, so the demo button needs no id.
+        hit = [p for p in db.patients() if "maya" in str(p["name"]).lower()]
+        if not hit:
+            raise HTTPException(404, "no sample patient to reset. Add one from the sample files.")
+        want = str(hit[-1]["id"])
+    need(want)
+
+    # Everything a call wrote. The documents, the extraction and the patient's own record
+    # are left alone, which is what makes this a reset rather than a delete.
+    db.run("delete from checkins where patient_id=?", (want,))
+    db.run("delete from observations where patient_id=?", (want,))
+    db.run("delete from alerts where patient_id=?", (want,))
+    db.run("delete from call_sessions where patient_id=?", (want,))
+    db.run("delete from events where patient_id=? and kind in "
+           "('call_update','call_session','notify','agent_triage','creao_run_started')", (want,))
+    db.patch("patients", want, {"week": 0, "drift_z": 0.0, "coverage": 0.0, "last_call": None})
+
+    got = buildmod.build_twin(want)
+    return {"ok": True, "patient_id": want, "regions": len(got["twin"]["regions"]),
+            "note": "rebuilt from this patient's own documents and inputs. "
+                    "Nothing uploaded was deleted."}
+
+
 @app.get("/api/patients/{pid}/latest-update", response_model=models.CallUpdate | None)
 def get_latest_update(pid: str) -> dict | None:
     """What the most recent check-in changed in the brain, or null if there has not been one.

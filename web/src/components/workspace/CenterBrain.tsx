@@ -10,7 +10,7 @@
 
 import { Crosshair, Search, X } from "lucide-react";
 import { Suspense, lazy, useMemo, useState } from "react";
-import { useTwin, useVessels } from "@/api/client";
+import { useBaseline, useLatestUpdate, useTwin, useVessels } from "@/api/client";
 import type { Patient } from "@/api/types";
 import { LAYERS, REGIONS, rampGradient, regionLabel, useViewer, type LayerId } from "@/components/brain";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,13 @@ const LOBES = ["Frontal", "Parietal", "Temporal", "Occipital", "Limbic", "Insula
 export function CenterBrain({ patient }: { patient: Patient }) {
   const { week, setWeek, region, setRegion, overlay } = useWorkspace();
   const twin = useTwin(patient.id);
+  // The brain as first built, and what each check-in moved since. The toggle below flips
+  // between them: before this existed there was one copy of the brain, a call overwrote
+  // it, and the state the patient was built from could not be got back.
+  const history = useBaseline(patient.id);
+  const update = useLatestUpdate(patient.id);
+  const [showBaseline, setShowBaseline] = useState(false);
+  const changed = update.data?.changed_regions ?? [];
   const vessels = useVessels();
   const viewer = useViewer();
   const [query, setQuery] = useState("");
@@ -106,6 +113,40 @@ export function CenterBrain({ patient }: { patient: Patient }) {
         )}
       </div>
 
+      {history.data?.baseline && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-full border border-border bg-card p-0.5" role="group" aria-label="Which brain to show">
+            {[
+              { id: "baseline", label: "Baseline" },
+              { id: "latest", label: "Latest" },
+            ].map((opt) => {
+              const on = (opt.id === "baseline") === showBaseline;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setShowBaseline(opt.id === "baseline")}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-bold",
+                    on ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            {showBaseline
+              ? "The brain as first built from the documents. Never rewritten."
+              : changed.length
+                ? `${changed.length} region${changed.length === 1 ? "" : "s"} moved at the last check-in`
+                : `${history.data.count} check-in${history.data.count === 1 ? "" : "s"} on top of the baseline`}
+          </span>
+        </div>
+      )}
+
       <div className="relative h-[52vh] min-h-[320px] lg:h-auto lg:min-h-0 lg:flex-1">
         <Suspense
           fallback={
@@ -119,6 +160,8 @@ export function CenterBrain({ patient }: { patient: Patient }) {
             fill
             presets={false}
             valuesOverride={null}
+            baselineTwin={showBaseline ? history.data?.baseline ?? null : null}
+            markRegions={showBaseline ? [] : changed.map((r) => r.id)}
             caption={overlay ? overlay.label : undefined}
           />
         </Suspense>

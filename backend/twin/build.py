@@ -107,6 +107,12 @@ def build_twin(pid: str, template_only: bool | None = None) -> dict:
                                "template_only": template_only,
                                "sources": tpl["source"],
                                "twin": twin,
+                               # The brain as built, kept so a check-in can be compared
+                               # against where the patient started rather than replacing
+                               # the only copy of it. Written once, never rewritten.
+                               "baseline": twin,
+                               "baseline_at": db.now(),
+                               "timepoints": [],
                            })})
     db.event(pid, "twin_built", {"G": params["G"], "fc_fit": fc_fit, "low_fidelity": low_fidelity})
     return {"params": params, "forecast": fore, "twin": twin, "fc_fit": fc_fit, "low_fidelity": low_fidelity}
@@ -191,10 +197,54 @@ def refresh_twin(pid: str) -> dict:
 
     got = db.twin_inputs(pid)
     payload = db.dec(got["payload"], {}) if got is not None else {}
+
+    # The baseline is written once and never again. Before this, `twin` was the only copy
+    # of the brain that existed: a check-in overwrote it, all hundred regions moved at
+    # once, and the state the patient was built from could not be got back. Nothing was
+    # deleted, but nothing could be compared against either, which is what made a call
+    # look like it had replaced the patient rather than added to them.
+    if not payload.get("baseline"):
+        payload["baseline"] = payload.get("twin") or twin
+        payload["baseline_at"] = payload.get("baseline_at") or db.now()
+
     payload["twin"] = twin
     db.put("twin_inputs", {"id": db.new_id("tin"), "patient_id": pid, "time": db.now(),
                            "payload": db.enc(payload)})
     return twin
+
+
+def add_timepoint(pid: str, point: dict) -> list[dict]:
+    """Append one check-in to the patient's history. Never rewrites an earlier one.
+
+    The list is append only on purpose. A timepoint is what happened at a moment and
+    cannot stop having happened because a later call disagreed with it.
+    """
+    got = db.twin_inputs(pid)
+    payload = db.dec(got["payload"], {}) if got is not None else {}
+    points = list(payload.get("timepoints") or [])
+    if any(p.get("call_id") and p["call_id"] == point.get("call_id") for p in points):
+        return points
+    points.append(point)
+    payload["timepoints"] = points
+    db.put("twin_inputs", {"id": db.new_id("tin"), "patient_id": pid, "time": db.now(),
+                           "payload": db.enc(payload)})
+    return points
+
+
+def baseline_of(pid: str) -> dict | None:
+    """The brain as it was first built, or None when the patient predates the baseline."""
+    got = db.twin_inputs(pid)
+    if got is None:
+        return None
+    return (db.dec(got["payload"], {}) or {}).get("baseline")
+
+
+def timepoints_of(pid: str) -> list[dict]:
+    """Every check-in appended to this patient, oldest first."""
+    got = db.twin_inputs(pid)
+    if got is None:
+        return []
+    return list((db.dec(got["payload"], {}) or {}).get("timepoints") or [])
 
 
 def save_state(state: dict) -> dict:

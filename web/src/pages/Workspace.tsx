@@ -97,8 +97,13 @@ export default function Workspace() {
     const done = stream.done;
     if (!done || seen.current === done.call_id) return;
     seen.current = done.call_id;
+    // Refetched, not replaced. invalidateQueries leaves the cached value in place and
+    // swaps it when the new one lands, so the tab, the scroll position and the selected
+    // region all survive a call arriving. Writing the SSE payload into the patient state
+    // instead would be the thing that made a call look like it replaced the patient.
     for (const key of ["patient", "twin", "shape", "forecast", "alerts", "timeline",
-                       "checkins", "latest-update", "attribution", "percentile"]) {
+                       "checkins", "latest-update", "baseline", "attribution",
+                       "percentile", "suggested-drugs"]) {
       void client.invalidateQueries({ queryKey: [key] });
     }
   }, [client, stream.done]);

@@ -5,7 +5,7 @@ import { Canvas } from "@react-three/fiber";
 import { Eye, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useFormulary, useMesh, usePathways, usePatient, useShape, useTwin, useVessels } from "@/api/client";
-import type { Shape } from "@/api/types";
+import type { Shape, Twin } from "@/api/types";
 import { ErrorState, Loading } from "@/components/common";
 import { cn } from "@/lib/utils";
 import { Fallback2D } from "./Fallback2D";
@@ -52,6 +52,10 @@ export interface BrainViewerProps {
   fill?: boolean;
   /** Hide the viewer's own preset row when the page supplies its own. */
   presets?: boolean;
+  /** Draw the brain as first built instead of the current one. The Baseline toggle. */
+  baselineTwin?: Twin | null;
+  /** Region ids the last check-in moved, marked so the change is visible on the mesh. */
+  markRegions?: number[];
 }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -106,7 +110,12 @@ export default function BrainViewer(props: BrainViewerProps) {
           fill = false, presets = true } = props;
   const mesh = useMesh();
   const shape = useShape(patientId);
-  const twin = useTwin(patientId);
+  const live = useTwin(patientId);
+  // One swap, here, so every layer, tract, callout and ranked list below reads whichever
+  // brain the toggle is on without any of them needing to know the toggle exists.
+  const twin = props.baselineTwin
+    ? { ...live, data: props.baselineTwin }
+    : live;
   const patient = usePatient(patientId);
   const v = useViewer();
   // Only fetched when the layer is on. It is 11 KB of polylines and most sessions never

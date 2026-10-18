@@ -5,7 +5,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { mock } from "@/mock/db";
-import type { DoneEvent } from "./stream";
+import type { ChangedRegion, DoneEvent } from "./stream";
 import type {
   Alert,
   Attribution,
@@ -207,6 +207,12 @@ export const api = {
   // the page was open when the call landed or opened afterwards.
   latestUpdate: (id: string) =>
     call<DoneEvent | null>(`/patients/${id}/latest-update`, undefined, () => null),
+  /** The brain as first built, plus every check-in appended since. */
+  baseline: (id: string) =>
+    call<BaselineSet>(`/patients/${id}/baseline`, undefined,
+      () => ({ baseline: null, timepoints: [], count: 0, note: "" })),
+  resetDemoPatient: (id: string) =>
+    call<{ ok: boolean }>(`/dev/reset-demo-patient?pid=${id}`, { method: "POST" }, () => ({ ok: true })),
   mesh: () => call<Mesh>("/mesh", undefined, mock.mesh),
   shape: (id: string) => call<Shape>(`/patients/${id}/shape`, undefined, () => mock.shape(id)),
   receptors: () => call<Receptors>("/receptors", undefined, mock.receptors),
@@ -353,6 +359,29 @@ export interface DrugEntry {
 export interface Formulary {
   drugs: Drug[];
   sources: Record<string, string>;
+  note: string;
+}
+
+/** One check-in, appended to the patient rather than replacing them. */
+export interface Timepoint {
+  id: string;
+  call_id: string;
+  at: string;
+  week: number;
+  changed_regions: ChangedRegion[];
+  changed_count: number;
+  flags_added: string[];
+  summary: string;
+  k: number | null;
+  p: number | null;
+  drift_z: number;
+}
+
+export interface BaselineSet {
+  /** The brain as first built. Written once and never rewritten. */
+  baseline: Twin | null;
+  timepoints: Timepoint[];
+  count: number;
   note: string;
 }
 
@@ -621,6 +650,8 @@ export const usePatients = () => useQuery({ queryKey: ["patients"], queryFn: api
 export const usePatient = (id: string) => useQuery({ queryKey: ["patient", id], queryFn: () => api.patient(id), enabled: !!id });
 export const useForecast = (id: string) => useQuery({ queryKey: ["forecast", id], queryFn: () => api.forecast(id), enabled: !!id });
 export const useTwin = (id: string) => useQuery({ queryKey: ["twin", id], queryFn: () => api.twin(id), enabled: !!id, staleTime: 30000 });
+export const useBaseline = (id: string) =>
+  useQuery({ queryKey: ["baseline", id], queryFn: () => api.baseline(id), enabled: !!id });
 export const useLatestUpdate = (id: string) =>
   useQuery({ queryKey: ["latest-update", id], queryFn: () => api.latestUpdate(id), enabled: !!id });
 export const useMesh = () => useQuery({ queryKey: ["mesh"], queryFn: api.mesh, staleTime: Infinity, gcTime: Infinity });

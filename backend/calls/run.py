@@ -153,6 +153,23 @@ def measure(token: str, pid: str, week: int) -> dict:
     update = call_update(pid, cid, week, res, out)
     db.put("events", {"id": db.new_id("ev"), "patient_id": pid, "kind": "call_update",
                       "payload": db.enc(update), "time": db.now()})
+    # Appended to the patient's history, never replacing it. The baseline and every
+    # earlier timepoint are left exactly where they are.
+    from ..twin import build as buildmod
+
+    buildmod.add_timepoint(pid, {
+        "id": db.new_id("tp"),
+        "call_id": cid,
+        "at": update["date"],
+        "week": int(week),
+        "changed_regions": update["changed_regions"],
+        "changed_count": update["changed_count"],
+        "flags_added": update["flags_added"],
+        "summary": update["summary"],
+        "k": update["k"],
+        "p": update["p"],
+        "drift_z": update["drift_z"],
+    })
     live.publish(pid, "call_done", update)
 
     return {"call_id": cid, "alerts": [a["type"] for a in out["alerts"]],
