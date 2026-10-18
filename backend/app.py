@@ -923,7 +923,7 @@ def get_call_script(token: str, full: int = 0) -> dict:
     from .agent import voices
 
     return callscript.payload(short=bool(row["short"]), full=bool(full),
-                              audio=voices.audio_map())
+                              audio=voices.audio_meta())
 
 
 @app.post("/api/call/{token}/consent")

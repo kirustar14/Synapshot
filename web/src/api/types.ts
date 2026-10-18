@@ -330,7 +330,13 @@ export type CallTask =
 export interface ScriptStep {
   id: string;
   say: string;
-  audio?: string;          // file name under voice_base, absent means use speechSynthesis
+  // One line, one file. Never a list: a step that offered several would be the overlap
+  // bug the shared player exists to stop. null means no mp3 was generated for this line.
+  audio?: string | null;   // file name under voice_base, null means use speechSynthesis
+  // How long that mp3 runs, from the voice manifest. The player uses it as the timeout
+  // for a line whose ended event never arrives, so one bad file cannot stall the call.
+  duration_ms?: number | null;
+  fallback?: "speech" | null;
   task: CallTask;
   minutes: number;
   tier: "A" | "B" | "safety" | "gate" | "none";

@@ -279,8 +279,19 @@ def payload(short: bool = False, full: bool = False, audio: dict | None = None,
     for step in steps(short=short, full=full):
         row = dict(step)
         got = audio.get(step["id"])
-        if got:
+        # One line, one file. `audio` maps a step id to either a file name or a
+        # {file, duration_ms} record, and either way a step gets exactly one of each. A
+        # step with no mp3 carries audio None and the page speaks the same `say` text
+        # with the browser voice, so the line is never said twice and never said twice
+        # over itself.
+        if isinstance(got, dict):
+            row["audio"] = got.get("file") or None
+            row["duration_ms"] = got.get("duration_ms")
+        elif got:
             row["audio"] = got
+        if not row.get("audio"):
+            row["audio"] = None
+            row["fallback"] = "speech"
         out.append(row)
     return {
         "consent": consent_text(),

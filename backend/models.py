@@ -666,7 +666,13 @@ class ScriptStep(BaseModel):
 
     id: str
     say: str
+    # Exactly one spoken line per step: one `say`, one `audio`. Never a list. The page
+    # plays one at a time and a step that offered several would be the overlap bug again.
     audio: str | None = None
+    # How long that mp3 runs, from the voice manifest. None when there is no file or no
+    # measured length, in which case the page falls back to the browser voice.
+    duration_ms: int | None = None
+    fallback: Literal["speech"] | None = None
     task: str
     minutes: float
     tier: Literal["A", "B", "safety", "gate", "none"]

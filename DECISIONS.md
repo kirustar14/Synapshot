@@ -1276,3 +1276,60 @@ straight copy would have deleted something this branch added afterwards.
   would have reported a real fsaverage6 mesh as a procedural stand-in. `templates.py` keeps
   its `fsa5` strings on purpose: those are enigmatoolbox's own identifiers for a parcel to
   parcel conversion that never touches the viewer mesh.
+
+## Step 1: one spoken line at a time
+
+The call page played several lines at once. On a safety screen the patient heard the step
+introduction, the first safety question and sometimes the one after it, all together.
+
+There were three separate causes and the first fix only covered one of them.
+
+- **Every line made its own audio element.** `Voice.mp3` ran `new Audio(url)` per line and
+  assigned it over the previous one, which was still playing and now had nothing holding
+  a reference to stop it. There is one element now, owned at module scope in
+  `web/src/call/player.ts`. Module scope rather than a component, because React mounts
+  twice under StrictMode and a route change can briefly have two call pages alive, and an
+  element owned by a component becomes two elements playing at once.
+- **An mp3 never cancelled the browser voice.** `speak` called `synth.cancel` but `mp3`
+  did not, so a recorded line could start over a spoken one. `stop` now does both, plus
+  pause, rewind to zero, and clearing the pending timer, and every play begins with it.
+- **Nothing knew a line was stale.** A play that resolved after the step had moved on
+  still reported success. Every play is stamped with the generation it started in,
+  starting anything bumps the generation, and a play that finishes in an old one returns
+  false. `useSpokenLine` keys on the step id, so the line is tied to the step that owns it.
+
+Two further bugs came out of writing the tests, which is the argument for having written
+them:
+
+- **Stopping a line hung whatever was waiting on it.** `stop` detached the element's
+  handlers and cleared the timeout, so the promise behind the current line never settled.
+  The word list awaits each word before starting the next, so one interruption would have
+  stopped it for the rest of the call. `stop` now settles the pending play first.
+- **Read this to me ran a loop per press.** It reads every consent paragraph in sequence
+  in a detached async loop. Pressing it twice started a second loop while the first was
+  still going, and the player stopping the current line did not stop either loop from
+  immediately starting its next one. `say` returns whether the line was still current
+  when it ended, and the loop stops when it was not. The Playwright test found this one
+  by pressing the button three times quickly, and it failed on it before this fix.
+
+Also in this step:
+
+- **One file per step, and the length with it.** `ScriptStep` carries one `say` and one
+  `audio`, never a list, plus `duration_ms` from the voice manifest. The length is the
+  timeout for a line whose ended event never arrives, so one bad mp3 cannot stall a call.
+  A step with no file carries `audio: null` and `fallback: "speech"`.
+- **`make voices` stopped destroying good audio.** On a failed generation, usually a spent
+  quota, it wrote `file: None` into the manifest even when a perfectly good mp3 was on
+  disk. The file survived and `audio_map` stopped offering it, so the call quietly
+  dropped to the browser voice for a line that had been generated and paid for. A failure
+  now keeps the existing file and records the error beside it. It also reports how many
+  lines of the total have audio, and names the steps that do not.
+- **A Replay button on every spoken screen**, disabled while the line is playing, because
+  pressing it twice is how a patient used to start a second line over the first.
+
+What the tests cover: `src/call/__tests__/player.test.ts` fakes the element and the
+speech queue and counts how many are sounding at once, which lets it step the whole
+script in milliseconds. `e2e/call-audio.spec.ts` counts the same thing in a real browser
+with real effects and a real camera stream. It reaches consent, the setup step and the
+face gate and stops there, because Chrome's fake camera is a test pattern and MediaPipe
+finds no face in it. That limit is written in the test rather than hidden by it.

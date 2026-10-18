@@ -7,7 +7,8 @@ import type { CallScript, CallStatus, ScriptStep } from "@/api/types";
 import type { ConsentChoices } from "@/api/client";
 import { cn } from "@/lib/utils";
 import { useCall } from "./ctx";
-import { Big, LightRow, SelfView, Stage } from "./ui";
+import { useSpokenLine } from "./voice";
+import { Big, LightRow, Replay, SelfView, Stage } from "./ui";
 import type { Lights } from "./types";
 
 /* ---------------------------------------------------------------- consent */
@@ -137,7 +138,11 @@ export function ConsentStage({ onDone }: { onDone: () => void }) {
     voice.prime();
     void (async () => {
       for (let i = 0; i < script.consent.length; i += 1) {
-        await voice.say(script.consent[i], `consent_${i + 1}.mp3`);
+        // Stop as soon as this read is no longer the current one. Pressing the button
+        // again starts a second loop, and without this the first one carried on reading
+        // its next paragraph over the top of the new one.
+        const finished = await voice.say(script.consent[i], `consent_${i + 1}.mp3`);
+        if (!finished) return;
       }
     })();
   }
@@ -278,18 +283,33 @@ export function SetupStage({
 /** The spoken line for one step, shown as a caption, with one tap to begin. */
 export function StepIntro({ step, script, onStart }: { step: ScriptStep; script: CallScript; onStart: () => void }) {
   const { voice, post } = useCall();
-  const spoken = useRef("");
+  const logged = useRef("");
+
+  // The line is spoken by the shared player, keyed on the step id, so moving to the next
+  // step cuts this one off rather than talking over it. Logging it to the backend is a
+  // separate concern and happens once per step.
+  const { replay, speaking } = useSpokenLine(
+    voice, step.id, step.say, step.audio ?? undefined, step.duration_ms ?? undefined,
+  );
 
   useEffect(() => {
-    if (spoken.current === step.id) return;
-    spoken.current = step.id;
+    if (logged.current === step.id) return;
+    logged.current = step.id;
     post.line(step.id, step.say);
-    void voice.say(step.say, step.audio);
-  }, [post, step, voice]);
+  }, [post, step]);
 
   const warnFlash = step.task === "quality";
   return (
-    <Stage title={TITLES[step.task] ?? "Next"} caption={step.say} footer={<Big onClick={onStart}>I am ready</Big>}>
+    <Stage
+      title={TITLES[step.task] ?? "Next"}
+      caption={step.say}
+      footer={
+        <>
+          <Replay onClick={replay} speaking={speaking} />
+          <Big onClick={onStart}>I am ready</Big>
+        </>
+      }
+    >
       {warnFlash && (
         <p className="mt-4 rounded-2xl border border-border bg-muted p-4 text-xs leading-relaxed">
           This part flashes the screen white ten times, about a second and a half apart. It is how the phone works out
