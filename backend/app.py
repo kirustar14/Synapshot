@@ -742,6 +742,28 @@ def get_preflight() -> list[dict]:
 
 # ---------------------------------------------------------------- demo controls
 
+@app.get("/api/observability")
+def observability_status() -> dict:
+    """Whether the backend is reporting to Sentry, and which products it sends."""
+    return observability.status()
+
+
+@app.post("/api/demo/sentry/error")
+def demo_sentry_error() -> dict:
+    """Send one deliberate, handled error to Sentry. No patient data involved."""
+    if not observability.status()["on"]:
+        raise HTTPException(409, "Sentry is off: set SENTRY_DSN in .env and restart")
+    return observability.demo_error()
+
+
+@app.post("/api/demo/sentry/trace")
+def demo_sentry_trace() -> dict:
+    """Run a short traced job with a span and a log per step, for the Sentry demo."""
+    if not observability.status()["on"]:
+        raise HTTPException(409, "Sentry is off: set SENTRY_DSN in .env and restart")
+    return observability.demo_trace()
+
+
 @app.post("/api/demo/reset")
 def demo_reset(request: Request) -> dict:
     """Reseed the six demo patients and the cohort. Admin only."""

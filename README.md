@@ -507,3 +507,24 @@ generator, not clinical annotations.
   [TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md) is the exact sequence to run them.
 - The landing page, `/login` screen, clinic team screen and pulse chart are not built. The
   capabilities behind them (auth, assignments, pulse) are complete and verified over HTTP.
+
+## Sentry
+
+Both halves report to Sentry: the FastAPI backend (`SENTRY_DSN` in `.env`) and the React app
+(`VITE_SENTRY_DSN` in `web/.env.local`). Without them Sentry is off and nothing leaves the machine.
+
+| Product | Where | What it shows |
+|---|---|---|
+| Errors | `backend/observability.py`, `web/src/lib/sentry.ts` | Call failures used to be swallowed into a `failed` state; now they arrive with patient and week tags. |
+| Tracing | spans in `backend/calls/run.py` | One trace per check-in, from the browser through FastAPI: audio, speech, features, store, twin, notify. |
+| Profiling | `profile_lifecycle="trace"` | Which function inside a slow span is slow. |
+| Logs | Python `logging` and browser `console.warn/error` | Searchable, linked to their traces. |
+| Session replay | `replayIntegration` | What the clinician did before an error. All text and inputs masked, camera blocked. |
+| User feedback | `feedbackIntegration` | "Report a problem" from Settings, with the replay attached. |
+
+A call token is a patient's only credential and travels in the URL, so every payload is run
+through the same mask as `backend/logs.py` before it is sent.
+
+**Demo it:** sign in, open **Settings → Observability · Sentry**. Each button does one real
+thing and links to it in Sentry: run a traced check-in, send a backend error, send a browser
+error, open this tab's replay, open the logs, open the feedback form.

@@ -111,3 +111,76 @@ def tag(key: str, value) -> None:
         import sentry_sdk
 
         sentry_sdk.set_tag(key, value)
+
+
+# ---------------------------------------------------------------- demo hooks
+# Two buttons on the Settings page call these, so the Sentry integration can be shown
+# working live: one real handled error, and one traced run with logs on every step.
+# Neither touches patient data.
+
+PRODUCTS = ["errors", "tracing", "profiling", "logs", "session replay", "user feedback"]
+
+
+def status() -> dict:
+    """What the backend is sending, for the Settings page."""
+    if not _ON:
+        return {"on": False, "environment": None, "products": []}
+    import sentry_sdk
+
+    client = sentry_sdk.get_client()
+    return {
+        "on": True,
+        "environment": client.options.get("environment"),
+        "release": client.options.get("release"),
+        "products": [p for p in PRODUCTS if p not in ("session replay", "user feedback")],
+    }
+
+
+def _trace_id() -> str | None:
+    import sentry_sdk
+
+    s = sentry_sdk.get_current_span()
+    return getattr(s, "trace_id", None) if s else None
+
+
+class DemoError(RuntimeError):
+    """Raised on purpose by the Sentry demo button. Not a real failure."""
+
+
+def demo_error() -> dict:
+    """Raise and capture a handled error with useful context, and say where it went."""
+    import sentry_sdk
+
+    log = logging.getLogger("unnamed.sentry_demo")
+    with sentry_sdk.new_scope() as scope:
+        scope.set_tag("demo", "sentry-button")
+        scope.set_context("demo", {"what": "a deliberate error from the Settings page"})
+        try:
+            with span("demo.step", "parse check-in features"):
+                raise DemoError("Synapshot demo: feature parser rejected a check-in (deliberate)")
+        except DemoError as exc:
+            log.warning("demo error raised on purpose: %s", exc)
+            event_id = sentry_sdk.capture_exception(exc)
+    return {"event_id": event_id, "trace_id": _trace_id()}
+
+
+def demo_trace() -> dict:
+    """A short run shaped like a check-in, with a span and a log line per step."""
+    import random
+    import time
+
+    log = logging.getLogger("unnamed.sentry_demo")
+    steps = [
+        ("call.audio", "decode audio", 0.06),
+        ("call.asr", "transcribe speech", 0.18),
+        ("features.pipeline", "extract speech, memory and gaze features", 0.12),
+        ("twin.enkf", "update the brain twin", 0.09),
+        ("db.store", "store the timepoint", 0.03),
+    ]
+    with span("demo.checkin", "demo check-in run", synthetic=True):
+        for op, name, secs in steps:
+            with span(op, name, synthetic=True):
+                time.sleep(secs * (0.8 + 0.4 * random.random()))
+                log.info("demo step done: %s", name)
+        log.info("demo check-in finished, drift_z=%.2f", 0.4 + random.random())
+    return {"trace_id": _trace_id(), "steps": [s[1] for s in steps]}
