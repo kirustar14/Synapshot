@@ -7,7 +7,7 @@ install:
 	$(PY) -m pip install -r requirements.txt
 
 dev:
-	$(PY) -m uvicorn backend.app:app --reload --port 8000
+	$(PY) -m uvicorn backend.app:app --reload --reload-dir backend --port 8000
 
 seed:
 	$(PY) -m backend.seed
