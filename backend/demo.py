@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from . import alerts, db
+from . import alerts, db, tiger
 from .config import cfg
 from .data import synthetic as syn
 from .features import pipeline, sem as semmod, synth
@@ -88,6 +88,7 @@ def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = Fal
     for key, val in pipeline.observables(got["values"]).items():
         db.add_observation(pid, week, key, float(val), semmod.sem(key))
     db.patch("patients", pid, {"last_call": stamp, "week": int(week)})
+    tiger.mirror(cid)      # best effort, never raises: a dashboard database cannot fail a check-in
     return cid
 
 

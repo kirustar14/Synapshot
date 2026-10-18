@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
+from . import tiger
 from . import db, demo, live, logs, models
 from .agent import creao, safety, summary
 from .calls import audio as callaudio
@@ -1135,6 +1136,33 @@ def get_pipeline(pid: str) -> dict | None:
     if db.patient(pid) is None:
         raise HTTPException(404, "no such patient")
     return creao.latest(pid)
+
+
+# ---------------------------------------------------------------- Tiger Data, the time-series layer
+
+@app.get("/api/tiger/status")
+def tiger_status() -> dict:
+    """Whether Tiger Data is wired up, what is in it, and how well it compresses. Never returns the URL."""
+    return tiger.stats()
+
+
+@app.get("/api/patients/{pid}/gaze-profile")
+def gaze_profile(pid: str, week: int | None = None, task: str = "pursuit_h") -> dict:
+    """Gaze error by second for one task of one check-in, from Tiger Data or, failing that, SQLite."""
+    row = need(pid)
+    if task not in tiger.TASKS:
+        raise HTTPException(400, f"task must be one of {', '.join(tiger.TASKS)}")
+    last = db.one("select max(week) w from checkins where patient_id=?", (pid,))
+    wk = int(week if week is not None else (last["w"] if last and last["w"] is not None else row["week"] or 0))
+    return tiger.gaze_profile(pid, wk, task)
+
+
+@app.get("/api/cohort/bands")
+def cohort_bands(key: str, pid: str | None = None) -> dict:
+    """One measure across the whole cohort by week, with this patient's own line when `pid` is given."""
+    if pid is not None:
+        need(pid)
+    return tiger.cohort_bands(key, pid)
 
 
 @app.post("/api/creao/callback")

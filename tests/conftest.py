@@ -21,6 +21,8 @@ os.environ["MOCK_TWILIO"] = "1"
 os.environ["MOCK_ELEVEN"] = "1"
 # Same reason for CREAO: a test run must never spend credits or reach the real agent.
 os.environ["MOCK_CREAO"] = "1"
+# And Tiger Data: a test run never opens a connection to a real database.
+os.environ["MOCK_TIGER"] = "1"
 os.environ["AUTO_AGENT_PIPELINE"] = "0"
 os.environ["LIVE_CLINIC_CALL"] = "0"
 os.environ["DEMO_PHONES"] = ""

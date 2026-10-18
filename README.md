@@ -29,6 +29,20 @@ documents. No real person's records are anywhere in it.
 
 ---
 
+## CREAO agents
+
+Three CREAO agents do the core work of the care workflow: triage rates the week, then briefing
+and outreach work from that rating, and the app acts on the result (an escalation raises an
+alert). Our backend runs them through the CREAO API Trigger. Code: `backend/agent/creao.py`.
+
+| Agent | Agent ID |
+| --- | --- |
+| Synapshot Triage | `7154334e-be76-4458-8cbf-270db807ce14` |
+| Synapshot Care Team Briefing | `7149943a-6786-45d5-a793-cebf18179fcc` |
+| Synapshot Outreach | `efd71222-dd0a-4c62-9631-0acdba5b4d45` |
+
+**Share link to an agent run:** <<(https://agent.creao.ai/share/18e9058f7eb5bbe578d89e630fbf5abc)>>
+
 ## Quick start
 
 Nothing below needs an API key. With an empty `.env` the whole system runs in mock mode.

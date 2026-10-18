@@ -6,7 +6,7 @@ stage pushes one event onto the patient's stream, so the clinician's call modal 
 real stages going by instead of a spinner that means nothing.
 """
 
-from .. import db, live
+from .. import db, live, tiger
 from ..agent import summary
 from ..features import pipeline, sem as semmod, webframes
 from . import audio as audiomod
@@ -184,6 +184,7 @@ def store(pid: str, week: int, token: str, sess: dict, res: dict) -> str:
     for key, val in pipeline.observables(res["values"]).items():
         db.add_observation(pid, week, key, float(val), semmod.sem(key))
     db.patch("patients", pid, {"last_call": db.now(), "week": int(week)})
+    tiger.mirror(cid)      # best effort, never raises: a dashboard database cannot fail a call
     return cid
 
 

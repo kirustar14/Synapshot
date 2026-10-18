@@ -33,3 +33,6 @@ numpyro
 # Gemini needs nothing here: it is called over REST with httpx, which is required above.
 # twilio
 # sbi                # optional upgrade for twin/surrogate.py behind USE_SBI=1
+
+# Optional: Tiger Data (TimescaleDB) as the time-series layer. Without it everything reads from SQLite.
+psycopg[binary]>=3.2
