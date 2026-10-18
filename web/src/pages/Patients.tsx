@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useCreatePatient, usePatients } from "@/api/client";
 import { Empty, ErrorState, FlagChip, Loading, fmtDate } from "@/components/common";
+import { CohortRadar } from "@/components/panels/CohortRadar";
 import { DriftTrack, driftState } from "@/components/panels/DriftTrack";
 import type { PatientRow } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,10 @@ function AddPatient() {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      <Button
+        onClick={() => setOpen(true)}
+        className="bg-[var(--signal)] text-[var(--instrument-ink)] shadow-[0_0_28px_-6px_rgb(95_227_192/0.7)] hover:bg-[var(--signal)]/90"
+      >
         <Plus aria-hidden /> Add patient
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -176,23 +180,29 @@ export default function Patients() {
 
   return (
     <>
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
-        <div className="min-w-0 max-w-2xl">
-          <p className="text-sm font-bold text-muted-foreground">{today}</p>
-          <h1 className="mt-2 text-[34px] font-extrabold leading-10">{data ? title : "Patients"}</h1>
-          {data && <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{detail}</p>}
+      <section className="instrument mb-6 grid gap-8 p-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] xl:items-center">
+        <div className="min-w-0">
+          <p className="font-mono text-xs font-semibold tracking-wide text-[var(--on-instrument)]/60">{today}</p>
+          <h1 className="mt-2 text-[34px] font-extrabold leading-10 text-white">{data ? title : "Patients"}</h1>
+          {data && <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-[var(--on-instrument)]/75">{detail}</p>}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <AddPatient />
+            <label
+              htmlFor="alerts-only"
+              className="glass flex h-11 cursor-pointer items-center gap-3 rounded-full px-4 text-sm font-bold text-[var(--on-instrument)]"
+            >
+              <Switch id="alerts-only" checked={alertsOnly} onCheckedChange={setAlertsOnly} />
+              Needs a look only
+            </label>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <label
-            htmlFor="alerts-only"
-            className="flex h-11 cursor-pointer items-center gap-3 rounded-full bg-card px-4 text-sm font-bold shadow-soft"
-          >
-            <Switch id="alerts-only" checked={alertsOnly} onCheckedChange={setAlertsOnly} />
-            Needs a look only
-          </label>
-          <AddPatient />
-        </div>
-      </div>
+        {data && data.length > 0 && (
+          <div className="glass min-w-0 rounded-[22px] px-8 pb-5 pt-6">
+            <p className="mb-2 text-xs font-bold text-[var(--on-instrument)]/60">Everyone, this week against their forecast</p>
+            <CohortRadar rows={data} />
+          </div>
+        )}
+      </section>
 
       {isLoading && <Loading label="Loading patients" />}
       {error && <ErrorState error={error} onRetry={() => refetch()} />}

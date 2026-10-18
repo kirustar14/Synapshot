@@ -29,7 +29,7 @@ export function DriftTrack({ z, className }: { z: number; className?: string }) 
         <span className="absolute left-1/2 top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/25" />
         <span
           className={cn(
-            "absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full",
+            "dot-in absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full",
             tone === "alert" && "bg-destructive ring-4 ring-destructive/20",
             tone === "watch" && "bg-synthetic ring-4 ring-synthetic/20",
             tone === "ok" && "bg-primary",

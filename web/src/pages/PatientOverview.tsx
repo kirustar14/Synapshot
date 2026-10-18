@@ -5,7 +5,7 @@ import { Boxes, Eye, FileDown, GitCompare, ListChecks, MoreHorizontal, PhoneCall
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { useForecast, useNote } from "@/api/client";
+import { useForecast, useNote, usePatients } from "@/api/client";
 import type { Alert, Patient, Signal } from "@/api/types";
 import {
   Empty,
@@ -41,7 +41,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SignalTile, bandState } from "@/components/panels/SignalTile";
+import { SignalTile } from "@/components/panels/SignalTile";
 import { cn } from "@/lib/utils";
 import { usePatientContext } from "./PatientLayout";
 
@@ -79,7 +79,7 @@ function status(patient: Patient): { tone: "alert" | "watch" | "ok"; chip: strin
 }
 
 /** The add note dialog. Notes go to the patient record, never to the patient. */
-function AddNote({ patientId }: { patientId: string }) {
+function AddNote({ patientId, onDark = false }: { patientId: string; onDark?: boolean }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const note = useNote();
@@ -99,7 +99,11 @@ function AddNote({ patientId }: { patientId: string }) {
 
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
+      <Button
+        variant="outline"
+        onClick={() => setOpen(true)}
+        className={onDark ? "glass text-[var(--on-instrument)] hover:bg-white/10 hover:text-white" : undefined}
+      >
         <StickyNote aria-hidden /> Add note
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -144,24 +148,11 @@ export default function PatientOverview() {
   const saccadeFeature = lastCall?.features.find((f) => f.name === "Saccade latency") ?? null;
 
   const st = status(patient);
+  const drift = usePatients().data?.find((r) => r.id === patient.id)?.drift_z ?? null;
   const tiles = GROUPS.flatMap((g) => {
     const signal = signals.find((x) => x.group === g.key && x.tier === "A" && x.obs.length > 0);
     return signal ? [{ group: g.label, signal }] : [];
   });
-  // The tier A signal whose latest point sits furthest outside its band, else the first one.
-  const worst = useMemo(() => {
-    const scored = signals
-      .filter((x) => x.tier === "A" && x.obs.length > 0)
-      .map((x) => {
-        const last = x.obs[x.obs.length - 1];
-        const i = weeks.indexOf(last.week);
-        const half = i >= 0 ? Math.max(1e-6, (x.hi[i] - x.lo[i]) / 2) : 1;
-        const mid = i >= 0 ? (x.hi[i] + x.lo[i]) / 2 : last.value;
-        return { x, score: Math.abs(last.value - mid) / half, off: bandState(x, weeks).state };
-      })
-      .sort((a, b) => b.score - a.score);
-    return scored[0]?.x;
-  }, [signals, weeks]);
 
   const requestCallback = () =>
     note.mutate(
@@ -174,42 +165,86 @@ export default function PatientOverview() {
 
   return (
     <div className="space-y-5">
-      <section className="panel flex flex-col gap-8 p-8 lg:flex-row">
+      <section className="instrument flex flex-col gap-7 p-8 xl:flex-row">
         <div className="flex min-w-0 flex-1 flex-col gap-3.5">
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-3">
             <span
               className={cn(
-                "flex h-7 items-center rounded-full px-3 text-[13px] font-extrabold",
-                st.tone === "alert" && "bg-destructive text-destructive-foreground",
-                st.tone === "watch" && "bg-synthetic-soft text-synthetic-foreground",
-                st.tone === "ok" && "bg-success-soft text-success",
+                "flex h-7 items-center gap-2 rounded-full border px-3 text-[13px] font-extrabold",
+                st.tone === "alert" && "border-[var(--alarm)]/45 bg-[var(--alarm)]/15 text-[var(--alarm-text)]",
+                st.tone === "watch" && "border-synthetic/50 bg-synthetic/15 text-[#f3c76b]",
+                st.tone === "ok" && "border-[var(--signal)]/40 bg-[var(--signal-soft)] text-[var(--signal)]",
               )}
             >
+              <span
+                className={cn(
+                  "h-[7px] w-[7px] rounded-full",
+                  st.tone === "alert" && "breathe bg-[var(--alarm)]",
+                  st.tone === "watch" && "bg-[#f3c76b]",
+                  st.tone === "ok" && "bg-[var(--signal)]",
+                )}
+                aria-hidden
+              />
               {st.chip}
             </span>
-            <span className="text-sm font-bold text-muted-foreground">
-              Week {patient.week} of 12{lastCall ? `, last check-in ${fmtDate(lastCall.date)}` : ""}
+            <span className="font-mono text-xs font-semibold tracking-wide text-[var(--on-instrument)]/60">
+              Week {String(patient.week).padStart(2, "0")}/12
+              {lastCall ? `, last check-in ${fmtDate(lastCall.date)}` : ""}
             </span>
           </div>
-          <h2 className="max-w-[560px] text-[28px] font-extrabold leading-[34px] tracking-tight">{st.title}</h2>
-          <p className="max-w-[520px] text-[15px] leading-[23px] text-muted-foreground">{st.detail}</p>
-          <div className="no-print mt-2 flex flex-wrap items-center gap-2.5">
-            <Button onClick={requestCallback} disabled={note.isPending}>
+          <h2 className="max-w-[520px] text-[30px] font-extrabold leading-9 tracking-tight text-white">{st.title}</h2>
+          <p className="max-w-[500px] text-[15px] leading-[23px] text-[var(--on-instrument)]/75">{st.detail}</p>
+
+          <dl className="mt-1.5 flex flex-wrap gap-2.5">
+            {[
+              {
+                k: "Drift",
+                v: drift == null ? "None" : `${drift > 0 ? "+" : drift < 0 ? "\u2212" : ""}${Math.abs(drift).toFixed(1)}z`,
+                alarm: (drift ?? 0) > 2,
+              },
+              { k: "Inside the band", v: `${Math.round(patient.coverage * 100)}%`, alarm: false },
+              { k: "Twin fit", v: patient.fc_fit == null ? "None" : patient.fc_fit.toFixed(2), alarm: false },
+            ].map((r) => (
+              <div key={r.k} className="glass w-[136px] rounded-2xl px-4 py-3">
+                <dt className="text-xs font-bold text-[var(--on-instrument)]/60">{r.k}</dt>
+                <dd
+                  className={cn(
+                    "mt-1 font-mono text-[22px] font-bold leading-7",
+                    r.alarm ? "text-[var(--alarm-text)]" : "text-[var(--signal)]",
+                  )}
+                >
+                  {r.v}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="no-print mt-3 flex flex-wrap items-center gap-2.5">
+            <Button
+              onClick={requestCallback}
+              disabled={note.isPending}
+              className="bg-[var(--signal)] text-[var(--instrument-ink)] shadow-[0_0_28px_-6px_rgb(95_227_192/0.7)] hover:bg-[var(--signal)]/90"
+            >
               <PhoneCall aria-hidden /> Request callback
             </Button>
-            <Button asChild variant="outline">
-              <Link to={`/patients/${patient.id}/twin`}>
-                <Boxes aria-hidden /> Open brain twin
-              </Link>
-            </Button>
-            <AddNote patientId={patient.id} />
+            <AddNote patientId={patient.id} onDark />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-11 w-11" aria-label="More actions">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="glass h-11 w-11 text-[var(--on-instrument)] hover:bg-white/10 hover:text-white"
+                  aria-label="More actions"
+                >
                   <MoreHorizontal aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="rounded-2xl p-1.5">
+                <DropdownMenuItem asChild className="rounded-xl">
+                  <Link to={`/patients/${patient.id}/twin`}>
+                    <Boxes aria-hidden /> Open brain twin
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild className="rounded-xl">
                   <Link to={`/patients/${patient.id}/compare`}>
                     <GitCompare aria-hidden /> Compare scenarios
@@ -227,13 +262,18 @@ export default function PatientOverview() {
             </DropdownMenu>
           </div>
         </div>
-        {worst && (
-          <div className="w-full shrink-0 rounded-[20px] bg-lab-surface p-5 lg:w-[420px]">
-            <p className="text-xs font-bold text-muted-foreground">Furthest from its forecast</p>
-            <p className="mb-2 mt-0.5 text-[15px] font-extrabold">{worst.label}</p>
-            <SignalChart signal={worst} weeks={weeks} week={patient.week} height={170} caption={false} />
+
+        <div className="no-print w-full shrink-0 xl:w-[460px]">
+          <div className="glass rounded-[22px] p-2 [&_.text-muted-foreground]:text-[var(--on-instrument)]/55">
+            <CompactTwin patientId={patient.id} week={patient.week} />
           </div>
-        )}
+          <Link
+            to={`/patients/${patient.id}/twin`}
+            className="mt-2 inline-flex items-center gap-1 px-2 text-[13px] font-bold text-[var(--signal)] hover:underline"
+          >
+            Open the full brain twin
+          </Link>
+        </div>
       </section>
 
       {tiles.length > 0 && (
@@ -467,13 +507,6 @@ export default function PatientOverview() {
         </Panel>
       </div>
 
-      <Panel
-        className="no-print"
-        title="Damage at this week"
-        subtitle={`Where the model puts the damage at week ${patient.week}. A model output, not a scan.`}
-      >
-        <CompactTwin patientId={patient.id} week={patient.week} />
-      </Panel>
     </div>
   );
 }

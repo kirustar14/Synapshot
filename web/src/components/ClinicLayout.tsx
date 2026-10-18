@@ -23,7 +23,7 @@ interface NavItem {
 function Brand() {
   return (
     <Link to="/" aria-label="Synapshot home" className="flex h-[92px] items-center gap-3 px-7">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-soft">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--instrument-hi)] to-[var(--instrument-ink)] text-[var(--signal)] shadow-[0_6px_18px_-6px_rgb(12_33_29/0.6)]">
         <Brain className="h-5 w-5" strokeWidth={2} aria-hidden />
       </span>
       <span>
@@ -106,8 +106,8 @@ export function ClinicLayout() {
   const mockLayer = isMock();
 
   return (
-    <div className="flex min-h-screen overflow-x-clip bg-background">
-      <aside className="no-print sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col bg-sidebar lg:flex">
+    <div className="lab-ground flex min-h-screen overflow-x-clip bg-background">
+      <aside className="no-print sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col lg:flex">
         <Brand />
         <Nav />
         <div className="mt-auto px-4 pb-6">
@@ -138,7 +138,7 @@ export function ClinicLayout() {
       </Sheet>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 bg-background/85 px-4 backdrop-blur-md lg:pl-6 lg:pr-12">
+        <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 bg-background/70 px-4 backdrop-blur-xl lg:pl-6 lg:pr-12">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="Open navigation">
             <Menu className="h-5 w-5" aria-hidden />
           </Button>
