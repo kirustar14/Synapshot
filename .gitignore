@@ -21,3 +21,4 @@ web/public/models/*.task
 .pytest_cache/
 .gstack/
 web/public/mesh.json
+.env.backup-before-live

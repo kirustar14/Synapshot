@@ -13,6 +13,14 @@ os.environ["MOCK_RIG"] = "1"
 os.environ["MOCK_LLM"] = "1"
 os.environ["MOCK_PHOTON"] = "1"
 os.environ["MOCK_TWILIO"] = "1"
+# A test run must never be able to ring or text a real person. These three are forced
+# because the alternative actually happened: MOCK_ELEVEN did not exist yet, the key
+# alone made the clinic call live, and every alert the suite fires placed a real call.
+# Setting them here means turning the switches on in .env for a demo cannot leak into
+# the tests.
+os.environ["MOCK_ELEVEN"] = "1"
+os.environ["LIVE_CLINIC_CALL"] = "0"
+os.environ["DEMO_PHONES"] = ""
 os.environ["OFFLINE"] = "1"
 os.environ["REACH"] = "1"
 # A separate database so a test run never touches the demo one. The cache directory is
