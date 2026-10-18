@@ -50,7 +50,6 @@ WIPE = (
 
 _CONN = None
 _POOL = None
-_LOCK = threading.RLock()
 _SCHEMA_READY = False
 _PG_ERROR = ""
 
@@ -73,13 +72,8 @@ def dialect() -> str:
     return "postgres" if is_pg() else "sqlite"
 
 
-def conn() -> sqlite3.Connection:
-    """Open the database once, create the schema if needed."""
-    with LOCK:
-        return _open()
-
-
-def _open() -> sqlite3.Connection:
+def _sqlite() -> sqlite3.Connection:
+    """The one shared connection. Callers hold LOCK; conn() is the public door."""
     global _CONN
     if _CONN is None:
         Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -127,7 +121,7 @@ class _Facade:
             with _pool().connection() as conn, conn.cursor() as cur:
                 cur.execute(q(sql), args)
                 return cur
-        with _LOCK:
+        with LOCK:
             cur = _sqlite().execute(sql, args)
             _sqlite().commit()
             return cur
@@ -138,13 +132,13 @@ class _Facade:
                 for statement in _statements(script):
                     cur.execute(statement)
             return
-        with _LOCK:
+        with LOCK:
             _sqlite().executescript(script)
             _sqlite().commit()
 
     def commit(self) -> None:
         if not is_pg():
-            with _LOCK:
+            with LOCK:
                 _sqlite().commit()
 
 
@@ -245,8 +239,8 @@ def run(sql: str, args: tuple = ()):
             cur.execute(q(sql), args)
             return cur
     with LOCK:
-        cur = conn().execute(sql, args)
-        conn().commit()
+        cur = _sqlite().execute(sql, args)
+        _sqlite().commit()
         return cur
 
 
@@ -278,7 +272,7 @@ def rows(sql: str, args: tuple = ()) -> list:
             cur.execute(q(sql), args)
             return list(cur.fetchall())
     with LOCK:
-        return list(conn().execute(sql, args).fetchall())
+        return list(_sqlite().execute(sql, args).fetchall())
 
 
 def one(sql: str, args: tuple = ()):
@@ -289,7 +283,7 @@ def one(sql: str, args: tuple = ()):
             cur.execute(q(sql), args)
             return cur.fetchone()
     with LOCK:
-        return conn().execute(sql, args).fetchone()
+        return _sqlite().execute(sql, args).fetchone()
 
 
 def put(table: str, row: dict) -> str:
@@ -323,7 +317,7 @@ def insert_many(table: str, keys: list[str], values: list[tuple]) -> int:
         with _pool().connection() as conn, conn.cursor() as cur:
             cur.executemany(q(sql), values)
         return len(values)
-    with _LOCK:
+    with LOCK:
         _sqlite().executemany(sql, values)
         _sqlite().commit()
     return len(values)

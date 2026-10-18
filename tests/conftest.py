@@ -37,6 +37,9 @@ os.environ["DB_PATH"] = "data/test_unnamed.db"
 os.environ["DATABASE_URL"] = ""
 os.environ["TIGER_DATABASE_URL"] = ""
 os.environ["TIMESCALE_URL"] = ""
+# A live tunnel URL in .env makes session cookies Secure, and the plain http TestClient
+# then refuses to send them back, so every login test reads as signed out.
+os.environ["PUBLIC_URL"] = ""
 
 import pytest  # noqa: E402
 
