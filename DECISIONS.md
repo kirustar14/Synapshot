@@ -696,3 +696,100 @@ What the transports said once the code was right, verified against the real serv
 - **Twilio is ready.** Trial account, active, and `CLINIC_NUMBER` is already a verified
   caller ID, which a trial account requires. So the Twilio leg of the clinic call works
   as soon as `MOCK_TWILIO=0` and `LIVE_CLINIC_CALL=1`.
+
+---
+
+## Phase 10: Tiger Data, accounts, and the decision model
+
+### Database
+
+- **Two dialects, one helper API.** `db.py` keeps `run`, `rows`, `one`, `put`, `patch`,
+  `conn` and translates `?` to `%s` for psycopg. Every existing call site is unchanged.
+  `DATABASE_URL` empty means sqlite. This is the only way the 135 existing tests and an
+  offline demo survive a real Postgres path in a weekend.
+- **The contract columns keep their text types.** `time`, `date`, `created` stay ISO text.
+  Moving them to `timestamptz` would change the JSON wire format and every screen parses
+  those strings. Only `metric_samples.time` is a real `timestamptz`, because TimescaleDB
+  needs a time dimension it can bucket.
+- **`put` is a real upsert on Postgres.** `insert or replace` is sqlite only, so the
+  Postgres path uses `on conflict (<pk>) do update`, with the primary key map in `db.py`.
+  Table names come from a constant map, never from a request.
+- **`now()` carries microseconds.** The old `order by week desc, time desc, rowid desc`
+  broke a tie with rowid, which Postgres does not have. Microseconds make the timestamp
+  itself ordered, so the three latest-row queries no longer need a dialect specific
+  tie-break. This is why `db.now()` is not the old second string.
+- **One hypertable, two aggregates.** `metric_samples` is append only with no primary key,
+  which is what lets `create_hypertable` accept it. `metrics_1m` is the live chart;
+  `metrics_1h` is the trend. `observations` stays relational: weekly clinical rows are not
+  a time-series problem, and pretending they are weakens the story rather than the demo.
+- **Policies are recorded in our own table.** Catalog queries for job identity differ
+  between TimescaleDB versions. `tiger_bootstrap` makes `make tiger` idempotent without
+  guessing a view name. A policy dropped by hand will not be recreated; that is documented.
+- **2.18 renamed compression to the columnstore.** `bootstrap` tries the columnstore first
+  on 2.18 and above and the legacy `add_compression_policy` otherwise. The stats reader
+  tries `hypertable_columnstore_stats` and then `hypertable_compression_stats`. Both paths
+  report which one ran.
+- **The dashboard is never allowed to invent a number.** `tiger.stats` runs each catalog
+  query in its own guard and returns `available: false` plus the reason. `pulse` says
+  `source: continuous aggregate`, `raw` or `sqlite`. `bench` is opt in and admin only,
+  because a page load must not be a load test.
+- **Telemetry is buffered, then flushed on read.** The call page posts at 5 Hz. The write
+  path projects six numbers per post into a buffer and inserts in batches of 40 or every
+  five seconds. `GET /api/pulse` flushes first, so the chart is fresh without one insert
+  per request. Measured on sqlite: 4,984 rows in 0.04 s, about 117k rows/s. The Postgres
+  number is not claimed until a service is attached.
+
+### Accounts
+
+- **Local accounts, not Auth0.** The Auth0 SDK is still installed but the gate is now a
+  session cookie. No tenant, no callback URL, and roles and clinic scoping live in the same
+  database as the patients. scrypt with a per user salt is stdlib, so no new dependency.
+- **The middleware allow list is explicit and the default is closed.** A new `/api` route
+  is protected unless it is added to `PUBLIC_API`. The patient token namespaces are public
+  because the patient has no account; the token is the credential.
+- **404 for another clinic's patient, 401 for no session.** A 403 would confirm that the id
+  exists. `auth.require_patient` checks existence too, because the old `need()` did and the
+  test suite asserts the 404 contract.
+- **`AUTH_ENABLED=0` returns a synthetic admin.** The alternative was rewriting 135 tests
+  around a login flow for no product benefit. The new auth tests turn the switch on for
+  the duration of one test and restore it.
+- **Demo passwords are written only when an account is created.** A restart does not reset
+  a changed password. `make seed` and the lifespan both call `team.ensure_demo`, which is
+  idempotent.
+- **Assignments are rebuilt after a demo reset.** `db.wipe` truncates assignments because
+  the patient ids are regenerated; `demo.reset` calls `team.assign_demo` at the end. The
+  team and the sessions deliberately survive a reset, so a demo reset does not sign anyone
+  out.
+- **A newly created patient is always visible.** With a real session it goes into the
+  clinician's clinic and gets a primary assignment. With `AUTH_ENABLED=0` it goes into the
+  first clinic and the deterministic assignment pass picks it up. This was found by a test:
+  the patient list had an orphan after `test_create_patient`.
+
+### The decision model
+
+- **Jev shaped, not chat shaped.** The model answers typed questions (drift and worst
+  domain) with probability vectors and returns one action. That is what makes it usable by
+  the controller, and it is what makes it scorable without an LLM judge.
+- **Adaptive testing is the task.** The value is not another summary. It is spending the
+  patient's fourteen minutes where they buy the most information. On the 520 held out
+  decision points: full script 9.35 minutes and 43.90 information per minute, short rule
+  8.99 and 43.74, heuristic 2.60 and 153.3, with a posterior sd proxy of 0.0493, 0.0504
+  and 0.0500. The heuristic therefore keeps 97 percent of the information in 28 percent of
+  the patient time. Those numbers are the generator's own proxy, not clinical benefit, and
+  the report says so. The model row is empty until a deployment exists; it is not filled
+  with the heuristic's numbers under a different name.
+- **Safety blocks are not actions.** Red flags, consent, quality and calibration always
+  run. The model only chooses among measurement blocks, so a bad policy cannot skip the
+  safety screen. The reward returns zero for a safety block or a banned phrase.
+- **Three sources, always named.** `veri`, `heuristic`, `script`. A model miss is not
+  silently relabelled. `ADAPTIVE_MODE=veri` with no key is `script`, not `heuristic`.
+- **The dataset is synthetic and says so.** Generated by the same patient generator with
+  the latent truth known, so the labels are oracle labels from that generator. No PHI goes
+  to Veri. The card states the circularity: the pipeline is being tested against the world
+  it assumes.
+- **One manual step in Veri.** The documented API covers dataset creation from Hugging
+  Face and trace import, not a local chat JSONL upload. `veri_train.py` therefore takes a
+  dataset id and refuses to guess an upload call. It prints the exact job body in dry run.
+- **The model is released, not rented.** The plan is a merged LoRA on a public Hugging
+  Face repo with an Apache 2.0 model card. That is what makes "open source model" literal,
+  and it is why the evaluation table travels with the weights.

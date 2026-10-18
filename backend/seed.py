@@ -75,6 +75,16 @@ def build(size: int = COHORT, weeks: int = WEEKS, quiet: bool = False) -> dict:
         print("demo patients")
     demo.reset(quiet=quiet)
 
+    # Clinics and clinician accounts are part of the seed now, not a separate step. The
+    # demo reset has already tried to assign, but on a brand new database there was no
+    # team to assign to yet.
+    from . import team
+
+    made = team.ensure_demo()
+    if not quiet:
+        print(f"team: {made['clinicians_created']} clinicians created, "
+              f"{made['assignments']} assignments")
+
     secs = time.time() - t0
     report(cohort, got, fitted, secs, quiet)
     return {"cohort": cohort, "fitted": fitted, "seconds": secs}

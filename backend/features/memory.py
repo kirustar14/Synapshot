@@ -4,8 +4,6 @@ The word list is our own. A licensed test list (RAVLT and friends) must not be u
 demo, and keeping our own list also means it can be rotated per patient later.
 """
 
-from ..config import cfg
-
 WORDS = [
     "anchor", "candle", "river", "pepper", "saddle", "marble", "forest", "button",
     "kettle", "piano", "basket", "tunnel", "feather", "meadow", "rocket",
@@ -73,5 +71,5 @@ def encode_line() -> str:
 
 def words_for(pid: str = "") -> list[str]:
     """The list for one patient. One list for now, per patient rotation is a later change."""
-    del pid, cfg
+    del pid
     return list(WORDS)

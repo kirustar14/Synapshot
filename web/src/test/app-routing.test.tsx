@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { routes } from "@/App";
@@ -19,8 +19,10 @@ describe("app routing", () => {
   it("renders the patient list against the mock layer", async () => {
     renderAt("/");
 
-    expect(await screen.findByRole("heading", { name: "Patient workspace" })).toBeInTheDocument();
-    expect(await screen.findByText(/6 patients loaded from the data layer/)).toBeInTheDocument();
+    // The headline says who needs attention, so its exact words depend on the cohort.
+    expect(await screen.findByRole("heading", { level: 1, name: /need a look|needs a look|on track/ })).toBeInTheDocument();
+    const list = await screen.findByRole("region", { name: "Patients" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(6);
     expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
   });
 

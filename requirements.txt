@@ -11,6 +11,9 @@ websockets
 httpx
 pytest
 
+# Tiger Data. Only imported when DATABASE_URL is set; sqlite is the default.
+psycopg[binary,pool]
+
 # Recommended. Population layer falls back to a Laplace approximation without it.
 numpyro
 
@@ -32,3 +35,4 @@ numpyro
 # Comms and LLM
 # twilio
 # sbi                # optional upgrade for twin/surrogate.py behind USE_SBI=1
+sentry-sdk[fastapi]

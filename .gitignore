@@ -12,6 +12,7 @@ __pycache__/
 /exports/
 .DS_Store
 .env
+tiger-cloud-*.env
 node_modules/
 lovable-frontend/.env*
 web/.env*
@@ -22,3 +23,11 @@ web/public/models/*.task
 .gstack/
 web/public/mesh.json
 .env.backup-before-live
+
+/data/verify.db
+/data/decision/
+/data/calls/
+.env.*
+!.env.example
+Thumbs.db
+*.log

@@ -10,7 +10,7 @@ export function SyntheticBadge({ className, label = "Synthetic" }: { className?:
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border border-synthetic/50 bg-synthetic-soft px-2 py-0.5 text-[11px] font-medium text-synthetic-foreground",
+        "inline-flex h-6 items-center gap-1 rounded-full bg-synthetic-soft px-2.5 text-xs font-bold text-synthetic-foreground",
         className,
       )}
     >
@@ -21,7 +21,7 @@ export function SyntheticBadge({ className, label = "Synthetic" }: { className?:
 
 export function RealBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-accent-foreground">
+    <span className="inline-flex h-6 items-center gap-1 rounded-full bg-primary-soft px-2.5 text-xs font-bold text-accent-foreground">
       Real
     </span>
   );
@@ -36,18 +36,18 @@ export function ModelLabel({ className }: { className?: string }) {
 }
 
 const FLAG: Record<Flag, { label: string; cls: string }> = {
-  red_flag: { label: "Red flag", cls: "border-destructive/40 bg-destructive-soft text-destructive" },
-  missed_call: { label: "Missed call", cls: "border-border bg-muted text-muted-foreground" },
-  low_quality: { label: "Low quality", cls: "border-synthetic/40 bg-synthetic-soft text-synthetic-foreground" },
-  drift: { label: "Drift", cls: "border-chart-2/40 bg-accent text-accent-foreground" },
-  agent_review: { label: "Agent review", cls: "border-primary/40 bg-accent text-accent-foreground" },
+  red_flag: { label: "Red flag", cls: "bg-destructive-soft text-destructive" },
+  missed_call: { label: "Missed call", cls: "bg-muted text-muted-foreground" },
+  low_quality: { label: "Poor video", cls: "bg-synthetic-soft text-synthetic-foreground" },
+  drift: { label: "Drifting", cls: "bg-destructive text-destructive-foreground" },
+  agent_review: { label: "Agent review", cls: "bg-primary-soft text-primary" },
 };
 
 export const flagLabel = (f: Flag) => FLAG[f].label;
 
 export function FlagChip({ flag }: { flag: Flag }) {
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", FLAG[flag].cls)}>
+    <span className={cn("inline-flex h-6 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-xs font-bold", FLAG[flag].cls)}>
       {flag === "red_flag" && <AlertTriangle className="h-3 w-3" aria-hidden />}
       {FLAG[flag].label}
     </span>
@@ -55,17 +55,17 @@ export function FlagChip({ flag }: { flag: Flag }) {
 }
 
 const STATUS: Record<InputFile["status"], { icon: typeof CheckCircle2; cls: string; label: string }> = {
-  ok: { icon: CheckCircle2, cls: "text-success bg-success-soft border-success/30", label: "ok" },
-  warn: { icon: AlertTriangle, cls: "text-synthetic-foreground bg-synthetic-soft border-synthetic/40", label: "warn" },
-  error: { icon: XCircle, cls: "text-destructive bg-destructive-soft border-destructive/30", label: "error" },
-  missing: { icon: CircleDashed, cls: "text-muted-foreground bg-muted border-border", label: "missing" },
+  ok: { icon: CheckCircle2, cls: "text-success bg-success-soft", label: "ok" },
+  warn: { icon: AlertTriangle, cls: "text-synthetic-foreground bg-synthetic-soft", label: "warn" },
+  error: { icon: XCircle, cls: "text-destructive bg-destructive-soft", label: "error" },
+  missing: { icon: CircleDashed, cls: "text-muted-foreground bg-muted", label: "missing" },
 };
 
 export function StatusChip({ status }: { status: InputFile["status"] }) {
   const s = STATUS[status];
   const Icon = s.icon;
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium", s.cls)}>
+    <span className={cn("inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-bold", s.cls)}>
       <Icon className="h-3 w-3" aria-hidden />
       {s.label}
     </span>
@@ -100,12 +100,12 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={cn("panel p-5", className)}>
+    <section className={cn("panel p-6", className)}>
       {(title || action) && (
-        <header className="mb-4 flex items-start justify-between gap-3">
+        <header className="mb-5 flex items-start justify-between gap-4">
           <div>
-            {title && <h2 className="text-base font-extrabold">{title}</h2>}
-            {subtitle && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{subtitle}</p>}
+            {title && <h2 className="text-[17px] font-extrabold leading-6">{title}</h2>}
+            {subtitle && <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">{subtitle}</p>}
           </div>
           {action}
         </header>
@@ -127,7 +127,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
   return (
     <div
       role="alert"
-      className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border border-destructive/30 bg-destructive-soft p-6 text-center text-sm"
+      className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl bg-destructive-soft p-6 text-center text-sm"
     >
       <XCircle className="h-5 w-5 text-destructive" aria-hidden />
       <p>Could not load this. {error instanceof Error ? error.message : ""}</p>
@@ -142,7 +142,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
 
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-32 items-center justify-center rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+    <div className="flex min-h-32 items-center justify-center rounded-2xl bg-muted/60 p-6 text-center text-sm text-muted-foreground">
       {children}
     </div>
   );
@@ -150,10 +150,10 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
       <div className="min-w-0 max-w-2xl">
-        <h1 className="text-3xl font-extrabold">{title}</h1>
-        {subtitle && <div className="mt-2 text-sm leading-relaxed text-muted-foreground">{subtitle}</div>}
+        <h1 className="text-[34px] font-extrabold leading-10">{title}</h1>
+        {subtitle && <div className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{subtitle}</div>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
