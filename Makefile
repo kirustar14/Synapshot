@@ -1,12 +1,12 @@
 PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: dev seed sample test check what phone send-test install clean mesh voices web models tunnel imessage all
+.PHONY: dev seed sample test check what phone send-test install clean mesh voices web models tunnel imessage all tiger tiger-check tiger-load
 
 install:
 	$(PY) -m pip install -r requirements.txt
 
 dev: models
-	$(PY) -m uvicorn backend.app:app --reload --port 8000
+	$(PY) -m uvicorn backend.app:app --reload --reload-dir backend --port 8000
 
 seed:
 	$(PY) -m backend.seed
@@ -120,3 +120,20 @@ tunnel:
 clean:
 	rm -rf data/synapshot.db data/cache data/cohort.json data/synthetic data/calls
 	rm -rf data/mesh.json exports/mesh.json
+
+# ---------------------------------------------------------------- Tiger Data
+
+# Make the telemetry table a hypertable, add the two continuous aggregates, the refresh
+# policies and the columnstore policy. Idempotent: every step is recorded in tiger_bootstrap
+# and skipped on a second run.
+tiger:
+	$(PY) -c "from backend import db, tiger; db.conn(); print(tiger.bootstrap())"
+
+# What the service actually is, what is compressed, and a measured raw against aggregate
+# comparison. Exits 1 when DATABASE_URL is set but the extension is not.
+tiger-check:
+	$(PY) scripts/tiger_check.py
+
+# Fill the hypertable and measure ingest, refresh, compression and query time.
+tiger-load:
+	$(PY) scripts/tiger_load.py --rows 300000 --compress

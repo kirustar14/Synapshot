@@ -6,15 +6,24 @@ stage pushes one event onto the patient's stream, so the clinician's call modal 
 real stages going by instead of a spinner that means nothing.
 """
 
-from .. import db, live
+import logging
+
+from .. import db, live, observability as obs
 from ..agent import summary
 from ..features import pipeline, sem as semmod, webframes
 from . import audio as audiomod
 from . import sessions
 
+log = logging.getLogger("unnamed.calls")
+
 
 def finish(token: str, aborted: bool = False) -> dict:
     """Run the whole tail for one session and return what it produced."""
+    with obs.span("call.finish", "finish web call", aborted=aborted):
+        return _finish(token, aborted)
+
+
+def _finish(token: str, aborted: bool) -> dict:
     row = sessions.get(token)
     if row is None:
         return {"ok": False, "error": "unknown token"}
@@ -22,6 +31,8 @@ def finish(token: str, aborted: bool = False) -> dict:
     week = int(row["week"] or 0)
     pat = db.patient(pid)
     name = str(pat["name"]) if pat else "the patient"
+    obs.tag("patient_id", pid)
+    obs.tag("week", week)
 
     if aborted:
         sessions.set_state(token, "stopped", finished=db.now())
@@ -34,6 +45,10 @@ def finish(token: str, aborted: bool = False) -> dict:
     try:
         got = measure(token, pid, week)
     except Exception as exc:
+        # This used to fail quietly: the session went to "failed" and nothing else
+        # heard about it. Now the stack trace goes to Sentry with the patient and week.
+        obs.capture(exc)
+        log.error("call pipeline failed", extra={"patient_id": pid, "week": week})
         sessions.set_state(token, "failed", error=str(exc)[:400], finished=db.now())
         db.event(pid, "call_failed", {"week": week, "error": str(exc)[:400]})
         live.publish(pid, "call_failed", {"week": week, "error": str(exc)[:200]})
@@ -47,6 +62,9 @@ def finish(token: str, aborted: bool = False) -> dict:
                        summary=got["patient_note"], channel=db.enc(got["channel"]))
     audiomod.discard(token)
     sessions.clear_chunks(token)
+    log.info("call finished", extra={"patient_id": pid, "week": week,
+                                     "alerts": len(got["alerts"]),
+                                     "drift_z": got.get("drift_z")})
     return {"ok": True, "call_id": got["call_id"], "alerts": got["alerts"],
             "summary": got["patient_note"], "name": name}
 
@@ -116,36 +134,44 @@ def measure(token: str, pid: str, week: int) -> dict:
     if stored.get("symptoms"):
         answers["symptoms"] = stored["symptoms"]
 
-    waves = audiomod.waves(token)
+    with obs.span("call.audio", "load task audio"):
+        waves = audiomod.waves(token)
     extra = {}
     for key in ("ah_duration", "ptk_rate"):
         if meta.get(key) is not None:
             extra[key] = meta[key]
 
-    sess = webframes.assemble(
-        chunks,
-        answers=answers,
-        audio_tasks=waves,
-        words=words_from(waves) or list(meta.get("words") or []),
-        extra=extra,
-    )
+    with obs.span("call.asr", "transcribe spoken tasks", tasks=len(waves)):
+        words = words_from(waves) or list(meta.get("words") or [])
+    with obs.span("call.assemble", "assemble phone chunks", chunks=len(chunks)):
+        sess = webframes.assemble(
+            chunks,
+            answers=answers,
+            audio_tasks=waves,
+            words=words,
+            extra=extra,
+        )
 
     hist = db.observations(pid)
     prev = next((h["values"] for h in reversed(hist) if int(h["week"]) < week), None)
     base = next((h["values"] for h in hist if int(h["week"]) == 0), None)
     live.publish(pid, "stage", {"name": "measure", "say": "working out the measurements"})
-    res = pipeline.run(sess, prev=prev, age=int(row["age"] or 30), sex=str(row["sex"]),
-                       baseline=base)
+    with obs.span("features.pipeline", "measure features + quality gates"):
+        res = pipeline.run(sess, prev=prev, age=int(row["age"] or 30), sex=str(row["sex"]),
+                           baseline=base)
 
-    cid = store(pid, week, token, sess, res)
+    with obs.span("db.store", "store check-in"):
+        cid = store(pid, week, token, sess, res)
     live.publish(pid, "stage", {"name": "assimilate", "say": "updating the twin"})
-    out = demo.assimilate(pid, week, pipeline.observables(res["values"]), res["channel"])
+    with obs.span("twin.enkf", "ensemble Kalman update + alert rules"):
+        out = demo.assimilate(pid, week, pipeline.observables(res["values"]), res["channel"])
 
     name = str(row["name"])
     note = summary.patient_text(name, week, res)
     from ..comms import notify
 
-    notify.send(pid, "post_call", body=note)
+    with obs.span("comms.notify", "text patient summary"):
+        notify.send(pid, "post_call", body=note)
 
     # One event that says the whole thing landed. The workspace refetches the twin, the
     # forecast and the alerts off this, which is what animates the brain and pops the
