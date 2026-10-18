@@ -1,6 +1,7 @@
-PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
+# .venv/bin on macOS and Linux, .venv/Scripts on Windows. One Makefile, both.
+PY := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; elif [ -x .venv/Scripts/python.exe ]; then echo .venv/Scripts/python.exe; else echo python3; fi)
 
-.PHONY: dev seed test rig preflight check install clean mesh voices web models tunnel imessage all
+.PHONY: dev seed test rig preflight check install clean mesh voices web models tunnel imessage all tiger tiger-check tiger-load decision-data veri-train veri-eval
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -22,6 +23,37 @@ preflight:
 
 check:
 	$(PY) -m backend.checklist
+
+# ---------------------------------------------------------------- Tiger Data
+
+# Make the telemetry table a hypertable, add the two continuous aggregates,
+# the refresh policies and the columnstore policy. Idempotent: every step is
+# recorded in tiger_bootstrap and skipped on a second run.
+tiger:
+	$(PY) -c "from backend import db, tiger; db.conn(); print(tiger.bootstrap())"
+
+# What the service actually is, what is compressed, and a measured raw against
+# aggregate comparison. Exits 1 when DATABASE_URL is set but the extension is not.
+tiger-check:
+	$(PY) scripts/tiger_check.py
+
+# Fill the hypertable and measure ingest, refresh, compression and query time.
+tiger-load:
+	$(PY) scripts/tiger_load.py --rows 300000 --compress
+
+# ---------------------------------------------------------------- Veri
+
+# Synthetic decision traces for SFT and GRPO. Everything here is generated.
+decision-data:
+	$(PY) scripts/gen_decision_data.py --patients 200
+
+# Dry run by default. Add --submit and set VERI_API_KEY to send the job.
+veri-train:
+	$(PY) scripts/veri_train.py --method sft --dataset-id $(DATASET)
+
+# The four policy comparison, written to data/decision/eval.json.
+veri-eval:
+	$(PY) scripts/veri_eval.py
 
 # Just the phone chain: can a text reach you, can your phone open the call page,
 # and will the clinic call ring. Every unfinished line says what to do about it.

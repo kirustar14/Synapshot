@@ -7,6 +7,12 @@ a fallback rather than the real thing.
 
 import importlib
 import json
+import os
+
+# The checklist exercises the contract routes, not the login flow. Running it as the
+# synthetic admin keeps that tool useful without a browser cookie. This is process local
+# and does not change what `make dev` does.
+os.environ["AUTH_ENABLED"] = "0"
 
 from . import config, db, models
 from .config import ROOT, cfg
@@ -59,6 +65,13 @@ ROUTES = [
     ("POST", "/api/demo/advance-week"), ("POST", "/api/demo/inject-drift"),
     ("POST", "/api/demo/trigger-call"), ("GET", "/api/consent/{token}"),
     ("POST", "/api/consent/{token}"), ("POST", "/api/stretch/{token}"),
+    # the team, the platform read path, and the decision endpoint
+    ("POST", "/api/auth/login"), ("POST", "/api/auth/demo"),
+    ("POST", "/api/auth/logout"), ("GET", "/api/auth/me"),
+    ("GET", "/api/clinics"), ("GET", "/api/clinicians"),
+    ("GET", "/api/assignments"), ("POST", "/api/assignments"),
+    ("DELETE", "/api/assignments/{aid}"), ("GET", "/api/pulse"),
+    ("POST", "/api/call/{token}/next-block"),
 ]
 
 

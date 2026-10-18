@@ -5,14 +5,14 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
-from . import db, demo, logs, models, rig_hub
+from . import auth, db, demo, logs, models, rig_hub, team, telemetry, tiger
 from .agent import safety, summary
 from .agent import summary as agent_summary
 from .calls import audio as callaudio
@@ -33,6 +33,10 @@ async def lifespan(_app: FastAPI):
     db.conn()
     logs.install()
     rig_hub.set_loop(asyncio.get_running_loop())
+    # Both are idempotent and both are cheap on a database that is already set up. The
+    # team seed is what makes a fresh checkout able to sign in at all.
+    team.ensure_demo()
+    tiger.bootstrap()
     yield
 
 
@@ -42,6 +46,48 @@ app = FastAPI(title="UNNAMED", version="0.1.0", lifespan=lifespan)
 # response over a kilobyte is compressed. Measured: the mesh goes to 499 KB and the twin
 # to 48 KB. On a phone reaching this over a tunnel that is the whole difference.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# Everything under /api is clinician-only except the patient token routes, the sign in
+# routes and the public reference data. The allow list is explicit: a new route is
+# protected by default, which is the direction a mistake should fail in.
+PUBLIC_API = (
+    "/api/health",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/me",
+    "/api/auth/demo",
+    "/api/call/",
+    "/api/consent/",
+    "/api/stretch/",
+    "/api/mesh",
+    "/api/receptors",
+    "/api/loadings",
+    "/api/voices",
+    "/api/messages/inbound",
+)
+
+
+def _public(path: str) -> bool:
+    """Exact match for a route, prefix match for a token namespace."""
+    return any(path == item or (item.endswith("/") and path.startswith(item))
+               for item in PUBLIC_API)
+
+
+@app.middleware("http")
+async def auth_gate(request: Request, call_next):
+    """Reject an unauthenticated API request before it reaches a route.
+
+    This is coarse on purpose. Per-patient scoping happens in the route with
+    auth.require_patient, because only the route knows which patient id it is about.
+    """
+    path = request.url.path
+    if cfg.auth_enabled and path.startswith("/api/") and not _public(path):
+        who = auth.from_request(request)
+        if who is None:
+            return JSONResponse({"detail": "sign in required"}, status_code=401)
+        request.state.clinician = who
+    return await call_next(request)
+
 
 # The frontend is served from this same origin, so in live mode nothing needs a cross
 # origin grant and the only allowed origin is the public URL itself. Mock mode stays open
@@ -176,40 +222,172 @@ def forecast_obj(pid: str) -> dict:
 
 @app.get("/api/health", response_model=models.Health)
 def health() -> dict:
-    """Is the backend up, and in which mode."""
-    return {"ok": True, "mode": cfg.mode()}
+    """Is the backend up, in which mode, on which database, with login on or off."""
+    return {"ok": True, "mode": cfg.mode(), "db": db.dialect(),
+            "tiger": tiger.available(), "auth": cfg.auth_enabled}
 
+
+# ---------------------------------------------------------------- auth and team
+
+@app.post("/api/auth/login", response_model=models.ClinicianOut)
+def post_login(body: models.LoginBody, request: Request, response: Response) -> dict:
+    """Email and password, one session cookie, the same error for every failure."""
+    got = auth.login(body.email, body.password,
+                     user_agent=request.headers.get("user-agent", ""))
+    if got is None:
+        raise HTTPException(401, "email or password is wrong")
+    response.set_cookie(
+        auth.COOKIE, got["token"], max_age=int(cfg.session_ttl_h * 3600),
+        httponly=True, samesite="lax", secure=auth.cookie_secure(), path="/",
+    )
+    return got["clinician"]
+
+
+@app.post("/api/auth/demo", response_model=models.ClinicianOut)
+def post_demo_login(response: Response) -> dict:
+    """The one click demo account. Off unless DEMO_LOGIN=1."""
+    got = auth.demo_login()
+    if got is None:
+        raise HTTPException(404, "the demo account is not available")
+    response.set_cookie(
+        auth.COOKIE, got["token"], max_age=int(cfg.session_ttl_h * 3600),
+        httponly=True, samesite="lax", secure=auth.cookie_secure(), path="/",
+    )
+    return got["clinician"]
+
+
+@app.get("/api/auth/me")
+def get_me(request: Request) -> dict:
+    """The signed in clinician. 401 is the normal signed out answer, not an error."""
+    who = auth.from_request(request)
+    if who is None:
+        raise HTTPException(401, "not signed in")
+    return {**who, "auth": cfg.auth_enabled}
+
+
+@app.post("/api/auth/logout")
+def post_logout(request: Request, response: Response) -> dict:
+    """Drop the server side session and clear the cookie."""
+    auth.logout(auth.token_of(request))
+    response.delete_cookie(auth.COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/clinics")
+def get_clinics(request: Request) -> list[dict]:
+    """The clinics. A clinician may only see their own unless they are an admin."""
+    who = auth.current(request)
+    rows = [dict(r) for r in db.rows("select * from clinics order by name")]
+    if who.get("role") != "admin" and who.get("clinic_id"):
+        rows = [r for r in rows if str(r["id"]) == who.get("clinic_id")]
+    return rows
+
+
+@app.get("/api/clinicians")
+def get_clinicians(request: Request) -> list[dict]:
+    """Everyone who can sign in. Never the password hash."""
+    who = auth.current(request)
+    rows = team.staff_rows()
+    if who.get("clinic_id"):
+        rows = [r for r in rows if str(r.get("clinic_id") or "") == who.get("clinic_id")]
+    return rows
+
+
+@app.get("/api/assignments")
+def get_assignments(request: Request, patient_id: str | None = None) -> list[dict]:
+    """Who is responsible for which patient."""
+    who = auth.current(request)
+    if patient_id:
+        auth.require_patient(patient_id, request)
+        return team.assignments(patient_id)
+    rows = team.assignments()
+    allowed = auth.patient_ids(who)
+    if allowed is not None:
+        rows = [r for r in rows if str(r.get("patient_id")) in allowed]
+    return rows
+
+
+@app.post("/api/assignments")
+def post_assignment(body: models.AssignmentBody, request: Request) -> dict:
+    """Assign a patient to a clinician. The pair is unique, so this is safe to repeat."""
+    who = auth.current(request)
+    auth.require_patient(body.patient_id, request)
+    if who.get("role") not in ("admin", "doctor"):
+        raise HTTPException(403, "only a doctor or an admin can assign a patient")
+    try:
+        return team.assign(body.patient_id, body.clinician_id, body.role)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc).strip("'\"")) from None
+
+
+@app.delete("/api/assignments/{aid}")
+def delete_assignment(aid: str, request: Request) -> dict:
+    """Deactivate one assignment. The audit row stays.
+
+    The patient is scoped before the row is touched, so knowing an assignment id from
+    another clinic is not enough to remove it.
+    """
+    who = auth.current(request)
+    if who.get("role") not in ("admin", "doctor"):
+        raise HTTPException(403, "only a doctor or an admin can unassign a patient")
+    row = db.one("select * from assignments where id=?", (aid,))
+    if row is None:
+        raise HTTPException(404, f"no assignment {aid}")
+    auth.require_patient(str(row["patient_id"]), request)
+    if not team.unassign(aid):
+        raise HTTPException(404, f"no assignment {aid}")
+    return {"ok": True, "id": aid, "active": False}
+
+
+# ---------------------------------------------------------------- patients
 
 @app.get("/api/patients", response_model=list[models.PatientRow])
-def list_patients() -> list[dict]:
-    """Every patient, for the clinician list."""
-    return [patient_row(r) for r in db.patients()]
+def list_patients(request: Request) -> list[dict]:
+    """The clinician's worklist. Scoped to assignments and, for an admin, the clinic."""
+    allowed = auth.scoped_patients(request)
+    rows = db.patients()
+    if allowed is not None:
+        rows = [r for r in rows if str(r["id"]) in allowed]
+    return [patient_row(r) for r in rows]
 
 
 @app.post("/api/patients", response_model=models.Patient)
-def create_patient(body: models.NewPatient) -> dict:
-    """Create a patient and build its twin."""
+def create_patient(body: models.NewPatient, request: Request) -> dict:
+    """Create a patient, put it in the clinician's clinic, and build its twin."""
+    who = auth.current(request)
     pid = demo.new_patient(body.name, body.age, body.sex)
+    if who.get("clinic_id"):
+        db.patch("patients", pid, {"clinic_id": who["clinic_id"]})
+        team.assign(pid, str(who["id"]), "primary")
+    else:
+        # AUTH_ENABLED=0 has no clinic on the synthetic admin. Put the new record in the
+        # first clinic and let the deterministic assignment pass pick it up, so a local
+        # checkout never creates a patient nobody can see.
+        clinic = db.one("select id from clinics order by id")
+        if clinic is not None:
+            db.patch("patients", pid, {"clinic_id": str(clinic["id"])})
+            team.assign_demo()
     return patient_obj(pid)
 
 
 @app.get("/api/patients/{pid}", response_model=models.Patient)
-def get_patient(pid: str) -> dict:
+def get_patient(pid: str, request: Request) -> dict:
     """One patient, everything the detail view needs."""
+    auth.require_patient(pid, request)
     return patient_obj(pid)
 
 
 @app.get("/api/patients/{pid}/forecast", response_model=models.Forecast)
-def get_forecast(pid: str) -> dict:
+def get_forecast(pid: str, request: Request) -> dict:
     """Twelve week forecast with 80% bands and the coverage history."""
-    need(pid)
+    auth.require_patient(pid, request)
     return forecast_obj(pid)
 
 
 @app.get("/api/patients/{pid}/twin", response_model=models.Twin)
-def get_twin(pid: str) -> dict:
+def get_twin(pid: str, request: Request) -> dict:
     """Regions, edges and top tracts over the forecast weeks."""
-    need(pid)
+    auth.require_patient(pid, request)
     bundle = inputs_of(pid)
     twin = bundle.get("twin")
     if not twin:
@@ -226,9 +404,9 @@ def get_mesh() -> dict:
 
 
 @app.get("/api/patients/{pid}/shape", response_model=models.Shape)
-def get_shape(pid: str) -> dict:
+def get_shape(pid: str, request: Request) -> dict:
     """How this patient's brain differs in shape from the template. Illustrative."""
-    need(pid)
+    auth.require_patient(pid, request)
     from .twin import shape as shapemod
 
     return shapemod.shape_of(pid)
@@ -243,9 +421,9 @@ def get_receptors() -> dict:
 
 
 @app.post("/api/patients/{pid}/intervention", response_model=models.Intervention)
-def post_intervention(pid: str, body: models.InterventionBody) -> dict:
+def post_intervention(pid: str, body: models.InterventionBody, request: Request) -> dict:
     """A clinician only receptor weighted gain what-if. Never reaches a patient."""
-    need(pid)
+    auth.require_patient(pid, request)
     from .twin import intervention as interv
 
     try:
@@ -265,10 +443,10 @@ def get_loadings() -> dict:
 
 
 @app.post("/api/patients/{pid}/scenarios", response_model=models.ScenarioResult)
-def post_scenarios(pid: str, body: models.ScenarioBody) -> dict:
+def post_scenarios(pid: str, body: models.ScenarioBody, request: Request) -> dict:
     """Two what-if impacts side by side."""
     reach_only("scenario compare")
-    need(pid)
+    auth.require_patient(pid, request)
     a = counterfactual.scenario(pid, body.a.helmet, body.a.angle_deg)
     b = counterfactual.scenario(pid, body.b.helmet, body.b.angle_deg)
     diff = [
@@ -285,43 +463,45 @@ def post_scenarios(pid: str, body: models.ScenarioBody) -> dict:
 
 
 @app.post("/api/patients/{pid}/counterfactual", response_model=models.Forecast)
-def post_counterfactual(pid: str, body: models.CounterfactualBody) -> dict:
+def post_counterfactual(pid: str, body: models.CounterfactualBody, request: Request) -> dict:
     """Forecast with the recovery rate scaled and the residual shifted."""
     reach_only("the counterfactual slider")
-    need(pid)
+    auth.require_patient(pid, request)
     return counterfactual.forecast(pid, body.k_mult, body.p_add)
 
 
 @app.get("/api/patients/{pid}/attribution", response_model=list[models.Attribution])
-def get_attribution(pid: str) -> list[dict]:
+def get_attribution(pid: str, request: Request) -> list[dict]:
     """Top tracts per signal. Always labelled a hypothesis."""
     reach_only("tract attribution")
-    need(pid)
+    auth.require_patient(pid, request)
     return attribution.attribution(pid)
 
 
 @app.get("/api/patients/{pid}/checkins", response_model=list[models.Checkin])
-def get_checkins(pid: str) -> list[dict]:
+def get_checkins(pid: str, request: Request) -> list[dict]:
     """Every check-in for a patient, without the gaze arrays."""
-    need(pid)
+    auth.require_patient(pid, request)
     return [checkin_obj(r, with_gaze=False) for r in db.checkins(pid)]
 
 
 @app.get("/api/checkins/{cid}", response_model=models.Checkin)
-def get_checkin(cid: str) -> dict:
+def get_checkin(cid: str, request: Request) -> dict:
     """One check-in, with the gaze arrays."""
     row = db.checkin(cid)
     if row is None:
         raise HTTPException(404, f"no checkin {cid}")
+    auth.require_patient(str(row["patient_id"]), request)
     return checkin_obj(row, with_gaze=True)
 
 
 @app.post("/api/checkins/{cid}/rescore")
-def rescore(cid: str, body: models.RescoreBody) -> dict:
+def rescore(cid: str, body: models.RescoreBody, request: Request) -> dict:
     """Re-run the feature functions for one task of a stored check-in."""
     row = db.checkin(cid)
     if row is None:
         raise HTTPException(404, f"no checkin {cid}")
+    auth.require_patient(str(row["patient_id"]), request)
     from .features import fixation, pipeline, pursuit
 
     gaze = db.dec(row["gaze"], []) or []
@@ -365,11 +545,12 @@ def rescore(cid: str, body: models.RescoreBody) -> dict:
 
 
 @app.post("/api/checkins/{cid}/unusable")
-def mark_unusable(cid: str) -> dict:
+def mark_unusable(cid: str, request: Request) -> dict:
     """Mark a check-in unusable and drop its observations from the twin."""
     row = db.checkin(cid)
     if row is None:
         raise HTTPException(404, f"no checkin {cid}")
+    auth.require_patient(str(row["patient_id"]), request)
     db.patch("checkins", cid, {"unusable": 1})
     db.run("delete from observations where patient_id=? and week=?", (row["patient_id"], int(row["week"])))
     db.event(row["patient_id"], "checkin_unusable", {"checkin": cid, "week": int(row["week"])})
@@ -378,9 +559,9 @@ def mark_unusable(cid: str) -> dict:
 
 
 @app.post("/api/patients/{pid}/uploads", response_model=list[models.InputFile])
-async def post_uploads(pid: str, kind: str | None = Form(default=None), file: UploadFile | None = File(default=None)) -> list[dict]:
+async def post_uploads(pid: str, request: Request, kind: str | None = Form(default=None), file: UploadFile | None = File(default=None)) -> list[dict]:
     """A real multipart upload, or the synthetic shortcut when no file is sent."""
-    need(pid)
+    auth.require_patient(pid, request)
     if file is not None and kind:
         data = await file.read()
         row = upload.save(pid, kind, file.filename or kind, data)
@@ -422,8 +603,9 @@ def current_inputs(pid: str) -> list[dict]:
 
 
 @app.get("/api/patients/{pid}/twin-inputs", response_model=models.TwinInputs)
-def get_twin_inputs(pid: str) -> dict:
+def get_twin_inputs(pid: str, request: Request) -> dict:
     """What the twin was built from, the FC fit and whether it is low fidelity."""
+    auth.require_patient(pid, request)
     row = need(pid)
     bundle = inputs_of(pid)
     return {
@@ -434,18 +616,18 @@ def get_twin_inputs(pid: str) -> dict:
 
 
 @app.post("/api/patients/{pid}/build-twin", response_model=models.Patient)
-def post_build_twin(pid: str) -> dict:
+def post_build_twin(pid: str, request: Request) -> dict:
     """Rebuild the twin from whatever inputs are there now."""
-    need(pid)
+    auth.require_patient(pid, request)
     has_imaging = any(r["kind"] in ("dwi", "fmri") and r["status"] in ("ok", "warn") for r in db.uploads(pid))
     build.build_twin(pid, template_only=not has_imaging if db.uploads(pid) else None)
     return patient_obj(pid)
 
 
 @app.get("/api/patients/{pid}/messages", response_model=list[models.Message])
-def get_messages(pid: str) -> list[dict]:
+def get_messages(pid: str, request: Request) -> list[dict]:
     """The message thread for a patient, each row saying which transport carried it."""
-    need(pid)
+    auth.require_patient(pid, request)
     out = []
     for m in db.messages(pid):
         try:
@@ -460,9 +642,9 @@ def get_messages(pid: str) -> list[dict]:
 
 
 @app.post("/api/patients/{pid}/note")
-def post_note(pid: str, body: models.NoteBody) -> dict:
+def post_note(pid: str, body: models.NoteBody, request: Request) -> dict:
     """Store a clinician note on a patient."""
-    need(pid)
+    auth.require_patient(pid, request)
     db.patch("patients", pid, {"note": body.text})
     db.event(pid, "note", {"text": body.text})
     return {"ok": True, "patient_id": pid, "text": body.text}
@@ -471,27 +653,64 @@ def post_note(pid: str, body: models.NoteBody) -> dict:
 # ---------------------------------------------------------------- alerts and cohort
 
 @app.get("/api/alerts", response_model=list[models.Alert])
-def get_alerts(patient_id: str | None = None) -> list[dict]:
-    """Alerts, newest first, optionally for one patient."""
-    return [alert_obj(a) for a in db.alerts(patient_id)]
+def get_alerts(request: Request, patient_id: str | None = None) -> list[dict]:
+    """Alerts, newest first, optionally for one patient, scoped to this clinician."""
+    if patient_id:
+        auth.require_patient(patient_id, request)
+    allowed = auth.scoped_patients(request)
+    rows = db.alerts(patient_id)
+    if allowed is not None:
+        rows = [a for a in rows if str(a["patient_id"]) in allowed]
+    return [alert_obj(a) for a in rows]
+
+
+def _alert_row(aid: str, request: Request):
+    row = db.one("select * from alerts where id=?", (aid,))
+    if row is None:
+        raise HTTPException(404, f"no alert {aid}")
+    auth.require_patient(str(row["patient_id"]), request)
+    return row
 
 
 @app.post("/api/alerts/{aid}/ack")
-def ack_alert(aid: str) -> dict:
+def ack_alert(aid: str, request: Request) -> dict:
     """Acknowledge an alert."""
-    if db.one("select id from alerts where id=?", (aid,)) is None:
-        raise HTTPException(404, f"no alert {aid}")
+    _alert_row(aid, request)
     alertmod.ack(aid)
     return {"ok": True, "id": aid, "acked": True}
 
 
 @app.post("/api/alerts/{aid}/call")
-def call_alert(aid: str) -> dict:
+def call_alert(aid: str, request: Request) -> dict:
     """Ring the clinic for an alert now."""
+    _alert_row(aid, request)
     got = alertmod.call_now(aid)
     if not got.get("ok") and got.get("error") == "no such alert":
         raise HTTPException(404, f"no alert {aid}")
     return {"ok": bool(got.get("ok")), "id": aid, "how": got.get("how"), "called": True}
+
+
+# ---------------------------------------------------------------- the data platform
+
+@app.get("/api/pulse")
+def get_pulse(request: Request, bench: bool = False, minutes: int = 60, hours: int = 48) -> dict:
+    """The live dashboard read path, backed by the continuous aggregate when there is one.
+
+    `bench=1` runs the measured raw table against aggregate comparison. It is admin only
+    and deliberately opt in: a page load must not be a load test.
+    """
+    who = auth.current(request)
+    # A dashboard read is also the natural moment to publish the buffered samples. It is
+    # one batched insert at most, and it means the chart is never five seconds stale while
+    # claiming to be live.
+    telemetry.flush()
+    got = tiger.pulse(minutes=max(5, min(int(minutes), 1440)),
+                      hours=max(1, min(int(hours), 24 * 30)))
+    if bench:
+        if who.get("role") != "admin":
+            raise HTTPException(403, "the benchmark is admin only")
+        got["bench"] = tiger.bench(minutes=max(5, min(int(minutes), 1440)))
+    return got
 
 
 @app.get("/api/cohort", response_model=models.Cohort)
@@ -519,17 +738,20 @@ def get_preflight() -> list[dict]:
 # ---------------------------------------------------------------- demo controls
 
 @app.post("/api/demo/reset")
-def demo_reset() -> dict:
-    """Reseed the six demo patients and the cohort."""
+def demo_reset(request: Request) -> dict:
+    """Reseed the six demo patients and the cohort. Admin only."""
+    who = auth.current(request)
+    if who.get("role") != "admin":
+        raise HTTPException(403, "only an admin can reset the demo data")
     got = demo.reset(quiet=True)
     return {"ok": True, **got}
 
 
 @app.post("/api/demo/advance-week")
-def demo_advance(body: models.DemoBody) -> dict:
+def demo_advance(body: models.DemoBody, request: Request) -> dict:
     """Move a patient one week on: next truth, mock call, EnKF update."""
     pid = body.patient_id or ""
-    need(pid)
+    auth.require_patient(pid, request)
     got = demo.advance_week(pid)
     return {
         "ok": True, "patient_id": pid, "week": got["week"],
@@ -540,17 +762,17 @@ def demo_advance(body: models.DemoBody) -> dict:
 
 
 @app.post("/api/demo/inject-drift")
-def demo_drift(body: models.DemoBody) -> dict:
+def demo_drift(body: models.DemoBody, request: Request) -> dict:
     """Push next week's truth outside the band."""
     reach_only("drift injection")
     pid = body.patient_id or ""
-    need(pid)
+    auth.require_patient(pid, request)
     got = demo.inject_drift(pid, body.size)
     return {"ok": True, "patient_id": pid, "week": got["week"], "size": body.size}
 
 
 @app.post("/api/demo/trigger-call")
-def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
+def demo_call(body: models.DemoBody, tasks: BackgroundTasks, request: Request) -> dict:
     """Start a call now.
 
     In web mode with a real transport, create a session and text the link, then wait for
@@ -559,7 +781,7 @@ def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
     In facetime mode, the old rig path runs unchanged.
     """
     pid = body.patient_id or ""
-    need(pid)
+    auth.require_patient(pid, request)
 
     if not cfg.web_call():
         got = rig_hub.start_call(pid)
@@ -830,10 +1052,10 @@ def limit(token: str, request: Request, per: int = sessions.RATE_MAX) -> None:
 
 
 @app.post("/api/calls", response_model=models.CallStart)
-def post_calls(body: models.CallBody) -> dict:
+def post_calls(body: models.CallBody, request: Request) -> dict:
     """Create a call session and, when asked, text the patient the link."""
     pid = body.patient_id or ""
-    need(pid)
+    auth.require_patient(pid, request)
     got = sessions.create(pid, body.week)
     if body.send:
         from .comms import notify as texter
@@ -917,6 +1139,29 @@ def post_call_symptoms(token: str, body: models.SymptomBody) -> dict:
     return {"jump": bool(jump >= 10.0), "short": bool(short or row["short"]), "skip": list(skip)}
 
 
+@app.post("/api/call/{token}/next-block", response_model=models.AdaptiveResult)
+def post_next_block(token: str, body: models.AdaptiveBody) -> dict:
+    """Ask the decision model which assessment block should run next.
+
+    The call page passes the blocks it has completed. The answer names its source: a Veri
+    deployment, the deterministic heuristic, or the static script after a model miss.
+    Safety and calibration blocks are not candidates and never appear here.
+    """
+    row = call_row(token, want_consent=False)
+    from .agent import adaptive
+
+    got = adaptive.decide(str(row["patient_id"]), session=dict(row), done=body.done)
+    return {
+        "next": got["next"],
+        "probabilities": got["probabilities"],
+        "source": got["source"],
+        "reason": got["reason"],
+        "scores": got["scores"],
+        "minutes_saved": adaptive.free_minutes(got["state"] | {"next": got["next"]}),
+        "ms": got["ms"],
+    }
+
+
 @app.post("/api/call/{token}/answer")
 def post_call_answer(token: str, body: models.AnswerBody) -> dict:
     """One spoken or tapped answer that is not a symptom score.
@@ -953,6 +1198,10 @@ def post_call_live(token: str, body: models.LiveBody, request: Request) -> dict:
     if body.line and body.line.text:
         sessions.store_chunk(token, body.step, "line",
                              {"who": body.line.who, "text": body.line.text, "t": body.t / 1000.0})
+    # The same payload that feeds the console also feeds the time-series table. It is
+    # buffered and written in batches, so this is not one insert per post.
+    telemetry.observe(token, str(row["patient_id"]), body.quality, body.gaze, body.target,
+                      body.pursuit_gain)
     return {"ok": True}
 
 
@@ -976,6 +1225,10 @@ def post_call_frames(token: str, body: webframes.FramesBody, request: Request) -
     meta = db.dec(sessions.get(token)["meta"], {}) or {}
     meta.update(body.meta.model_dump())
     sessions.patch(token, {"meta": db.enc(meta)})
+    frame_row = sessions.get(token)
+    if frame_row is not None:
+        telemetry.observe_frame(token, str(frame_row["patient_id"]),
+                                len(body.frames), len(body.stim))
     return {"ok": True, "frames": len(body.frames), "stim": len(body.stim)}
 
 
@@ -1004,6 +1257,7 @@ def post_call_finish(token: str, body: models.FinishBody, tasks: BackgroundTasks
     if row["state"] in ("done", "processing"):
         return {"ok": True, "call_id": row["call_id"], "state": row["state"]}
     sessions.set_state(token, "processing")
+    telemetry.flush(token)
     tasks.add_task(callrun.finish, token, bool(body.aborted))
     return {"ok": True, "call_id": None, "state": "processing"}
 
@@ -1078,9 +1332,9 @@ def post_voice_regenerate(step_id: str) -> dict:
 
 
 @app.get("/api/summary/{pid}/{week}")
-def get_summary(pid: str, week: int) -> dict:
+def get_summary(pid: str, week: int, request: Request) -> dict:
     """Both summaries for one week, the patient text and the clinician update."""
-    need(pid)
+    auth.require_patient(pid, request)
     return summary.for_checkin(pid, int(week))
 
 

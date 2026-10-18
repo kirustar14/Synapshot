@@ -216,4 +216,10 @@ def reset(quiet: bool = False) -> dict:
         if not quiet:
             print(f"  {prof['key']:12s} {pat['name']:16s} week {prof['week']}  {pid}")
     db.event("", "demo_reset", {"patients": made})
+    # The reset rebuilds every patient id, so the old assignments point at rows that no
+    # longer exist. Re-link the fresh cohort to the same team. This is a no-op when the
+    # team has not been seeded yet, which is what happens inside `make seed`.
+    from . import team
+
+    team.assign_demo()
     return {"patients": made}

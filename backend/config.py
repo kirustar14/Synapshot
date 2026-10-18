@@ -196,6 +196,43 @@ class Cfg:
         default_factory=lambda: ROOT / (os.environ.get("DB_PATH") or "data/unnamed.db")
     )
 
+    # Tiger Data. DATABASE_URL is the Tiger Cloud service URI, sslmode=require. With it
+    # set, every query goes to Postgres and the telemetry stream uses TimescaleDB. With
+    # it empty, sqlite keeps the whole system runnable on a plane.
+    database_url: str = field(
+        default_factory=lambda: first("DATABASE_URL", "TIGER_DATABASE_URL", "TIMESCALE_URL")
+    )
+
+    # Clinician accounts. Off by default until the /login screen exists: the current web
+    # build has no way to obtain a cookie, so turning this on would serve a 401 to the
+    # clinician app. Set AUTH_ENABLED=1 to enforce it. The capability is complete and the
+    # tests exercise it with the switch on.
+    auth_enabled: bool = field(default_factory=lambda: on("AUTH_ENABLED", "0"))
+    demo_login: bool = field(default_factory=lambda: on("DEMO_LOGIN", "1"))
+    demo_email: str = field(
+        default_factory=lambda: os.environ.get("DEMO_EMAIL") or "reyes@synapshot.health"
+    )
+    demo_password: str = field(
+        default_factory=lambda: os.environ.get("DEMO_PASSWORD") or "synapshot-demo"
+    )
+    session_ttl_h: float = field(default_factory=lambda: num("SESSION_TTL_H", 12.0))
+
+    # Veri. The decision model is optional: with no key the deterministic heuristic runs
+    # and every response says so.
+    veri_api_key: str = field(default_factory=lambda: os.environ.get("VERI_API_KEY", ""))
+    veri_api_url: str = field(
+        default_factory=lambda: (os.environ.get("VERI_API_URL") or "https://api.veri.studio").rstrip("/")
+    )
+    veri_deployment_id: str = field(default_factory=lambda: os.environ.get("VERI_DEPLOYMENT_ID", ""))
+    veri_model: str = field(default_factory=lambda: os.environ.get("VERI_MODEL") or "synapshot-adaptive")
+    adaptive_mode: str = field(
+        default_factory=lambda: (os.environ.get("ADAPTIVE_MODE") or "heuristic").lower()
+    )
+
+    def veri_live(self) -> bool:
+        """True only when the model can actually be called."""
+        return bool(self.veri_api_key and self.veri_deployment_id and self.adaptive_mode == "veri")
+
     def mode(self) -> str:
         """'mock' when anything is mocked, else 'live'."""
         mocked = (self.mock_rig or self.mock_llm or self.mock_photon or self.mock_twilio

@@ -561,10 +561,17 @@ class TwinInputs(BaseModel):
 
 
 class Health(BaseModel):
-    """Response of GET /api/health."""
+    """Response of GET /api/health.
+
+    `db`, `tiger` and `auth` are additions. The two original fields keep their exact
+    names and values, so an old client is unaffected.
+    """
 
     ok: bool = True
     mode: Literal["mock", "live"] = Field(default="mock")
+    db: Literal["sqlite", "postgres"] = "sqlite"
+    tiger: bool = False
+    auth: bool = True
 
 
 # ---------------------------------------------------------------- the web call
@@ -721,3 +728,50 @@ class Voices(BaseModel):
     model: str
     lines: list[VoiceLine]
     note: str
+
+
+# ---------------------------------------------------------------- team and decisions
+
+class LoginBody(BaseModel):
+    """Body of POST /api/auth/login."""
+
+    email: str
+    password: str
+
+
+class ClinicianOut(BaseModel):
+    """A clinician as the API returns them. Never the password hash."""
+
+    id: str
+    email: str
+    name: str
+    role: Literal["doctor", "nurse", "admin"]
+    clinic_id: str
+    clinic_name: str
+    last_login: str | None = None
+
+
+class AssignmentBody(BaseModel):
+    """Body of POST /api/assignments."""
+
+    patient_id: str
+    clinician_id: str
+    role: Literal["primary", "covering", "consult"] = "covering"
+
+
+class AdaptiveBody(BaseModel):
+    """Body of POST /api/call/{token}/next-block."""
+
+    done: list[str] = Field(default_factory=list)
+
+
+class AdaptiveResult(BaseModel):
+    """One adaptive decision. `source` is never guessed."""
+
+    next: Literal["ocular", "speech", "memory", "symptoms", "stop"]
+    probabilities: dict = Field(default_factory=dict)
+    source: Literal["veri", "heuristic", "script"]
+    reason: str
+    scores: dict = Field(default_factory=dict)
+    minutes_saved: float = 0.0
+    ms: float = 0.0

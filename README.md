@@ -10,6 +10,9 @@ after every call, and a drift alert goes to a clinician when reality leaves the 
 
 Every patient in this repository is synthetic.
 
+The live-service path, from a new Tiger Cloud service to a trained Veri deployment, is
+[TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md).
+
 ---
 
 ## Quick start
@@ -154,6 +157,11 @@ full mock mode. Set `MOCK_X=0` to force a real path. See `.env.example` for all 
 | `REGIONAL_LOADINGS` | `0` | Give each signal its own damage level from the regions that drive it. |
 | `OFFLINE` | `0` | `1` skips every loader that could touch the network and runs on the modelled template. |
 | `REACH` | `1` | Reach features on. |
+| `DATABASE_URL` | empty | Tiger Cloud service URI. Empty means sqlite. |
+| `AUTH_ENABLED` | `0` | `1` enforces clinician sessions. The synthetic admin is the default until the login screen exists. |
+| `DEMO_LOGIN` | `1` | The one click demo sign in, for the seeded account. |
+| `VERI_API_KEY`, `VERI_DEPLOYMENT_ID` | empty | The deployed decision model. Empty runs the heuristic. |
+| `ADAPTIVE_MODE` | `heuristic` | `veri` calls the model, a miss falls back to script. |
 
 A Twilio trial account can only call or text numbers it has verified first.
 
@@ -318,4 +326,143 @@ Numbers from the current build, all reproducible with `make mesh`, `make seed` a
 | Contract | every endpoint returns every named field | all |
 | Model FC against real HCP FC | r = 0.205, untuned beyond G | a real benchmark, not a target |
 | `make seed` | 50 s from a clean checkout | under 10 minutes |
-| `make test` | 40 s, 135 tests | under 3 minutes |
+| `make test` | 47 s, 169 tests | under 3 minutes |
+
+---
+
+## Phase 10: Tiger Data, clinician accounts, and the decision model
+
+Three capabilities on top of the twin, all of them runnable with no external account. The
+click-by-click path to the live services is [TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md).
+
+### Tiger Data
+
+`DATABASE_URL` is the only switch. With it set, every query goes to Postgres and the
+interaction between the relational graph and the time-series stream is real: clinics,
+clinicians, patients and assignments sit beside a `metric_samples` hypertable that takes
+the 5 Hz live telemetry from the call page. With it empty, sqlite is the system of record
+and every response says so.
+
+```sh
+make tiger          # hypertable, metrics_1m and metrics_1h, refresh + columnstore policies
+make tiger-check    # extension, aggregates, size, compression, measured raw against aggregate
+make tiger-load     # 300k samples, ingest rate, refresh, compression, benchmark
+```
+
+What is used:
+
+- `create_hypertable('metric_samples', by_range('time', interval '1 day'))`
+- two continuous aggregates, `metrics_1m` and `metrics_1h`, with refresh policies
+- columnstore after one day, segmented by `patient_id`, ordered by `time desc`, with the
+  pre 2.18 compression calls as the fallback
+- `GET /api/pulse` reads the aggregate first, falls back to a raw `time_bucket` query, and
+  reports `source`, aggregate lag, table size, compression stats and assignment totals
+- `GET /api/pulse?bench=1` (admin only) runs the same window against the raw table and the
+  aggregate and returns median wall clock, row counts and the speedup
+
+The bootstrap records each step in `tiger_bootstrap`, so `make tiger` twice does not create
+duplicate policies. Every catalog query is guarded: a service version that lacks a view
+returns `available: false` with the reason, never a made up number.
+
+### Clinician accounts and assignments
+
+Accounts are local: scrypt hashes, random session tokens stored hashed, an HttpOnly cookie
+with `SameSite=Lax`, and a 12 hour expiry. `make seed` creates two clinics, four staff and
+one primary assignment per demo patient. The middleware is off by default because the web
+build has no login screen yet: turn on `AUTH_ENABLED=1` and sign in through the API, or
+add the screen later. With it off the app runs as the synthetic admin.
+
+```
+POST /api/auth/login      POST /api/auth/demo      POST /api/auth/logout
+GET  /api/auth/me         GET  /api/clinicians     GET  /api/assignments
+GET  /api/clinics         POST /api/assignments    DELETE /api/assignments/{id}
+```
+
+The middleware has an explicit public allow list: health, the auth routes, every patient
+token namespace (`/api/call/`, `/api/consent/`, `/api/stretch/`), the public reference data
+and the inbound webhook. Everything else needs a session, so a new route is protected by
+default. Patient scoping is a second check inside the route: a clinician sees assigned
+patients, an admin also sees their clinic, and anything else is a 404 rather than a 403 so
+ids cannot be probed. `AUTH_ENABLED=0` is the synthetic admin the tests and a fresh
+checkout use.
+
+Demo accounts, all with `DEMO_PASSWORD` (default `synapshot-demo`):
+
+| Email | Role | Sees |
+|---|---|---|
+| `reyes@synapshot.health` | admin, UCLA | the five UCLA patients |
+| `lee@synapshot.health` | doctor, UCLA | two UCLA patients |
+| `ng@synapshot.health` | nurse, UCLA | one UCLA patient |
+| `okafor@synapshot.health` | doctor, Cedar | the one Cedar patient |
+
+### The open source decision model
+
+This is a Jev shaped decision model, not a chat model: it reads a compact evidence state
+and returns typed probabilities plus the next assessment block. It drives an adaptive
+test, so a call can stop early when the remaining blocks would not change the estimate.
+
+```sh
+make decision-data                       # synthetic SFT and GRPO traces
+veri datasets upload data/decision/train.jsonl --name synapshot-sft
+veri datasets upload data/decision/train_grpo.jsonl --name synapshot-grpo
+
+# 1. teach the JSON contract
+python scripts/veri_train.py --method sft --dataset-id <id> \
+  --hf-repo <you>/synapshot-adaptive-sft --submit
+# 2. reinforce the choice from the merged SFT weights
+python scripts/veri_train.py --method grpo --dataset-id <id> \
+  --base-model <you>/synapshot-adaptive-sft \
+  --hf-repo <you>/synapshot-adaptive-qwen-0.5b --submit
+
+# 3. score the deployment
+python scripts/veri_predict.py --limit 200
+make veri-eval                           # full vs short-rule vs heuristic vs model
+```
+
+Both `--submit` lines need `VERI_API_KEY`. The dataset id is the bare id that
+`veri datasets upload` prints.
+
+The reward file is `scripts/veri_reward.py`, written to run standalone in Veri's sandbox.
+It scores the JSON contract, the two argmax labels, information per minute of burden, and a
+cost term, and it returns zero for a banned phrase or a safety block. `scripts/veri_eval.py`
+writes `data/decision/eval.json` with mean minutes, information, information per minute,
+a posterior sd proxy, miss rate, schema validity, safety violations and drift Brier score.
+
+Runtime selection is explicit:
+
+```
+POST /api/call/{token}/next-block   {done: ["symptoms"]}
+-> {next, probabilities, source: veri | heuristic | script, scores, minutes_saved, ms}
+```
+
+`ADAPTIVE_MODE=heuristic` is the default. `veri` requires both `VERI_API_KEY` and
+`VERI_DEPLOYMENT_ID`; a three second miss falls back to the script order and the response
+says `source: script`. The safety, consent, quality and calibration steps are never
+candidates, and nothing in the model path can move the forecast, the filter or the alerts.
+
+Measured on the 520 held out decision points, 200 synthetic patients:
+
+| Policy | Minutes | Info per minute | Posterior sd proxy |
+|---|---:|---:|---:|
+| Full script | 9.35 | 43.90 | 0.0493 |
+| Short rule | 8.99 | 43.74 | 0.0504 |
+| Heuristic | 2.60 | 153.32 | 0.0500 |
+| Veri model | pending | pending | pending |
+
+The heuristic keeps 97 percent of the information in 28 percent of the patient time. This
+is the generator's own information proxy, not clinical benefit. The model row stays
+pending until a deployment is trained and scored; an empty row is honest, a copied
+heuristic row is not.
+
+Nothing here trains on real data. The dataset is generated by the same synthetic patient
+generator the app uses, and the dataset card says the labels are oracle labels from that
+generator, not clinical annotations.
+
+### What is not done
+
+- No Tiger Cloud service and no Veri account were available while this was built, so the
+  Postgres and GPU paths are implemented and their setup commands are scripted, but they
+  have not been run against a live service. The sqlite path and every fallback is tested.
+  [TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md) is the exact sequence to run them.
+- The landing page, `/login` screen, clinic team screen and pulse chart are not built. The
+  capabilities behind them (auth, assignments, pulse) are complete and verified over HTTP.

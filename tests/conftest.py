@@ -23,10 +23,20 @@ os.environ["LIVE_CLINIC_CALL"] = "0"
 os.environ["DEMO_PHONES"] = ""
 os.environ["OFFLINE"] = "1"
 os.environ["REACH"] = "1"
+# The auth middleware is exercised by tests/test_auth.py with a real session. The rest of
+# the suite predates accounts and is written against the routes, not a login flow, so it
+# runs as the synthetic admin. This is also the documented AUTH_ENABLED=0 behaviour.
+os.environ["AUTH_ENABLED"] = "0"
 # A separate database so a test run never touches the demo one. The cache directory is
 # shared on purpose: the template bundle and the surrogate table are expensive and the
 # same for everybody.
 os.environ["DB_PATH"] = "data/test_unnamed.db"
+# A .env that points at Tiger Cloud must never turn the suite into a remote run. The demo
+# reset truncates tables, so clearing these before backend.config is imported is the
+# difference between a fast test and deleting the live demo data.
+os.environ["DATABASE_URL"] = ""
+os.environ["TIGER_DATABASE_URL"] = ""
+os.environ["TIMESCALE_URL"] = ""
 
 import pytest  # noqa: E402
 
