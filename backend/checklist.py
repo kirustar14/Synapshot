@@ -8,7 +8,7 @@ a fallback rather than the real thing.
 import importlib
 import json
 
-from . import db, models
+from . import config, db, models
 from .config import ROOT, cfg
 from .twin import population
 
@@ -146,9 +146,11 @@ def mock_check() -> list[dict]:
         line(MOCK if cfg.mock_rig else GREEN, "rig",
              "replaying a generated session, set RIG_FACETIME_NUMBER for a real call"
              if cfg.mock_rig else f"live, calling {cfg.facetime_number}"),
-        line(MOCK if cfg.mock_llm else GREEN, "LLM",
+        # A bad model id is a fallback, not a failure: a real one is substituted and the
+        # LLM still works. The detail says so loudly rather than exiting non-zero.
+        line(MOCK if (cfg.mock_llm or config.MODEL_NOTE) else GREEN, "LLM",
              "template lines, set ANTHROPIC_API_KEY for natural phrasing"
-             if cfg.mock_llm else f"live on {cfg.claude_model}"),
+             if cfg.mock_llm else (config.MODEL_NOTE or f"live on {cfg.claude_model}")),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"

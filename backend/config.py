@@ -52,6 +52,36 @@ def first(*names: str) -> str:
     return ""
 
 
+# Model ids that actually exist. A wrong one does not fail loudly: `llm.ask` falls back
+# to its template on any error, so the key looks live, every call 404s, and nothing is
+# ever phrased by the model. Checking the name here turns that into a visible warning.
+MODELS = [
+    "claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-haiku-4-5",
+    "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
+]
+DEFAULT_MODEL = "claude-sonnet-5"
+MODEL_NOTE = ""
+
+
+def pick_model() -> str:
+    """The model id to call, falling back to a real one when the configured id is not.
+
+    Records why in MODEL_NOTE so `make check` can say so rather than leaving a key that
+    looks live but 404s on every request.
+    """
+    global MODEL_NOTE
+    want = (os.environ.get("CLAUDE_MODEL") or "").strip()
+    if not want:
+        return DEFAULT_MODEL
+    if want in MODELS:
+        return want
+    MODEL_NOTE = (f"CLAUDE_MODEL is {want}, which is not a model that exists, so "
+                  f"{DEFAULT_MODEL} is being used instead. Valid ids: "
+                  + ", ".join(MODELS[:4]) + ".")
+    return DEFAULT_MODEL
+
+
 def phones(name: str = "DEMO_PHONES") -> list[str]:
     """The allow list of numbers that may be texted in live mode.
 
@@ -91,9 +121,7 @@ class Cfg:
 
     # The brief asks for a default of claude-sonnet-5-5, which is not a model that
     # exists and would 404. The nearest real one is claude-sonnet-5. See DECISIONS.md.
-    claude_model: str = field(
-        default_factory=lambda: os.environ.get("CLAUDE_MODEL") or "claude-sonnet-5"
-    )
+    claude_model: str = field(default_factory=lambda: pick_model())
     anthropic_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     photon_key: str = field(default_factory=lambda: os.environ.get("PHOTON_API_KEY", ""))
     photon_url: str = field(default_factory=lambda: os.environ.get("PHOTON_BASE_URL", ""))
