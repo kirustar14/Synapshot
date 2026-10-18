@@ -53,6 +53,8 @@ export function initSentry() {
       // console.warn / console.error from the call page become searchable Sentry logs.
       Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] }),
       Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true, maskAllInputs: true }),
+      // "Report a problem" lives in Settings, not as a floating button over the workspace.
+      Sentry.feedbackIntegration({ autoInject: false, colorScheme: "light", showBranding: false }),
     ],
     // Hackathon volume: keep everything.
     tracesSampleRate: 1.0,
@@ -72,5 +74,30 @@ export const createRouter: typeof createBrowserRouter = (routes, opts) =>
   sentryOn
     ? Sentry.wrapCreateBrowserRouterV7(createBrowserRouter)(routes, opts)
     : createBrowserRouter(routes, opts);
+
+/** The Sentry org the demo links open in. */
+export const SENTRY_ORG = (import.meta.env.VITE_SENTRY_ORG as string | undefined) ?? "ucsd-6y";
+const base = `https://${SENTRY_ORG}.sentry.io`;
+
+export const sentryLinks = {
+  event: (id: string) => `${base}/issues/?query=${encodeURIComponent(id)}`,
+  trace: (id: string) => `${base}/performance/trace/${id}/`,
+  replay: (id: string) => `${base}/replays/${id}/`,
+  logs: () => `${base}/explore/logs/`,
+  issues: () => `${base}/issues/`,
+};
+
+/** The id of the replay recording this tab, if replay is on. */
+export const currentReplayId = () => Sentry.getReplay()?.getReplayId() ?? null;
+
+/** Open Sentry's feedback form. Resolves false when Sentry is off. */
+export async function openFeedback(): Promise<boolean> {
+  const feedback = Sentry.getFeedback();
+  if (!feedback) return false;
+  const form = await feedback.createForm({ formTitle: "Report a problem" });
+  form.appendToDom();
+  form.open();
+  return true;
+}
 
 export { Sentry };

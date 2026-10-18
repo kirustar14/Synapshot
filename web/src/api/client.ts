@@ -175,6 +175,12 @@ async function call<T>(path: string, init: CallInit | undefined, fallback: () =>
   return (await res.json()) as T;
 }
 
+export type ObservabilityStatus = { on: boolean; environment: string | null; products: string[]; release?: string | null };
+
+function noBackend(): never {
+  throw new Error("This needs the real backend. Start it with make dev, then reload.");
+}
+
 /* ---------------------------------------------------------------- routes */
 
 export const api = {
@@ -190,6 +196,14 @@ export const api = {
     demo: () => session<Clinician>("/auth/demo", { method: "POST" }),
     logout: () => session<{ ok: boolean }>("/auth/logout", { method: "POST" }),
   },
+
+  // Sentry demo. Real backend only: the mock layer has nothing to report.
+  observability: () =>
+    call<ObservabilityStatus>("/observability", undefined, () => ({ on: false, environment: null, products: [] })),
+  sentryDemoError: () =>
+    call<{ event_id: string | null; trace_id: string | null }>("/demo/sentry/error", { method: "POST" }, noBackend),
+  sentryDemoTrace: () =>
+    call<{ trace_id: string | null; steps: string[] }>("/demo/sentry/trace", { method: "POST" }, noBackend),
 
   patients: () => call<PatientRow[]>("/patients", undefined, mock.patients),
   createPatient: (b: { name: string; age: number; sex: "F" | "M" }) =>

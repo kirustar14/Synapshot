@@ -1,11 +1,11 @@
 // Patient workspace header: who this is, the monitoring context, the review action and the five
 // contextual tabs. The header stays mounted while the tabs change underneath it.
 
-import { CheckCheck, ChevronLeft, FileDown, GitCompare, MoreHorizontal, Upload } from "lucide-react";
+import { CheckCheck, ChevronLeft, FileDown, GitCompare, MoreHorizontal, PhoneCall, Upload } from "lucide-react";
 import { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { useAckAlert, useNote } from "@/api/client";
+import { useAckAlert, useNote, useTriggerCall } from "@/api/client";
 import type { Patient } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,8 +27,19 @@ const TABS = [
   { path: "reports", label: "Reports" },
 ];
 
+/** What POST /api/demo/trigger-call says happened. The mock layer only returns `ok`. */
+type CallStart = {
+  ok: boolean;
+  mode?: "web" | "facetime";
+  url?: string;
+  waiting?: boolean;
+  channel?: string;
+  error?: string | null;
+};
+
 export function PatientHeader({ patient }: { patient: Patient }) {
   const [working, setWorking] = useState(false);
+  const trigger = useTriggerCall();
   const ack = useAckAlert();
   const note = useNote();
   const navigate = useNavigate();
@@ -63,6 +74,34 @@ export function PatientHeader({ patient }: { patient: Patient }) {
     } finally {
       setWorking(false);
     }
+  };
+
+  // Starts this week's check-in. With a real texting transport the patient gets a link and the
+  // call waits for them; without one, a generated session runs through the real pipeline and
+  // lands under Assessments. FaceTime mode rings the rig.
+  const callPatient = () => {
+    const first = patient.name.split(" ")[0];
+    trigger.mutate(patient.id, {
+      onSuccess: (raw) => {
+        const got = raw as CallStart;
+        if (!got.ok) {
+          toast.error(got.error || `Could not start a call with ${first}`);
+        } else if (got.mode === "facetime") {
+          toast.success(`Calling ${first} on FaceTime`);
+        } else if (got.waiting && got.url) {
+          toast.success(`Check-in link sent to ${first}`, {
+            description: `By ${got.channel ?? "text"}. The call starts when they open it.`,
+            action: { label: "Open link", onClick: () => window.open(got.url, "_blank", "noreferrer") },
+          });
+        } else {
+          toast.success(`Check-in started for ${first}`, {
+            description: "A practice session is running through the real pipeline. Results appear under Assessments in about a minute.",
+            action: { label: "Assessments", onClick: () => navigate(`/app/patients/${patient.id}/assessments`) },
+          });
+        }
+      },
+      onError: (err) => toast.error(err.message.replace(/^\d+\s*/, "")),
+    });
   };
 
   return (
@@ -104,6 +143,16 @@ export function PatientHeader({ patient }: { patient: Patient }) {
           {/* Ringing or texting the patient is a separate act from reading the record, so it is
               a separate control and it never sends anything on its own. */}
           <StartCall patient={patient} />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={callPatient}
+            disabled={trigger.isPending}
+            className="h-8 gap-1.5 rounded-[7px] border-[#e6e0d6] bg-[#fffdfa] px-3 text-[12px] font-medium text-[#1c1a17] hover:bg-[#f6f1e8]"
+          >
+            <PhoneCall className="h-3.5 w-3.5" aria-hidden />
+            {trigger.isPending ? "Calling" : "Call patient"}
+          </Button>
           <Button
             size="sm"
             onClick={() => void markReviewed()}

@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { isMock, useHealth, useSession } from "@/api/client";
 import { useSignOut } from "@/components/AuthGate";
 import { SectionCard } from "@/dashboard/components";
+import { SentryPanel } from "@/components/SentryPanel";
 import { initialsOf } from "@/dashboard/derive";
 
 export default function Settings() {
@@ -89,6 +90,7 @@ export default function Settings() {
               { to: "/app/rig", label: "Live check-in rig", detail: "The browser capture pipeline and preflight checks" },
               { to: "/app/demo", label: "Demo console", detail: "Advance a week, inject drift, trigger a call" },
               { to: "/app/research", label: "Research", detail: "Cohort calibration and parameter recovery" },
+              { to: "/app/settings#sentry", label: "Sentry demo", detail: "Send a trace, an error and a replay, and open them in Sentry" },
             ].map((t) => (
               <li key={t.to}>
                 <Link to={t.to} className="flex items-center gap-3 py-2.5 hover:text-[#8a4222]">
@@ -102,6 +104,8 @@ export default function Settings() {
             ))}
           </ul>
         </SectionCard>
+
+        <SentryPanel />
 
         <SectionCard title="Data handling and limits" subtitle="What is stored, and where.">
           <ul className="space-y-2 text-[11px] leading-relaxed text-[#6d675e]">
