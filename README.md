@@ -41,7 +41,7 @@ alert). Our backend runs them through the CREAO API Trigger. Code: `backend/agen
 | Synapshot Care Team Briefing | `7149943a-6786-45d5-a793-cebf18179fcc` |
 | Synapshot Outreach | `efd71222-dd0a-4c62-9631-0acdba5b4d45` |
 
-**Share link to an agent run:** <<(https://agent.creao.ai/share/18e9058f7eb5bbe578d89e630fbf5abc)>>
+**Share link to an agent run:** <<([https://agent.creao.ai/share/18e9058f7eb5bbe578d89e630fbf5abc](https://agent.creao.ai/share/ef82f4fef30621b188ab11fea6f615d8))>>
 
 ## Sentry
 
