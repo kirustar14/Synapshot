@@ -1499,3 +1499,13 @@ GPU with a CPU fallback already there.
 truncated one cannot masquerade as a model, and `make check` fails if the file is missing
 or under 1 MB. The patient never sees the loader's words: "The camera check could not
 start" with Try again and Tell my clinic, and the real error goes to the console.
+
+## 6b: the live call panel is gone
+
+The gaze dot, the face, distance and light lights, the 4/s and 30 fps readouts and the
+"Live, 4/s" chip all showed a clinician on a laptop things they could not act on: the
+measurements are posted in whole chunks and read back once the call lands. One grey line
+replaced the lot, moving through Waiting for the patient, Check-in in progress: step,
+Processing, Done. The call page no longer posts /live; the route stays for a future
+console. The privacy sentence stays on the patient consent screen, which is where it is
+actually read.

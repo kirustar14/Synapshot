@@ -68,11 +68,6 @@ export function TopBar({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h1 className="truncate text-xl font-black">{patient.name}</h1>
-          {stream.connected && stream.rate > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-destructive-soft px-2 py-0.5 text-[10px] font-bold text-destructive">
-              <Radio className="h-3 w-3 animate-pulse" aria-hidden /> Live, {stream.rate}/s
-            </span>
-          )}
         </div>
         <p className="text-xs text-muted-foreground">
           {patient.age}, {patient.sex === "F" ? "female" : "male"}

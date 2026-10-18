@@ -128,7 +128,9 @@ export function CallRunner({ token, script }: { token: string; script: CallScrip
     const id = window.setInterval(() => {
       const got = tracker.lights;
       setLights(got);
-      if (liveOn.current) post.live(stepRef.current, tracker.gaze(), target.current, got);
+      // The live strip it fed is gone from the clinician's laptop, so there is nothing
+      // on the other end to draw it. The /live route stays for a future console.
+      void liveOn;
       if (faceOn.current) send({ type: "face", seen: got.face, t: now() });
     }, TICK_MS);
     return () => window.clearInterval(id);

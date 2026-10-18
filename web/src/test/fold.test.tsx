@@ -102,7 +102,7 @@ describe("Fold", () => {
   it("lets a parent drive it, for the sections something other than a click opens", () => {
     const onToggle = vi.fn();
     render(
-      <Fold id="t.seven" title="Live call" open onToggle={onToggle}>
+      <Fold id="t.seven" title="Check-in status" open onToggle={onToggle}>
         <p>body</p>
       </Fold>,
     );
