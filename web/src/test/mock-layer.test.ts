@@ -75,9 +75,11 @@ describe("mock layer", () => {
     expect(shape.impact.amp).toHaveLength(13);
     expect(shape.template_diff).toHaveLength(mock.mesh().labels.length);
 
+    // Exactly the five the backend serves, spelled its way, or the what-if target
+    // picker would send a name the intervention route rejects.
     const rec = mock.receptors();
-    expect(rec.names.length).toBeGreaterThan(5);
-    expect(rec.maps[rec.names[0]]).toHaveLength(100);
+    expect(rec.names).toEqual(["GABA-A", "NMDA", "D2", "5-HT2A", "mu-opioid"]);
+    for (const name of rec.names) expect(rec.maps[name]).toHaveLength(100);
 
     const loads = mock.loadings();
     const total = loads.weights[loads.signals[0]].reduce((a, b) => a + b, 0);

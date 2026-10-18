@@ -82,14 +82,37 @@ def pick_model() -> str:
     return DEFAULT_MODEL
 
 
+def e164(entry: str) -> str:
+    """Just the number out of an allow list entry, in E.164.
+
+    An entry is often written for a human to read, like "Kiruthika +1 925 967 7432" or
+    "clinic <+19259677432>", so the digits are pulled out and the rest is dropped. A ten
+    digit number is assumed to be North American, which is the only guess here and is
+    worth knowing about if you add an international number.
+    """
+    digits = "".join(ch for ch in str(entry) if ch.isdigit())
+    if not digits:
+        return ""
+    if len(digits) == 10:
+        digits = "1" + digits
+    return "+" + digits
+
+
 def phones(name: str = "DEMO_PHONES") -> list[str]:
-    """The allow list of numbers that may be texted in live mode.
+    """The allow list of numbers that may be texted or called in live mode.
 
     Nothing is sent to a number outside this list, ever. People on it have agreed to be
-    texted, and that is the only reason a number is in there.
+    contacted, and that is the only reason a number is in there. Entries are normalized
+    to E.164 so a label written next to the number cannot end up being used as the
+    destination, which is a mistake that fails in a confusing way far from here.
     """
     raw = os.environ.get(name) or ""
-    return [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+    out = []
+    for part in raw.replace(";", ",").split(","):
+        got = e164(part)
+        if got and got not in out:
+            out.append(got)
+    return out
 
 
 @dataclass

@@ -64,6 +64,11 @@ imessage:
 	cd backend/comms/node && npm install
 	@$(PY) -c "from backend.comms import photon; import json; print(json.dumps(photon.docs(), indent=2))"
 
+# Creates the ElevenLabs conversational agent that reads the clinician update, and
+# prints the id to put in .env. Idempotent by name. It needs credits before it speaks.
+agent:
+	$(PY) -m backend.comms.make_agent
+
 tunnel:
 	@echo ""
 	@echo "  An iPhone will not open the camera over plain http, so the call page needs"

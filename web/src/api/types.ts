@@ -121,11 +121,18 @@ export interface Mesh {
   pial: number[];        // flat [x,y,z,...] in mm, centred on the origin
   inflated: number[];    // same length and order as pial
   faces: number[];       // flat [a,b,c,...] into the vertex arrays
-  labels: number[];      // Schaefer-100 region index 0 to 99 per vertex, -1 for medial wall
+  // Schaefer-100 region index per vertex. The real backend fills the medial wall from
+  // its nearest neighbour so every vertex is 0 to 99; the procedural mock uses -1 there.
+  labels: number[];
   region_names: string[];  // 100 entries, left hemisphere first
   networks: string[];      // 100 entries: Vis, SomMot, DorsAttn, SalVentAttn, Limbic, Cont, Default
   border: number[];        // per vertex, 1 when a neighbour has a different label, else 0
   lobes: string[];         // 100 entries, plain-English area tag per region, approximate
+  // Flat [x,y,z,...], 300 numbers, the per region centroid in the same space as `pial`.
+  // Tract endpoints use these so they land on the surface being drawn. Optional because
+  // the procedural mock may omit it, in which case fall back to Twin.regions[].x,y,z.
+  region_xyz?: number[];
+  verts?: number;
   source: "fsaverage5" | "procedural";
 }
 

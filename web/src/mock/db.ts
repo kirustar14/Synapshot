@@ -667,7 +667,9 @@ function makeShape(s: PState): Shape {
   return shape;
 }
 
-const RECEPTOR_NAMES = ["5HT1a", "5HT2a", "D1", "D2", "DAT", "GABAa", "mGluR5", "MU", "NMDA", "A4B2"];
+// Exactly the five the backend serves, spelled the way it spells them, so the what-if
+// target picker sends a name the intervention route recognises.
+const RECEPTOR_NAMES = ["GABA-A", "NMDA", "D2", "5-HT2A", "mu-opioid"];
 
 function makeReceptors(): Receptors {
   const maps: Record<string, number[]> = {};

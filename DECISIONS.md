@@ -650,3 +650,49 @@ this phase was the master prompt header, then spec file 1, then 2, then 3, then 
   the thread are genuinely available. The midweek check still uses plain reply parsing:
   it is a reach item, the parsing path is already tested end to end, and a mini-app that
   only works on one transport would need the plain path kept anyway as the fallback.
+
+### The outbound call incident, and what the real transports actually said
+
+I made the new ElevenLabs clinic call live by accident and it rang a real phone
+repeatedly. Written up here because the cause generalizes.
+
+- **Credentials were treated as consent.** `ELEVENLABS_AGENT_ID`,
+  `ELEVENLABS_PHONE_NUMBER_ID` and `CLINIC_NUMBER` were all present in `.env`, and
+  `MOCK_ELEVEN` was a switch I had just invented so it was absent, which made
+  `flag("MOCK_ELEVEN", ["ELEVENLABS_API_KEY"])` resolve to live. Every red flag and
+  drift alert then placed a real outbound call, and `make seed` and the test runs fire
+  those alerts, so it called over and over. A key sitting in a dotfile is not permission
+  to ring somebody. `LIVE_CLINIC_CALL` now has to be set deliberately.
+- **The allow list was only half enforced.** The brief says send nothing in live mode to
+  a number outside `DEMO_PHONES`. The texts checked it from the start. The calls never
+  did, so the one path that physically rings a person was the only path with no gate.
+- **The allow list could not be parsed.** `DEMO_PHONES` held a label next to the number,
+  the way a person would write it. `may_text` compared digits so it passed, but `send`
+  handed the whole string to the transport as the destination, which then failed a long
+  way from the cause. Entries are now normalized to E.164 and the label is dropped.
+- **Why the call cut out the instant it was answered.** I first blamed the agent, which
+  was wrong. The account is free tier and its 10000 character quota was fully spent, by
+  me, generating the voice lines earlier in the session. A conversational agent needs
+  credits to speak, so the call connected, had nothing to say, and dropped. The agent
+  being the wrong one is true but secondary.
+
+What the transports said once the code was right, verified against the real services:
+
+- **Spectrum Cloud authenticates.** `cloud.getProject` returns the project, so the
+  project id and secret are good. `getPlatforms` and `getImessageInfo` want a bearer
+  token rather than the secret and are not needed for sending.
+- **The send accessor is the narrowing function, not the property.** `imessage.config({})`
+  goes in `providers`, and `imessage(app)` returns the platform surface with `space` on
+  it. `app.imessage` exists, carries only `close`, and fails with an unhelpful
+  `TypeError: Cannot read properties of undefined (reading 'create')`. Two different
+  things wear the same name.
+- **The remaining iMessage blocker is project side, not code.** With the accessor fixed,
+  Spectrum answers `AuthenticationError: [spectrum-imessage] Target not allowed for this
+  project`, which is the destination number not being allowed on the project.
+- **The local fallback needs Full Disk Access.** `@photon-ai/imessage-kit` reads
+  `~/Library/Messages/chat.db`. The file exists and is not readable by this process, so
+  it reports `Failed to open database`. That is a macOS permission for the terminal, not
+  a bug.
+- **Twilio is ready.** Trial account, active, and `CLINIC_NUMBER` is already a verified
+  caller ID, which a trial account requires. So the Twilio leg of the clinic call works
+  as soon as `MOCK_TWILIO=0` and `LIVE_CLINIC_CALL=1`.

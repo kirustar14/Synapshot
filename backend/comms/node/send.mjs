@@ -47,7 +47,12 @@ async function viaSpectrum(to, body) {
       projectSecret,
       providers: [provider.imessage.config({})],
     });
-    const space = await app.imessage.space.create(to);
+    // Two different things wear the same name. `imessage.config({})` is the provider
+    // entry for the constructor, and `imessage(app)` is the narrowing function that
+    // gives you the platform surface. `app.imessage` looks like it should work and is
+    // a stub with only `close` on it, which fails with an unhelpful TypeError.
+    const im = provider.imessage(app);
+    const space = await im.space.create(to);
     await app.send(space, core.text(body));
     return { ok: true, how: "spectrum", channel: CHANNEL };
   } catch (err) {
