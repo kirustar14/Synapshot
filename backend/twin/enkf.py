@@ -24,6 +24,7 @@ def init(rng: np.random.Generator, geno: dict, zbio: float, sex: str, d0: float,
         "ens": ens,
         "disc": np.zeros((members, len(fcast.OBS))),
         "d0": float(d0),
+        "d0_vec": None,      # one level per signal, set only when regional loadings are on
         "sd_prior_logk": float(ens[:, 0].std()),
         "coverage": [],      # one entry per updated week, computed before the update
         "resid": [],         # standardized residuals per week, per observable
@@ -45,13 +46,20 @@ def advance(state: dict, rng: np.random.Generator) -> None:
 
 
 def predict(state: dict, week: int) -> dict:
-    """Map every member to predicted observables at one week. y_pred = y_of(d(week)) + b."""
+    """Map every member to predicted observables at one week. y_pred = y(d(week)) + b.
+
+    `d0_vec` carries one damage level per signal when regional loadings are on, and is
+    absent otherwise, in which case the scalar d0 broadcasts to all six.
+    """
     th = state["ens"]
     k = np.exp(th[:, 0])
     p = 1.0 / (1.0 + np.exp(-np.clip(th[:, 1], -40, 40)))
-    d0m = state["d0"] * np.exp(th[:, 2])
-    d = fcast.d_of(d0m, k, p, np.array([float(week)]))[:, 0]
-    return {"y": fcast.y_of(d) + state["disc"], "d": d}
+    scale = np.exp(th[:, 2])
+    vec = state.get("d0_vec")
+    level = state["d0"] if vec is None else vec
+    y = fcast.y_signals(level, k, p, np.array([float(week)]), scale=scale)[:, 0, :]
+    d = fcast.d_of(state["d0"] * scale, k, p, np.array([float(week)]))[:, 0]
+    return {"y": y + state["disc"], "d": d}
 
 
 def band(ypred: np.ndarray, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:

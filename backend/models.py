@@ -231,6 +231,10 @@ class Region(BaseModel):
     template_ei: float
     damage: list[float]
     activity: list[float]
+    damage_lo: list[float]
+    damage_hi: list[float]
+    recovery: float
+    network: str
 
 
 class Edge(BaseModel):
@@ -258,6 +262,93 @@ class Twin(BaseModel):
     regions: list[Region]
     edges: list[Edge]
     top_tracts: list[TopTract]
+
+
+class Mesh(BaseModel):
+    """The cortical surface the viewer renders. Flat arrays, millimetres, origin centred."""
+
+    space: Literal["fsaverage5", "procedural"]
+    source: Literal["fsaverage5", "procedural"]
+    verts: int
+    pial: list[float]
+    inflated: list[float]
+    faces: list[int]
+    labels: list[int]
+    border: list[int]
+    region_names: list[str]
+    networks: list[str]
+    lobes: list[str]
+    region_xyz: list[float]
+
+
+class Impact(BaseModel):
+    """Where the head was hit, on the surface, and how the swelling settles."""
+
+    vertex: int
+    point: list[float]
+    radius: float
+    amp: list[float]
+
+
+class Shape(BaseModel):
+    """Per person visual deformation of the template mesh. Illustrative, not a segmentation."""
+
+    scale: list[float]
+    atrophy: float
+    thick_z: list[float]
+    impact: Impact
+    template_diff: list[float]
+    source: Literal["synthetic", "freesurfer"]
+    mesh_source: str
+    age: int
+    sex: str
+    severity: float
+    note: str
+
+
+class Receptors(BaseModel):
+    """Group average receptor and transporter maps, z scored over the 100 regions."""
+
+    names: list[str]
+    maps: dict[str, list[float]]
+    synthetic_template: bool
+    note: str
+
+
+class SummaryDelta(BaseModel):
+    """What the perturbation did to the three network summaries."""
+
+    fc_strength: float
+    rate: float
+    metastability: float
+
+
+class Intervention(BaseModel):
+    """A clinician only receptor weighted gain what-if. Never a recommendation."""
+
+    target: str
+    gain: float
+    region_effect: list[float]
+    summary_delta: SummaryDelta
+    baseline: SummaryDelta
+    receptor: list[float]
+    synthetic_template: bool
+    note: str
+
+
+class InterventionBody(BaseModel):
+    """Body of POST /api/patients/{id}/intervention."""
+
+    target: str
+    gain: float = 0.0
+
+
+class Loadings(BaseModel):
+    """Signal to region loadings behind REGIONAL_LOADINGS. Always a design assumption."""
+
+    signals: list[str]
+    weights: dict[str, list[float]]
+    note: str
 
 
 class Scenario(BaseModel):

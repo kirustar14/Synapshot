@@ -199,6 +199,53 @@ def get_twin(pid: str) -> dict:
     return twin
 
 
+@app.get("/api/mesh", response_model=models.Mesh)
+def get_mesh() -> dict:
+    """The cortical surface with a Schaefer-100 label on every vertex."""
+    from .data import mesh as meshmod
+
+    return meshmod.mesh()
+
+
+@app.get("/api/patients/{pid}/shape", response_model=models.Shape)
+def get_shape(pid: str) -> dict:
+    """How this patient's brain differs in shape from the template. Illustrative."""
+    need(pid)
+    from .twin import shape as shapemod
+
+    return shapemod.shape_of(pid)
+
+
+@app.get("/api/receptors", response_model=models.Receptors)
+def get_receptors() -> dict:
+    """Group average receptor maps for the what-if overlay."""
+    from .twin import intervention as interv
+
+    return interv.receptors()
+
+
+@app.post("/api/patients/{pid}/intervention", response_model=models.Intervention)
+def post_intervention(pid: str, body: models.InterventionBody) -> dict:
+    """A clinician only receptor weighted gain what-if. Never reaches a patient."""
+    need(pid)
+    from .twin import intervention as interv
+
+    try:
+        return interv.run(pid, body.target, body.gain)
+    except KeyError:
+        raise HTTPException(400, f"unknown receptor target {body.target}") from None
+
+
+@app.get("/api/loadings", response_model=models.Loadings)
+def get_loadings() -> dict:
+    """Which regions drive which signal. A design assumption, behind REGIONAL_LOADINGS."""
+    from .twin import loadings as loadmod
+
+    if not loadmod.enabled():
+        raise HTTPException(404, "regional loadings are off, set REGIONAL_LOADINGS=1")
+    return loadmod.payload()
+
+
 @app.post("/api/patients/{pid}/scenarios", response_model=models.ScenarioResult)
 def post_scenarios(pid: str, body: models.ScenarioBody) -> dict:
     """Two what-if impacts side by side."""

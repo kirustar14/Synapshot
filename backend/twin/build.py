@@ -5,8 +5,8 @@ import numpy as np
 from .. import db
 from ..data import synthetic as syn
 from ..data import upload
-from ..data.templates import ei_map, short_names, templates
-from . import dmf, enkf, forecast as fcast, priors, strain, surrogate as sg
+from ..data.templates import NETS, ei_map, short_names, templates
+from . import dmf, enkf, forecast as fcast, loadings, priors, strain
 
 LOW_FIT = 0.3     # below this FC fit the twin is flagged low fidelity
 WIDEN = 1.3       # band widening factor for a low fidelity twin
@@ -73,11 +73,13 @@ def build_twin(pid: str, template_only: bool | None = None) -> dict:
 
     rng = np.random.default_rng(int(row["seed"]) + 77)
     state = enkf.init(rng, geno, zbio, sex, d0)
+    if loadings.enabled():
+        state["d0_vec"] = loadings.d_per_signal(region_damage(dmg0))
     post = enkf.params(state)
 
     widen = WIDEN if low_fidelity else 1.0
-    fore = fcast.signals(state["ens"], d0, obs_rows=db.observations(pid), widen=widen)
-    twin = twin_json(dmg0, ei, state, d0)
+    fore = fcast.signals(state["ens"], level_of(state), obs_rows=db.observations(pid), widen=widen)
+    twin = twin_json(dmg0, ei, state, sc=sc, gval=float(gfit["G"]))
 
     params = {"G": float(gfit["G"]), "k": post["k"], "p": post["p"], "eps": eps}
     db.patch("patients", pid, {
@@ -116,6 +118,7 @@ def save_state(state: dict) -> dict:
         "ens": state["ens"].tolist(),
         "disc": state["disc"].tolist(),
         "d0": state["d0"],
+        "d0_vec": None if state.get("d0_vec") is None else [float(v) for v in state["d0_vec"]],
         "sd_prior_logk": state["sd_prior_logk"],
         "coverage": state["coverage"],
         "resid": state["resid"],
@@ -128,10 +131,12 @@ def save_state(state: dict) -> dict:
 
 def load_state(raw: dict) -> dict:
     """EnKF state back from sqlite."""
+    vec = raw.get("d0_vec")
     return {
         "ens": np.asarray(raw["ens"], dtype=float),
         "disc": np.asarray(raw["disc"], dtype=float),
         "d0": float(raw["d0"]),
+        "d0_vec": None if vec is None else np.asarray(vec, dtype=float),
         "sd_prior_logk": float(raw["sd_prior_logk"]),
         "coverage": raw.get("coverage", []),
         "resid": raw.get("resid", []),
@@ -168,33 +173,145 @@ def region_damage(dmg0: np.ndarray) -> np.ndarray:
     return num / np.where(den < 1e-12, 1e-12, den)
 
 
-def twin_json(dmg0: np.ndarray, ei: np.ndarray, state: dict, d0: float, upto: int = fcast.WEEKS) -> dict:
+def population_k() -> float:
+    """Typical weekly recovery rate, for the healing layer.
+
+    The cohort's mean estimate when there is one, otherwise the prior median
+    exp(mu_k) = 0.25 per week. `recovery` is this patient's k over this number.
+    """
+    try:
+        from . import population
+
+        got = population.load()
+        if got and got.get("k_est"):
+            val = float(np.mean(got["k_est"]))
+            if np.isfinite(val) and val > 1e-6:
+                return val
+    except Exception:
+        pass
+    return float(np.exp(priors.HYPER["mu_k"]))
+
+
+def region_bands(dreg: np.ndarray, state: dict, wk: np.ndarray) -> dict:
+    """Per region damage mean and 10th to 90th percentile across the ensemble.
+
+    member m: D_i(t, m) = dreg_i * exp(log d0_scale_m) * (p_m + (1 - p_m)*exp(-k_m*t))
+    The band is the spread over the 200 members, which is why it narrows as calls arrive
+    and the filter tightens k and p.
+    """
+    th = state["ens"]
+    k = np.exp(th[:, 0])
+    p = priors.expit(th[:, 1])
+    scale = np.exp(th[:, 2])
+    # members by weeks
+    decay = scale[:, None] * (p[:, None] + (1.0 - p[:, None]) * np.exp(-k[:, None] * wk[None, :]))
+    # regions by members by weeks, clipped because damage is a fraction
+    full = np.clip(dreg[:, None, None] * decay[None, :, :], 0.0, 1.0)
+    return {
+        "mean": full.mean(axis=1),
+        "lo": np.percentile(full, 10, axis=1),
+        "hi": np.percentile(full, 90, axis=1),
+    }
+
+
+def region_activity(sc: np.ndarray, gval: float, ei: np.ndarray, dmg0: np.ndarray,
+                    decay: np.ndarray) -> np.ndarray:
+    """Per region simulated activity per week, z scored against the healthy brain.
+
+    r_i(t) = the DMF transfer function at the healthy gating value with the damaged SC,
+    holding the inhibition tuned on the healthy brain. Then
+    act_i(t) = (r_i(t) - r_healthy_i) / sd over all regions and weeks of that deviation
+
+    Zero means healthy and negative means firing below normal. The deviation is
+    standardized over the whole region by week block, not per week, so the layer keeps
+    the regional pattern and still shows the global return toward normal as weeks pass.
+    It is deliberately not standardized against the healthy spread across regions:
+    feedback inhibition pins every healthy region at the same 1.2 Hz working point, so
+    that spread is numerically zero and dividing by it is meaningless. See DECISIONS.md.
+    Falls back to scaling the healthy rate by (1 - damage) if the solve misbehaves.
+    """
+    jj = dmf.fic(sc, gval, ei)
+    healthy = dmf.rates_at(sc, gval, ei, j=jj)
+    if not np.isfinite(healthy).all():
+        dreg = region_damage(dmg0)
+        return np.stack([-dreg * d for d in decay], axis=1)
+    out = np.empty((sc.shape[0], len(decay)))
+    for t, fac in enumerate(decay):
+        dmat = strain.damage_matrix(np.clip(dmg0 * float(fac), 0.0, 1.0))
+        got = dmf.rates_at(sc * (1.0 - dmat), gval, ei, j=jj)
+        if not np.isfinite(got).all():
+            got = healthy * (1.0 - region_damage(dmg0) * float(fac))
+        out[:, t] = got - healthy
+    sd = float(out.std())
+    return out / (sd if sd > 1e-9 else 1.0)
+
+
+NET_NAMES = {"Vis": "Visual", "SomMot": "SomMot", "DorsAttn": "DorsAttn",
+             "SalVentAttn": "SalVentAttn", "Limbic": "Limbic", "Cont": "Cont",
+             "Default": "Default"}
+
+
+def network_name(name: str) -> str:
+    """The seven network label out of a Schaefer region name."""
+    for net in NETS:
+        if net in str(name):
+            return NET_NAMES[net]
+    return "Other"
+
+
+def region_xyz_safe() -> np.ndarray:
+    """Surface region centroids, falling back to the MNI volume centroids."""
+    try:
+        from ..data import mesh as meshmod
+
+        got = meshmod.region_xyz()
+        if got.shape == (templates()["sc"].shape[0], 3):
+            return got
+    except Exception:
+        pass
+    return templates()["xyz"]
+
+
+def twin_json(dmg0: np.ndarray, ei: np.ndarray, state: dict, upto: int = fcast.WEEKS,
+              sc: np.ndarray | None = None, gval: float | None = None) -> dict:
     """The Twin contract object: regions, edges and top tracts over 12 weeks."""
     tpl = templates()
     names = short_names()
     post = enkf.params(state)
     wk = np.asarray(fcast.weeks(upto), dtype=float)
+    sc = tpl["sc"] if sc is None else sc
+    gval = float(priors.HYPER["mu_G"]) if gval is None else float(gval)
 
     # D(t) = D(0) * decay(t), one scalar decay shared by every edge
     decay = fcast.d_of(1.0, post["k"], post["p"], wk)
     dreg = region_damage(dmg0)
-    # Activity proxy, 1 is healthy:
-    # act_i(t) = rate(d(t)) / rate(0) * (1 - 0.5 * D_i(t))
-    rate = sg.z_of(d0 * decay)[..., sg.index_of("rate")] / sg.z_of(0.0)[sg.index_of("rate")]
+    band = region_bands(dreg, state, wk)
+    act = region_activity(sc, gval, ei, dmg0, decay)
     tei = ei_map(0.0)
 
+    # Region positions come from the surface mesh so tract endpoints land on the cortex
+    # the viewer draws. The model's own edge geometry still uses the MNI volume centroids
+    # in templates.py, which agree with these to about 3 mm. See DECISIONS.md.
+    xyz = region_xyz_safe()
+    nets = [network_name(n) for n in tpl["names"]]
+    heal = round(float(post["k"] / population_k()), 3)
+
     regions = []
-    for i in range(tpl["sc"].shape[0]):
+    for i in range(sc.shape[0]):
         dmg_i = dreg[i] * decay
         regions.append({
             "id": i,
             "name": names[i],
             "hemi": str(tpl["hemi"][i]),
-            "x": float(tpl["xyz"][i][0]), "y": float(tpl["xyz"][i][1]), "z": float(tpl["xyz"][i][2]),
+            "x": float(xyz[i][0]), "y": float(xyz[i][1]), "z": float(xyz[i][2]),
             "ei": float(ei[i]),
             "template_ei": float(tei[i]),
-            "damage": [float(v) for v in dmg_i],
-            "activity": [float(rate[t] * (1.0 - 0.5 * dmg_i[t])) for t in range(len(wk))],
+            "damage": [round(float(v), 5) for v in dmg_i],
+            "damage_lo": [round(float(v), 5) for v in band["lo"][i]],
+            "damage_hi": [round(float(v), 5) for v in band["hi"][i]],
+            "recovery": heal,
+            "network": nets[i],
+            "activity": [round(float(v), 4) for v in act[i]],
         })
 
     tw = dmf.upper(tpl["sc"])
@@ -219,12 +336,18 @@ def twin_json(dmg0: np.ndarray, ei: np.ndarray, state: dict, d0: float, upto: in
     return {"weeks": [int(v) for v in wk], "regions": regions, "edges": edges, "top_tracts": tops}
 
 
+def level_of(state: dict):
+    """The damage level the forecast runs on: per signal with loadings on, else scalar."""
+    vec = state.get("d0_vec")
+    return state["d0"] if vec is None else vec
+
+
 def rebuild_forecast(pid: str) -> dict:
     """Recompute and store the forecast from the current ensemble and observations."""
     row = db.patient(pid)
     state = state_of(pid)
     widen = WIDEN if int(row["low_fidelity"] or 0) else 1.0
-    fore = fcast.signals(state["ens"], state["d0"], obs_rows=db.observations(pid),
+    fore = fcast.signals(state["ens"], level_of(state), obs_rows=db.observations(pid),
                          widen=widen, cov=state["coverage"])
     db.put("forecasts", {"id": db.new_id("fc"), "patient_id": pid, "week": int(row["week"]),
                          "payload": db.enc(fore), "time": db.now()})

@@ -163,6 +163,26 @@ def simulate(sc: np.ndarray, g: float, ei: np.ndarray | None = None, dur_s: floa
     return {"s": sarr, "rate": rarr, "bold": to_bold(sarr), "G": float(g)}
 
 
+def rates_at(sc: np.ndarray, g: float, ei: np.ndarray | None = None, j: np.ndarray | None = None) -> np.ndarray:
+    """Per region firing rate at the healthy gating value, in Hz.
+
+    I_i = J_N*(w*ei_i*S_tgt + G*sum_j C_ij*S_tgt) + I0 - J_i*S_tgt
+    r_i = rate(I_i)
+    Evaluated at S = S_tgt rather than integrated, so a damaged SC can be scored in one
+    matrix product instead of a 30 s run. Pass `j` to hold the inhibition that was tuned
+    on the healthy brain, which is what lets damage move the rate at all. With the healthy
+    SC and its own J this returns r_tgt for every region by construction.
+    """
+    c = norm_sc(sc)
+    reg = c.shape[0]
+    ei = np.ones(reg) if ei is None else np.asarray(ei, dtype=float)
+    jj = fic(sc, g, ei) if j is None else np.asarray(j, dtype=float)
+    wp = work_point()
+    s = wp["S_tgt"]
+    cur = J_N * (W * ei * s + g * (c @ np.full(reg, s))) + I0 - jj * s
+    return rate(cur)
+
+
 def fc_of(bold: np.ndarray) -> np.ndarray:
     """Region by region Pearson FC of a time by region signal."""
     fc = np.corrcoef(bold.T)

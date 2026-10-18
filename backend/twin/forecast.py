@@ -63,18 +63,47 @@ def y_of(d) -> np.ndarray:
     return np.stack(cols, axis=-1)
 
 
-def truth(d0: float, k: float, p: float, upto: int = WEEKS, seed: int = 0, noise: bool = True) -> np.ndarray:
+def d0_vec(d0) -> np.ndarray:
+    """One week zero damage level per observable, length 6.
+
+    A scalar broadcasts to all six, which is the global damage path and the default. With
+    regional loadings on, each signal carries its own level and the signals separate.
+    """
+    arr = np.atleast_1d(np.asarray(d0, dtype=float))
+    if arr.size == len(OBS):
+        return arr
+    return np.full(len(OBS), float(arr.ravel()[0]))
+
+
+def y_signals(d0, k, p, wk, scale=1.0) -> np.ndarray:
+    """Noise free observables with one damage level per signal.
+
+    d_s(t) = d0_s * scale * (p + (1 - p)*exp(-k*t)) , evaluated per signal
+    Shapes follow d_of, so with k and p of length `draws` the result is
+    (draws, weeks, 6). When d0 is a scalar this is exactly
+    y_of(d_of(d0 * scale, k, p, wk)), which is why turning the loadings on cannot move
+    the default path.
+    """
+    levels = d0_vec(d0)
+    cols = []
+    for o, level in zip(OBS, levels):
+        d = d_of(level * np.asarray(scale, dtype=float), k, p, wk)
+        fr = frac(d)[..., sg.index_of(o["summary"])]
+        cols.append(o["base"] + o["load"] * fr)
+    return np.stack(cols, axis=-1)
+
+
+def truth(d0, k: float, p: float, upto: int = WEEKS, seed: int = 0, noise: bool = True) -> np.ndarray:
     """True weekly observables for a synthetic patient, weeks by 6, with SEM noise."""
     wk = np.asarray(weeks(upto), dtype=float)
-    d = d_of(d0, k, p, wk)
-    y = y_of(d)
+    y = y_signals(d0, np.asarray(k, dtype=float), np.asarray(p, dtype=float), wk)
     if noise:
         rng = np.random.default_rng(seed)
         y = y + rng.normal(0.0, sems(), y.shape)
     return y
 
 
-def spread(ens: np.ndarray, d0: float, upto: int = WEEKS, draws: int = 300, widen: float = 1.0, seed: int = 0) -> dict:
+def spread(ens: np.ndarray, d0, upto: int = WEEKS, draws: int = 300, widen: float = 1.0, seed: int = 0) -> dict:
     """Predictive mean and 80% band per observable from the ensemble.
 
     theta member = [log k, logit p, log d0_scale]
@@ -86,10 +115,8 @@ def spread(ens: np.ndarray, d0: float, upto: int = WEEKS, draws: int = 300, wide
     th = ens[pick]
     k = np.exp(th[:, 0])
     p = 1.0 / (1.0 + np.exp(-np.clip(th[:, 1], -40, 40)))
-    d0m = d0 * np.exp(th[:, 2])
     wk = np.asarray(weeks(upto), dtype=float)
-    d = d_of(d0m, k, p, wk)                      # draws by weeks
-    y = y_of(d)                                  # draws by weeks by 6
+    y = y_signals(d0, k, p, wk, scale=np.exp(th[:, 2]))   # draws by weeks by 6
     y = y + rng.normal(0.0, sems(), y.shape)
     mean = y.mean(axis=0)
     lo = np.percentile(y, 10, axis=0)
@@ -100,7 +127,7 @@ def spread(ens: np.ndarray, d0: float, upto: int = WEEKS, draws: int = 300, wide
     return {"weeks": [int(v) for v in wk], "mean": mean, "lo": lo, "hi": hi}
 
 
-def signals(ens: np.ndarray, d0: float, obs_rows: list[dict] | None = None, upto: int = WEEKS, widen: float = 1.0, cov: list[dict] | None = None, seed: int = 0) -> dict:
+def signals(ens: np.ndarray, d0, obs_rows: list[dict] | None = None, upto: int = WEEKS, widen: float = 1.0, cov: list[dict] | None = None, seed: int = 0) -> dict:
     """Forecast in the API contract shape, with observations attached per signal."""
     band = spread(ens, d0, upto=upto, widen=widen, seed=seed)
     sv = sems()
