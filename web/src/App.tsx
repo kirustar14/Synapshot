@@ -3,7 +3,8 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { RouterProvider, createBrowserRouter } from "react-router-dom";
+import { RouterProvider } from "react-router-dom";
+import { createRouter } from "@/lib/sentry";
 import { AuthGate } from "@/components/AuthGate";
 import { ClinicLayout } from "@/components/ClinicLayout";
 import { Toaster } from "@/components/ui/sonner";
@@ -68,7 +69,7 @@ export const routes = [
   { path: "*", element: <NotFound /> },
 ];
 
-const router = createBrowserRouter(routes);
+const router = createRouter(routes);
 
 /** Keeps the .dark class on html in step with the store, which persists it to localStorage. */
 function ThemeSync() {

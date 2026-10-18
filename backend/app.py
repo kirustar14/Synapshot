@@ -25,6 +25,11 @@ from .data import upload
 from .features import sem as semmod
 from .features import webframes
 from .twin import attribution, build, counterfactual, forecast as fcast, population
+from . import observability
+
+# Before the app exists, so the FastAPI integration instruments it. A no-op without
+# SENTRY_DSN in .env.
+observability.init()
 
 
 @asynccontextmanager

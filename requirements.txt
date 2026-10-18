@@ -33,3 +33,4 @@ numpyro
 # anthropic
 # twilio
 # sbi                # optional upgrade for twin/surrogate.py behind USE_SBI=1
+sentry-sdk[fastapi]

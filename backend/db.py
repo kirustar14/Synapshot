@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -62,6 +63,14 @@ create index if not exists ix_msg_pat on messages(patient_id);
 
 _CONN: sqlite3.Connection | None = None
 
+# One connection is shared by every FastAPI worker thread (check_same_thread=False), and
+# the clinician app fires its twin, shape, forecast and mesh requests in parallel. Without
+# a lock two threads used the same connection at once and one of them read a half-moved
+# page: Sentry caught it as "database disk image is malformed" on /api/patients/{pid}/twin
+# (UNNAMED-BACKEND-2) while the file itself passed integrity_check. Every statement now
+# holds this lock. Reentrant, because conn() itself runs statements on first open.
+LOCK = threading.RLock()
+
 
 # Columns added after the first release. `create table if not exists` leaves an existing
 # database alone, so these are added by hand on open rather than by dropping the file.
@@ -83,6 +92,11 @@ def migrate(cur: sqlite3.Connection) -> None:
 
 def conn() -> sqlite3.Connection:
     """Open the database once, create the schema if needed."""
+    with LOCK:
+        return _open()
+
+
+def _open() -> sqlite3.Connection:
     global _CONN
     if _CONN is None:
         Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -121,19 +135,22 @@ def dec(raw, default=None):
 
 def run(sql: str, args: tuple = ()) -> sqlite3.Cursor:
     """Execute and commit."""
-    cur = conn().execute(sql, args)
-    conn().commit()
-    return cur
+    with LOCK:
+        cur = conn().execute(sql, args)
+        conn().commit()
+        return cur
 
 
 def rows(sql: str, args: tuple = ()) -> list[sqlite3.Row]:
     """All rows of a query."""
-    return list(conn().execute(sql, args).fetchall())
+    with LOCK:
+        return list(conn().execute(sql, args).fetchall())
 
 
 def one(sql: str, args: tuple = ()):
     """First row of a query or None."""
-    return conn().execute(sql, args).fetchone()
+    with LOCK:
+        return conn().execute(sql, args).fetchone()
 
 
 def put(table: str, row: dict) -> str:
