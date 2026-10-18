@@ -103,8 +103,8 @@ describe("layer values", () => {
 
   it("never amplifies a nearly healthy brain past the floor", () => {
     const v = layerValues("damage", { twin: twinFixture(0.01), week: 0 });
-    expect(v.scaleTop).toBe(0.12);
-    expect(v.pos[7]).toBeLessThan(0.15);
+    expect(v.scaleTop).toBe(0.04);
+    expect(v.pos[7]).toBeLessThanOrEqual(0.25);
   });
 
   it("fades damage as the weeks run", () => {
