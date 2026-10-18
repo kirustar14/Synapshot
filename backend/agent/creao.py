@@ -357,6 +357,20 @@ def _refresh(row) -> None:
     db.patch("agent_runs", rid, fields)
 
 
+def scrub(text: str) -> str:
+    """Clinician facing text with only the offending sentences removed.
+
+    `safety.clean` is written for patients and replaces a whole line with the redirect, which
+    is right there and wrong here: an agent writing "this briefing does not address diagnosis"
+    would lose its entire briefing over one disclaimer. So a sentence that makes a banned claim
+    is dropped and the rest is kept. An empty result means nothing safe was left.
+    """
+    import re
+
+    parts = re.split(r"(?<=[.!?])\s+", str(text).strip())
+    return " ".join(p for p in parts if p and not safety.violations(p)).strip()
+
+
 def as_list(value) -> list[str]:
     """A list of short strings out of whatever the agent put in the field.
 
@@ -462,7 +476,7 @@ def _view(pipeline: str) -> dict | None:
     level = tri_out.get("level") if tri["status"] in DONE else None
     raised = db.one("select 1 from events where patient_id=? and kind='alert' and payload like ? and time>=? limit 1",
                     (tri["patient_id"], '%agent_review%', tri["created"]))
-    clean = lambda items: [safety.clean(x) for x in as_list(items)][:5]  # noqa: E731
+    clean = lambda items: [t for t in (scrub(x) for x in as_list(items)) if t][:5]  # noqa: E731
     brief = _readable(brief, "briefing")
     draft = outreach.get("patient_message") or brief.get("patient_draft")
     return {
@@ -470,7 +484,7 @@ def _view(pipeline: str) -> dict | None:
         "reasons": clean(tri_out.get("reasons")) if level else [],
         "escalated": bool(raised) and level == "escalate",
         "stages": stages,
-        "briefing": safety.clean(str(brief["briefing"])) if brief.get("briefing") else None,
+        "briefing": (scrub(str(brief["briefing"])) or None) if brief.get("briefing") else None,
         "follow_ups": clean(brief.get("follow_ups")),
         "patient_message": safety.clean(str(draft)) if draft else None,
         "next_steps": clean(outreach.get("next_steps")),

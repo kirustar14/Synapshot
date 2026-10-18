@@ -277,3 +277,13 @@ def test_a_list_that_arrives_as_a_string_is_not_split_into_characters():
     assert creao.as_list("Review the alert.") == ["Review the alert."]
     assert creao.as_list(["a", "", "b"]) == ["a", "b"]
     assert creao.as_list(None) == [] and creao.as_list("") == []
+
+
+def test_a_disclaimer_does_not_wipe_out_a_whole_briefing():
+    """The word diagnosis in a disclaimer drops that sentence, not the briefing."""
+    text = ("ESCALATE: drift z 2.08. Look first at the unacknowledged alert. "
+            "This briefing does not address diagnosis or clearance.")
+    got = creao.scrub(text)
+    assert got == "ESCALATE: drift z 2.08. Look first at the unacknowledged alert."
+    assert creao.scrub("You are cleared to return to play.") == ""
+    assert creao.scrub("Plain and fine.") == "Plain and fine."

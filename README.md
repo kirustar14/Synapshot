@@ -43,6 +43,15 @@ alert). Our backend runs them through the CREAO API Trigger. Code: `backend/agen
 
 **Share link to an agent run:** <<(https://agent.creao.ai/share/18e9058f7eb5bbe578d89e630fbf5abc)>>
 
+## Tiger Data and Sentry
+
+- **Tiger Data (optional).** Set `DATABASE_URL` to a Tiger Cloud service and the clinic's data lives in
+  Postgres, with the 5 Hz call telemetry in a TimescaleDB hypertable, two continuous aggregates and the
+  columnstore. Leave it empty and SQLite does everything. If the service is unreachable the app starts on
+  SQLite and says so. Setup: [`docs/TIGER_SETUP.md`](docs/TIGER_SETUP.md). `make tiger-check` shows what is there.
+- **Sentry (optional).** Set `SENTRY_DSN` for backend errors and traces, and `VITE_SENTRY_DSN` in `web/.env.local`
+  for the browser. Call tokens are masked before anything is sent.
+
 ## Quick start
 
 Nothing below needs an API key. With an empty `.env` the whole system runs in mock mode.
