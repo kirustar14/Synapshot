@@ -8,9 +8,9 @@ export const Route = createFileRoute("/phone/$id")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Phone view | UNNAMED" },
+      { title: "Phone view | Synapshot" },
       { name: "description", content: "Stage view of the patient's text message thread." },
-      { property: "og:title", content: "Phone view | UNNAMED" },
+      { property: "og:title", content: "Phone view | Synapshot" },
       { property: "og:description", content: "Patient text message thread." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

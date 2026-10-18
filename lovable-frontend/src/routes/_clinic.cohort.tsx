@@ -7,9 +7,9 @@ import { ErrorState, Loading, ModelLabel, PageHeader, Panel, SyntheticBadge } fr
 export const Route = createFileRoute("/_clinic/cohort")({
   head: () => ({
     meta: [
-      { title: "Cohort | UNNAMED" },
+      { title: "Cohort | Synapshot" },
       { name: "description", content: "The shared model improves as patients join: coverage and parameter recovery." },
-      { property: "og:title", content: "Cohort | UNNAMED" },
+      { property: "og:title", content: "Cohort | Synapshot" },
       { property: "og:description", content: "Population calibration and parameter recovery for the shared model." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

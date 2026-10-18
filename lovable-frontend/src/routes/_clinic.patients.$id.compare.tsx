@@ -16,9 +16,9 @@ import { useApp, type ScenarioSlot } from "@/store/app";
 export const Route = createFileRoute("/_clinic/patients/$id/compare")({
   head: () => ({
     meta: [
-      { title: "Scenario compare | UNNAMED" },
+      { title: "Scenario compare | Synapshot" },
       { name: "description", content: "Compare recovery forecasts under different helmet and impact scenarios." },
-      { property: "og:title", content: "Scenario compare | UNNAMED" },
+      { property: "og:title", content: "Scenario compare | Synapshot" },
       { property: "og:description", content: "Side by side recovery forecasts for two scenarios." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

@@ -16,10 +16,10 @@ import { Brain3D } from "@/components/Brain3D";
 export const Route = createFileRoute("/_clinic/")({
   head: () => ({
     meta: [
-      { title: "Patients | UNNAMED" },
+      { title: "Patients | Synapshot" },
       { name: "description", content: "Patients ranked by forecast drift, with flags for red flags, missed calls and low quality." },
-      { property: "og:title", content: "Patients | UNNAMED" },
-      { property: "og:description", content: "Patients ranked by forecast drift in the UNNAMED brain twin dashboard." },
+      { property: "og:title", content: "Patients | Synapshot" },
+      { property: "og:description", content: "Patients ranked by forecast drift in the Synapshot brain twin dashboard." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

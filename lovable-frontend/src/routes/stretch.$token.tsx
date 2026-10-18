@@ -11,9 +11,9 @@ export const Route = createFileRoute("/stretch/$token")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Walk and hearing check | UNNAMED" },
+      { title: "Walk and hearing check | Synapshot" },
       { name: "description", content: "A short walking test and hearing tone check on your phone." },
-      { property: "og:title", content: "Walk and hearing check | UNNAMED" },
+      { property: "og:title", content: "Walk and hearing check | Synapshot" },
       { property: "og:description", content: "Short walking and hearing checks." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -26,7 +26,7 @@ function Stretch() {
   const { token } = Route.useParams();
   return (
     <main className="mx-auto max-w-md p-5 pb-10">
-      <p className="text-xs font-semibold tracking-[0.18em] text-primary">UNNAMED</p>
+      <p className="text-xs font-semibold tracking-[0.18em] text-primary">Synapshot</p>
       <h1 className="mt-2 text-2xl font-semibold">Two quick checks</h1>
       <div className="mt-4 flex gap-3 rounded-xl border border-synthetic/40 bg-synthetic-soft p-4 text-sm text-synthetic-foreground">
         <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden /> Stop right away if you feel dizzy or unsteady. Walk somewhere flat and clear, with someone nearby if possible.

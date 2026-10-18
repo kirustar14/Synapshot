@@ -7,7 +7,7 @@
 
 // ---------------------------------------------------------------- patients and alerts
 
-export type Flag = "red_flag" | "missed_call" | "low_quality" | "drift";
+export type Flag = "red_flag" | "missed_call" | "low_quality" | "drift" | "agent_review";
 
 export interface PatientRow {
   id: string;
@@ -461,3 +461,38 @@ export interface Voices {
 // GET  /api/voices                               -> Voices
 // POST /api/voices/{step_id}/regenerate          -> VoiceLine
 //
+// POST /api/patients/{pid}/pipeline              -> AgentPipeline, 202
+// GET  /api/patients/{pid}/pipeline              -> AgentPipeline | null
+
+/** One agent in the CREAO care pipeline. */
+export interface AgentStage {
+  role: "triage" | "briefing" | "outreach";
+  label: string;
+  /** pending, running, completed, failed, cancelled or skipped. */
+  status: string;
+  /** True when no CREAO agent was called for this stage and the text is a template. */
+  mock: boolean;
+  agent_id: string | null;
+  creao_run_id: string | null;
+  error: string | null;
+}
+
+/** Triage, then briefing and outreach, on CREAO agents. All text is a draft for a clinician. */
+export interface AgentPipeline {
+  id: string;
+  week: number;
+  status: "running" | "completed" | "failed" | string;
+  /** The triage agent's rating. */
+  level: "routine" | "watch" | "escalate" | string | null;
+  reasons: string[];
+  /** True when the app raised an alert from the triage result. */
+  escalated: boolean;
+  stages: AgentStage[];
+  briefing: string | null;
+  follow_ups: string[];
+  /** Never sent to the patient automatically. */
+  patient_message: string | null;
+  next_steps: string[];
+  created: string;
+  updated: string;
+}

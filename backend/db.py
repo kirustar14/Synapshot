@@ -54,6 +54,12 @@ create table if not exists uploads (
 create table if not exists twin_inputs (
   id text primary key, patient_id text, payload text, time text
 );
+create table if not exists agent_runs (
+  id text primary key, patient_id text, week integer, kind text, status text,
+  creao_run_id text, thread_id text, mock integer default 0, inputs text,
+  result text, error text, created text, updated text, pipeline text
+);
+create index if not exists ix_agent_runs_pat on agent_runs(patient_id);
 create index if not exists ix_checkins_pat on checkins(patient_id, week);
 create index if not exists ix_obs_pat on observations(patient_id, week);
 create index if not exists ix_alerts_pat on alerts(patient_id);
@@ -82,6 +88,10 @@ ADDED = [
     ("messages", "provider_id", "text"),
     ("messages", "space_id", "text"),
     ("messages", "detail", "text"),
+    # Which pipeline a CREAO run belongs to, so the three roles of one pipeline can be
+    # read back together. Added rather than built into the table so a database created
+    # before the agents existed picks it up on the next open.
+    ("agent_runs", "pipeline", "text"),
 ]
 
 
@@ -295,5 +305,5 @@ def twin_inputs(pid: str):
 
 def wipe() -> None:
     """Delete every row in every table. Used by the demo reset only."""
-    for table in ("patients", "events", "checkins", "observations", "parameters", "forecasts", "alerts", "consents", "messages", "uploads", "twin_inputs"):
+    for table in ("patients", "events", "checkins", "observations", "parameters", "forecasts", "alerts", "consents", "messages", "uploads", "twin_inputs", "agent_runs"):
         run(f"delete from {table}")

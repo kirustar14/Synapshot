@@ -14,9 +14,9 @@ import { Textarea } from "@/components/ui/textarea";
 export const Route = createFileRoute("/_clinic/patients/$id/")({
   head: () => ({
     meta: [
-      { title: "Patient overview | UNNAMED" },
+      { title: "Patient overview | Synapshot" },
       { name: "description", content: "Recovery forecast, calibration, alerts and last call for one patient." },
-      { property: "og:title", content: "Patient overview | UNNAMED" },
+      { property: "og:title", content: "Patient overview | Synapshot" },
       { property: "og:description", content: "Recovery forecast with 80% bands and calibration for one patient." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

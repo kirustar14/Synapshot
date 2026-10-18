@@ -158,6 +158,24 @@ def llm_line() -> dict:
     return line(GREEN if got["ok"] and not config.MODEL_NOTE else MOCK, "LLM", detail + note)
 
 
+def creao_line() -> dict:
+    """The CREAO row: which of the three roles have a real agent behind them.
+
+    Imported here rather than at the top of the file for the same reason `llm` is: this
+    module is imported by `make check` on a machine that may have no keys at all, and a
+    module level import of something that reaches for configuration on load turns a
+    missing key into an import error instead of a row that says what is missing.
+    """
+    from .agent import creao
+
+    roles = ", ".join(f"{r} {'agent' if creao.live(r) else 'template'}" for r in creao.ROLES)
+    if not creao.live("briefing"):
+        return line(MOCK, "CREAO agents",
+                    "templates only, set CREAO_API_KEY and CREAO_AGENT_ID to run the real "
+                    f"briefing agent. Roles: {roles}")
+    return line(GREEN, "CREAO agents", f"live: {roles}")
+
+
 def mock_check() -> list[dict]:
     """What is running on a fallback, and what it would take to make it real."""
     return [
@@ -166,6 +184,7 @@ def mock_check() -> list[dict]:
              "to require a real one" if cfg.mock_rig
              else "off, every call has to come from a real phone"),
         llm_line(),
+        creao_line(),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"

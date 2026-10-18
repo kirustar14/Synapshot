@@ -19,6 +19,7 @@ import { ChartKey, SignalChart } from "@/components/charts/SignalChart";
 import { Loading } from "@/components/common";
 import { Fold } from "@/components/fold";
 import { DriftBar } from "@/components/panels/DriftBar";
+import { PipelinePanel } from "@/components/panels/PipelinePanel";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -212,6 +213,13 @@ export function AnalysisTab({ patient }: { patient: Patient }) {
             <p className="text-[10px] text-muted-foreground">click one in the rail for its rule</p>
           </div>
         </div>
+      </Fold>
+
+      {/* The CREAO agents read the drift and the alerts above, so they sit under them.
+          Closed by default like every other section: starting a pipeline spends credits
+          and is always a click, never something that happens because a tab was opened. */}
+      <Fold id="analysis.pipeline" title="Care pipeline" summary="Three agents: triage, briefing, outreach. Drafts for you, never sent to the patient.">
+        <PipelinePanel patientId={patient.id} />
       </Fold>
 
       <Fold id="analysis.cohort" title="Population context" summary={cohortSummary}>

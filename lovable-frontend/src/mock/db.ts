@@ -222,7 +222,7 @@ function makePatient(id: string, seed: (typeof SEEDS)[number], now: number): PSt
     s.checkins.push(makeCheckin(s, w, base));
   }
   s.messages = [
-    { dir: "out", body: `Hi ${seed.name.split(" ")[0]}, this is the UNNAMED care line. Your clinic set up weekly FaceTime check-ins. Reply YES to review the consent page.`, time: new Date(base - DAY / 2).toISOString() },
+    { dir: "out", body: `Hi ${seed.name.split(" ")[0]}, this is the Synapshot care line. Your clinic set up weekly FaceTime check-ins. Reply YES to review the consent page.`, time: new Date(base - DAY / 2).toISOString() },
     { dir: "in", body: "YES", time: new Date(base - DAY / 2 + 120000).toISOString() },
     { dir: "out", body: "Thank you. Your first call is tomorrow at 10:00. It takes about 10 minutes.", time: new Date(base - DAY / 2 + 180000).toISOString() },
   ];
@@ -254,6 +254,7 @@ const TRIGGERS: Record<Flag, string> = {
   missed_call: "No answer to scheduled call, 2 retries",
   low_quality: "Frame rate under 20 fps, calibration error above 1.5 deg",
   drift: "Observed values outside the 80% band on 3 signals",
+  agent_review: "The triage agent escalated this week for review",
 };
 
 /* ---------- db ---------- */

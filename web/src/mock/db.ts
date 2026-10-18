@@ -486,6 +486,7 @@ const TRIGGERS: Record<Flag, string> = {
   missed_call: "No answer to the scheduled call, two retries",
   low_quality: "Frame rate under 20 fps, calibration error above 1.5 deg, flash test failed",
   drift: "Observed values outside the 80% band on three signals",
+  agent_review: "The triage agent escalated this week for review",
 };
 
 /* ---------------------------------------------------------------- the store */

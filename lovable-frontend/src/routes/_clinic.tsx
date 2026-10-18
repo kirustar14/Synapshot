@@ -93,7 +93,7 @@ function Shell() {
         <header className="no-print sticky top-0 z-20 flex h-[76px] items-center gap-3 border-b border-border/70 bg-background/95 px-4 backdrop-blur lg:px-10">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="Open navigation"><Menu className="h-5 w-5" /></Button>
           <div className="hidden items-center gap-3 text-xs sm:flex"><span className="text-muted-foreground">Clinical lab</span><ChevronRight className="h-3 w-3 text-muted-foreground" /><span className="font-bold">{section}</span></div>
-          <span className="text-sm font-extrabold sm:hidden">unnamed.</span>
+          <span className="text-sm font-extrabold sm:hidden">synapshot.</span>
           <div className="ml-auto flex items-center gap-2">
             {mockMode && (
               <span className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1.5 text-[11px] font-bold text-accent-foreground"><span className="h-1.5 w-1.5 rounded-full bg-primary" />Synthetic data</span>
@@ -116,9 +116,9 @@ function Shell() {
 
 function Brand() {
   return (
-    <Link to="/" aria-label="UNNAMED home" className="flex h-[100px] items-center gap-3 px-7">
+    <Link to="/" aria-label="Synapshot home" className="flex h-[100px] items-center gap-3 px-7">
       <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary/15 bg-primary-soft text-primary"><Brain className="h-6 w-6" strokeWidth={1.5} aria-hidden /></span>
-      <span><span className="block text-2xl font-black">unnamed.</span><span className="block text-[10px] font-semibold text-muted-foreground">The brain twin lab</span></span>
+      <span><span className="block text-2xl font-black">synapshot.</span><span className="block text-[10px] font-semibold text-muted-foreground">The brain twin lab</span></span>
     </Link>
   );
 }

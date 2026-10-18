@@ -138,6 +138,9 @@ class Cfg:
         default_factory=lambda: flag("MOCK_PHOTON", ["PHOTON_PROJECT_ID"])
         and flag("MOCK_PHOTON", ["PHOTON_API_KEY"])
     )
+    # CREAO agent platform. The briefing agent runs there; this backend only starts runs and
+    # reads results, so the key never leaves the server.
+    mock_creao: bool = field(default_factory=lambda: flag("MOCK_CREAO", ["CREAO_API_KEY", "CREAO_AGENT_ID"]))
     mock_eleven: bool = field(default_factory=lambda: flag("MOCK_ELEVEN", ["ELEVENLABS_API_KEY"]))
     mock_twilio: bool = field(
         default_factory=lambda: flag(
@@ -158,6 +161,17 @@ class Cfg:
     # blank key or MOCK_LLM. See DECISIONS.md.
     gemini_model: str = field(default_factory=lambda: pick_model())
     gemini_key: str = field(default_factory=lambda: first("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+    # CREAO, the three agent care pipeline. The key never leaves the server: see
+    # docs/CREAO.md and the test that asserts it is in no response body.
+    creao_key: str = field(default_factory=lambda: os.environ.get("CREAO_API_KEY", ""))
+    creao_agent: str = field(default_factory=lambda: os.environ.get("CREAO_AGENT_ID", ""))
+    # The pipeline has three roles. A role with no agent id of its own runs as a template, so the
+    # pipeline works one agent at a time while they are being built.
+    creao_triage_agent: str = field(default_factory=lambda: os.environ.get("CREAO_TRIAGE_AGENT_ID", ""))
+    creao_outreach_agent: str = field(default_factory=lambda: os.environ.get("CREAO_OUTREACH_AGENT_ID", ""))
+    # Start the pipeline by itself when a check-in is scored. Off by default: every run spends credits.
+    auto_agents: bool = field(default_factory=lambda: on("AUTO_AGENT_PIPELINE"))
+    creao_url: str = field(default_factory=lambda: (os.environ.get("CREAO_BASE_URL") or "https://agent.creao.ai").rstrip("/"))
     photon_key: str = field(default_factory=lambda: os.environ.get("PHOTON_API_KEY", ""))
     photon_url: str = field(default_factory=lambda: os.environ.get("PHOTON_BASE_URL", ""))
     photon_project: str = field(default_factory=lambda: os.environ.get("PHOTON_PROJECT_ID", ""))

@@ -1,4 +1,4 @@
-export type Flag = "red_flag" | "missed_call" | "low_quality" | "drift";
+export type Flag = "red_flag" | "missed_call" | "low_quality" | "drift" | "agent_review";
 export interface PatientRow { id: string; name: string; week: number; drift_z: number; last_call: string | null; flags: Flag[]; synthetic: boolean }
 export interface InputFile { kind: "t1" | "dwi" | "fmri" | "vcf" | "labs" | "injury"; file: string; synthetic: boolean; status: "ok" | "warn" | "error" | "missing"; sets: string; note?: string }
 export interface Alert { id: string; patient_id: string; type: Flag; trigger: string; time: string; called: boolean; acked: boolean }
