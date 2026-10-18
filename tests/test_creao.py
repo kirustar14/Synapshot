@@ -261,3 +261,19 @@ def test_raw_json_is_never_shown_as_a_briefing():
     assert creao._readable({"briefing": '{"briefing": "Look at drift.", "follow_ups": ["a"]}'}, "briefing")["briefing"] == "Look at drift."
     assert "briefing" not in creao._readable({"briefing": '{"briefing_request": "{...}", "week": 6}'}, "briefing")
     assert creao._readable({"briefing": "Plain text stays."}, "briefing")["briefing"] == "Plain text stays."
+
+
+def test_the_agents_chat_reply_is_read_before_the_summary_text():
+    """CREAO's `text` can be a summary that echoes the input. The real answer is in `chatText`."""
+    body = {"result": {"text": json.dumps({"briefing_request": "{...}", "level": "escalate", "next_steps": "x"}),
+                       "chatText": json.dumps({"briefing": "Look at drift first.", "follow_ups": ["a"]})}}
+    texts = creao._texts_of(body)
+    assert texts[0].startswith('{"briefing"')
+    assert creao._json_in(texts[0], "briefing")["briefing"] == "Look at drift first."
+
+
+def test_a_list_that_arrives_as_a_string_is_not_split_into_characters():
+    assert creao.as_list('["Review the alert.", "Call the patient."]') == ["Review the alert.", "Call the patient."]
+    assert creao.as_list("Review the alert.") == ["Review the alert."]
+    assert creao.as_list(["a", "", "b"]) == ["a", "b"]
+    assert creao.as_list(None) == [] and creao.as_list("") == []

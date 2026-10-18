@@ -204,6 +204,19 @@ def _text_of(body: dict) -> str:
     return str(res.get("text") or res.get("chatText") or "").strip()
 
 
+def _texts_of(body: dict) -> list[str]:
+    """Every text the run produced, the agent's own chat reply first.
+
+    CREAO returns two: `chatText`, which is what the agent actually said, and `text`, a summary
+    built from the agent's saved output form that can echo the input back. The answer the agent
+    was told to give is in the first one, so it is tried first.
+    """
+    res = body.get("result") or {}
+    if isinstance(res, str):
+        return [res]
+    return [str(t).strip() for t in (res.get("chatText"), res.get("text")) if t and str(t).strip()]
+
+
 def _json_in(text: str, key: str) -> dict | None:
     """The first JSON object in a string that carries `key`, fences and chatter allowed."""
     dec = json.JSONDecoder()
@@ -323,8 +336,9 @@ def _refresh(row) -> None:
     fields = {"status": status, "updated": db.now(), "error": None, "thread_id": body.get("threadId")}
     if status in DONE:
         key = KEYS[role]
-        text = _text_of(body)
-        got = _json_in(text, key) or _from_artifacts(body, key)
+        texts = _texts_of(body)
+        text = texts[0] if texts else ""
+        got = next((g for g in (_json_in(t, key) for t in texts) if g), None) or _from_artifacts(body, key)
         if got is None and role == "briefing":
             md = _markdown_artifact(body)
             if md:
@@ -332,7 +346,7 @@ def _refresh(row) -> None:
         if got is None:
             if role == "triage":
                 got = {"level": "watch", "reasons": ["The triage agent did not return a rating, so this was held at watch."]}
-            elif text.lstrip().startswith(("{", "[", "```")):
+            elif any(t.lstrip().startswith(("{", "[", "```")) for t in texts):
                 got = {}
                 fields["error"] = WRONG_FORMAT
             else:
@@ -341,6 +355,28 @@ def _refresh(row) -> None:
     elif status in FAILED:
         fields["error"] = f"The CREAO run {status}."
     db.patch("agent_runs", rid, fields)
+
+
+def as_list(value) -> list[str]:
+    """A list of short strings out of whatever the agent put in the field.
+
+    The output form on CREAO can turn a list into a string, sometimes a string that holds a JSON
+    list, and iterating a string gives single characters. So a string is parsed first, and a plain
+    string becomes a one item list.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                got = json.loads(text)
+                if isinstance(got, list):
+                    return [str(x) for x in got if str(x).strip()]
+            except ValueError:
+                pass
+        return [text] if text else []
+    if isinstance(value, (list, tuple)):
+        return [str(x) for x in value if str(x).strip()]
+    return []
 
 
 def _readable(out: dict, key: str) -> dict:
@@ -426,7 +462,7 @@ def _view(pipeline: str) -> dict | None:
     level = tri_out.get("level") if tri["status"] in DONE else None
     raised = db.one("select 1 from events where patient_id=? and kind='alert' and payload like ? and time>=? limit 1",
                     (tri["patient_id"], '%agent_review%', tri["created"]))
-    clean = lambda items: [safety.clean(str(x)) for x in (items or [])][:5]  # noqa: E731
+    clean = lambda items: [safety.clean(x) for x in as_list(items)][:5]  # noqa: E731
     brief = _readable(brief, "briefing")
     draft = outreach.get("patient_message") or brief.get("patient_draft")
     return {
