@@ -107,9 +107,144 @@ def build_twin(pid: str, template_only: bool | None = None) -> dict:
                                "template_only": template_only,
                                "sources": tpl["source"],
                                "twin": twin,
+                               # The brain as built, kept so a check-in can be compared
+                               # against where the patient started rather than replacing
+                               # the only copy of it. Written once, never rewritten.
+                               "baseline": twin,
+                               "baseline_at": db.now(),
+                               "timepoints": [],
                            })})
     db.event(pid, "twin_built", {"G": params["G"], "fc_fit": fc_fit, "low_fidelity": low_fidelity})
     return {"params": params, "forecast": fore, "twin": twin, "fc_fit": fc_fit, "low_fidelity": low_fidelity}
+
+
+# What counts as a region having moved, for the banner after a call.
+#
+# Deliberately an order of magnitude under the 0.01 the report counts against. One week
+# of filtering in steady state moves a region by about 0.002 to 0.004 on a damage scale
+# that sits near 0.25, so a floor of 0.01 reports every ordinary call as no change at
+# all. That is not nothing happening, it is the filter tightening by a believable amount,
+# and the banner says "small change" rather than pretending it was large.
+MOVED_FLOOR = 0.001
+
+
+def region_diff(old: dict | None, new: dict, week: int, floor: float = MOVED_FLOOR) -> list[dict]:
+    """Regions whose damage at `week` moved by more than `floor`, worst move first.
+
+    Full readable name and network on every row, never "left cortex" on its own: two
+    different parcels share that short name and a list that cannot tell them apart is
+    not telling anybody anything.
+    """
+    if not old:
+        return []
+
+    def at(region: dict) -> float:
+        series = region.get("damage") or [0.0]
+        return float(series[min(max(week, 0), len(series) - 1)])
+
+    was = {int(r["id"]): at(r) for r in old.get("regions", [])}
+    out = []
+    for r in new.get("regions", []):
+        rid = int(r["id"])
+        if rid not in was:
+            continue
+        now = at(r)
+        if abs(now - was[rid]) <= floor:
+            continue
+        out.append({"id": rid, "name": str(r["name"]), "network": str(r.get("network") or ""),
+                    "before": round(was[rid], 4), "after": round(now, 4)})
+    out.sort(key=lambda r: abs(r["after"] - r["before"]), reverse=True)
+    return out
+
+
+def refresh_twin(pid: str) -> dict:
+    """Recompute the regions from the current filter state, and store them.
+
+    This is what makes the brain move after a check-in. `assimilate` updates the filter
+    and rebuilds the forecast, but the twin, which is what the 3D view actually draws,
+    was written once when the patient was created and never again. So every chart on the
+    workspace responded to a call and the brain did not: a hundred regions, none of them
+    moving, for the life of the patient. `scripts/call_update_report.py` printed 0 of 100
+    regions moved, which is what sent me looking.
+
+    Deliberately not `build_twin`. That refits G, which is the expensive part, and it
+    also resets drift_z, coverage and the ensemble to their starting values, which would
+    undo the update that just happened. Everything structural is recomputed here because
+    it is cheap and comes from the patient's own record. The only thing that has actually
+    changed is the ensemble, and that is what moves the per region damage curves.
+    """
+    row = db.patient(pid)
+    if row is None:
+        raise KeyError(f"no patient {pid}")
+    pat = bundle(row)
+    tpl = templates()
+    template_only = bool(row["template_only"])
+
+    bio = db.dec(row["biomarkers"], pat["biomarkers"])
+    injury = db.dec(row["injury"], pat["injury"])
+    zbio = float(0.5 * (bio["gfap_z"] + bio["uchl1_z"]))
+    ei = ei_map(zbio)
+
+    params = db.dec(row["params"], {}) or {}
+    eps = float(params.get("eps") or np.exp(priors.HYPER["mu_eps"]))
+    severity = float(np.clip(0.45 + 0.2 * zbio, 0.05, 1.0))
+    strains = strain.strain(injury["angle_deg"], injury["location"], injury["helmet"], severity)
+    dmg0 = strain.damage0(strains, eps, zbio)
+
+    sc = tpl["sc"] if template_only else pat["sc"]
+    gval = float(params.get("G") or priors.HYPER["mu_G"])
+    twin = twin_json(dmg0, ei, state_of(pid), sc=sc, gval=gval)
+
+    got = db.twin_inputs(pid)
+    payload = db.dec(got["payload"], {}) if got is not None else {}
+
+    # The baseline is written once and never again. Before this, `twin` was the only copy
+    # of the brain that existed: a check-in overwrote it, all hundred regions moved at
+    # once, and the state the patient was built from could not be got back. Nothing was
+    # deleted, but nothing could be compared against either, which is what made a call
+    # look like it had replaced the patient rather than added to them.
+    if not payload.get("baseline"):
+        payload["baseline"] = payload.get("twin") or twin
+        payload["baseline_at"] = payload.get("baseline_at") or db.now()
+
+    payload["twin"] = twin
+    db.put("twin_inputs", {"id": db.new_id("tin"), "patient_id": pid, "time": db.now(),
+                           "payload": db.enc(payload)})
+    return twin
+
+
+def add_timepoint(pid: str, point: dict) -> list[dict]:
+    """Append one check-in to the patient's history. Never rewrites an earlier one.
+
+    The list is append only on purpose. A timepoint is what happened at a moment and
+    cannot stop having happened because a later call disagreed with it.
+    """
+    got = db.twin_inputs(pid)
+    payload = db.dec(got["payload"], {}) if got is not None else {}
+    points = list(payload.get("timepoints") or [])
+    if any(p.get("call_id") and p["call_id"] == point.get("call_id") for p in points):
+        return points
+    points.append(point)
+    payload["timepoints"] = points
+    db.put("twin_inputs", {"id": db.new_id("tin"), "patient_id": pid, "time": db.now(),
+                           "payload": db.enc(payload)})
+    return points
+
+
+def baseline_of(pid: str) -> dict | None:
+    """The brain as it was first built, or None when the patient predates the baseline."""
+    got = db.twin_inputs(pid)
+    if got is None:
+        return None
+    return (db.dec(got["payload"], {}) or {}).get("baseline")
+
+
+def timepoints_of(pid: str) -> list[dict]:
+    """Every check-in appended to this patient, oldest first."""
+    got = db.twin_inputs(pid)
+    if got is None:
+        return []
+    return list((db.dec(got["payload"], {}) or {}).get("timepoints") or [])
 
 
 def save_state(state: dict) -> dict:
@@ -298,7 +433,13 @@ def twin_json(dmg0: np.ndarray, ei: np.ndarray, state: dict, upto: int = fcast.W
 
     regions = []
     for i in range(sc.shape[0]):
-        dmg_i = dreg[i] * decay
+        # The ensemble mean, not dreg * decay. Those are two different formulas: the
+        # decay here is built from the point estimates of k and p and leaves out the
+        # damage scale, while the band is built from every member and includes it. With
+        # a scale above 1 that put the whole 10th to 90th interval above the line it was
+        # supposed to be an interval around, so every region on the Data tab showed a
+        # number outside its own band. Taking both from the ensemble is the fix.
+        dmg_i = band["mean"][i]
         regions.append({
             "id": i,
             "name": names[i],

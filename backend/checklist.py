@@ -28,13 +28,13 @@ OPTIONAL = {
     "nilearn": "Schaefer-100 names and centroids, falls back to an ellipsoid",
     "enigmatoolbox": "gene expression map, falls back to a smooth random map",
     "mediapipe": "face and iris landmarks, without it every frame reports no face",
-    "cv2": "JPEG frames for the rig console",
     "faster_whisper": "speech transcription, falls back to the scripted transcript",
     "parselmouth": "jitter, shimmer, HNR and CPP",
     "librosa": "spectral extras",
-    "mss": "screen capture of the FaceTime window",
-    "sounddevice": "audio in and out of FaceTime",
-    "twilio": "the clinic call, falls back to logging the script",
+    # Gemini needs no package of its own: it is called over REST with httpx, which is a
+    # hard requirement, so there is no optional import to be missing for the LLM.
+    "reportlab": "the flagship patient's PDF documents, needed by make sample",
+    "pypdf": "reading text out of an uploaded PDF",
     "numpyro": "the hierarchical population fit, falls back to weighted least squares",
     "sbi": "optional emulator upgrade behind USE_SBI",
 }
@@ -42,7 +42,12 @@ OPTIONAL = {
 ROUTES = [
     # spec file 1: the mesh, the shape, the receptors and the what-if
     ("GET", "/api/mesh"), ("GET", "/api/patients/{pid}/shape"), ("GET", "/api/receptors"),
-    ("POST", "/api/patients/{pid}/intervention"),
+    # /intervention is gone with the drug simulation it drove. These are the pathway
+    # viewer that replaced it, which only reads.
+    ("GET", "/api/pathways"), ("GET", "/api/drugs/{name}"), ("GET", "/api/drugs/{name}/map"),
+    ("GET", "/api/patients/{pid}/drugs/{name}/overlap"),
+    ("GET", "/api/patients/{pid}/suggested-drugs"),
+    ("GET", "/api/patients/{pid}/latest-update"),
     # spec file 2: the web call
     ("POST", "/api/calls"), ("GET", "/api/call/{token}/script"),
     ("POST", "/api/call/{token}/consent"), ("POST", "/api/call/{token}/redflags"),
@@ -60,11 +65,10 @@ ROUTES = [
     ("POST", "/api/patients/{pid}/uploads"), ("GET", "/api/patients/{pid}/twin-inputs"),
     ("POST", "/api/patients/{pid}/build-twin"), ("GET", "/api/patients/{pid}/messages"),
     ("POST", "/api/patients/{pid}/note"), ("GET", "/api/alerts"),
-    ("POST", "/api/alerts/{aid}/ack"), ("POST", "/api/alerts/{aid}/call"),
-    ("GET", "/api/cohort"), ("GET", "/api/rig/preflight"), ("POST", "/api/demo/reset"),
+    ("POST", "/api/alerts/{aid}/ack"), ("GET", "/api/alerts/{aid}/explain"),
+    ("GET", "/api/cohort"), ("POST", "/api/demo/reset"),
     ("POST", "/api/demo/advance-week"), ("POST", "/api/demo/inject-drift"),
-    ("POST", "/api/demo/trigger-call"), ("GET", "/api/consent/{token}"),
-    ("POST", "/api/consent/{token}"), ("POST", "/api/stretch/{token}"),
+    ("POST", "/api/demo/trigger-call"), ("GET", "/api/patients/{pid}/stream"),
     # the team, the platform read path, and the decision endpoint
     ("POST", "/api/auth/login"), ("POST", "/api/auth/demo"),
     ("POST", "/api/auth/logout"), ("GET", "/api/auth/me"),
@@ -81,17 +85,13 @@ def line(state: str, name: str, detail: str = "") -> dict:
 
 
 def routes_check() -> list[dict]:
-    """Every contract route registered with the right method, plus both websockets."""
+    """Every contract route registered with the right method."""
     from .app import app
 
     have = {(m, r.path) for r in app.routes for m in (getattr(r, "methods", None) or [])}
-    paths = {r.path for r in app.routes}
     missing = [f"{m} {p}" for m, p in ROUTES if (m, p) not in have]
-    out = [line(RED if missing else GREEN, f"{len(ROUTES)} contract routes registered",
-                ", ".join(missing) if missing else "every route and method present")]
-    for ws in ("/ws/rig", "/ws/stimulus"):
-        out.append(line(GREEN if ws in paths else RED, f"websocket {ws}", ""))
-    return out
+    return [line(RED if missing else GREEN, f"{len(ROUTES)} contract routes registered",
+                 ", ".join(missing) if missing else "every route and method present")]
 
 
 def data_check() -> list[dict]:
@@ -153,26 +153,83 @@ def twin_check() -> list[dict]:
     return out
 
 
+def llm_line() -> dict:
+    """The LLM row, proven by one real call rather than by the key being non-empty.
+
+    A bad model id is a fallback, not a failure: every line still comes out, as a template.
+    That is exactly why it gets checked for real here. The alternative is a row that says
+    live because a key is set, while nothing has ever been phrased by a model.
+    """
+    from .agent import llm
+
+    if cfg.mock_llm:
+        return line(MOCK, "LLM", "template lines, set GEMINI_API_KEY for natural phrasing")
+    got = llm.probe()
+    if got["ok"]:
+        detail = f"live on {cfg.gemini_model}, {got['why']}"
+    elif got.get("quota"):
+        # Rate limited is configured correctly, so it is not a FAIL, but it is not phrasing
+        # anything either. MOCK with the reason spelled out is the truthful row.
+        detail = f"{cfg.gemini_model} is rate limited: {got['why']}"
+    else:
+        detail = f"{cfg.gemini_model} did not answer: {got['why']}, so every line is a template"
+    note = f" {config.MODEL_NOTE}" if config.MODEL_NOTE else ""
+    return line(GREEN if got["ok"] and not config.MODEL_NOTE else MOCK, "LLM", detail + note)
+
+
+def face_model_line() -> dict:
+    """The face landmarker the phone runs. Checked on disk, not assumed.
+
+    It is 3.8 MB and gitignored, so it does not ship with a checkout. `make models`
+    fetches it and `make dev` now depends on that, but a machine that skipped both shows
+    the patient a call with no eye measurement and no obvious reason why.
+    """
+    path = ROOT / "web" / "public" / "models" / "face_landmarker.task"
+    if not path.exists():
+        return line(RED, "Face landmarker", "missing. Run make models")
+    size = path.stat().st_size
+    if size < 1_000_000:
+        return line(RED, "Face landmarker",
+                    f"only {size} bytes, which is a truncated download. Delete it and run make models")
+    return line(GREEN, f"Face landmarker: {size / 1e6:.1f} MB",
+                "served from web/public/models, same origin as the call page")
+
+
+def creao_line() -> dict:
+    """The CREAO row: which of the three roles have a real agent behind them.
+
+    Imported here rather than at the top of the file for the same reason `llm` is: this
+    module is imported by `make check` on a machine that may have no keys at all, and a
+    module level import of something that reaches for configuration on load turns a
+    missing key into an import error instead of a row that says what is missing.
+    """
+    from .agent import creao
+
+    roles = ", ".join(f"{r} {'agent' if creao.live(r) else 'template'}" for r in creao.ROLES)
+    if not creao.live("briefing"):
+        return line(MOCK, "CREAO agents",
+                    "templates only, set CREAO_API_KEY and CREAO_AGENT_ID to run the real "
+                    f"briefing agent. Roles: {roles}")
+    return line(GREEN, "CREAO agents", f"live: {roles}")
+
+
 def mock_check() -> list[dict]:
     """What is running on a fallback, and what it would take to make it real."""
     return [
-        line(MOCK if cfg.mock_rig else GREEN, "rig",
-             "replaying a generated session, set RIG_FACETIME_NUMBER for a real call"
-             if cfg.mock_rig else f"live, calling {cfg.facetime_number}"),
-        line(MOCK if cfg.mock_llm else GREEN, "LLM",
-             "template lines, set GEMINI_API_KEY for natural phrasing"
-             if cfg.mock_llm else f"live on Gemini {llm.model_name()}"),
-        line(MOCK if not creao.live("briefing") else GREEN, "CREAO agents",
-             "templates only, set CREAO_API_KEY and CREAO_AGENT_ID to run the real briefing agent"
-             if not creao.live("briefing") else
-             "live: " + ", ".join(f"{r} {'agent' if creao.live(r) else 'template'}" for r in creao.ROLES)),
+        line(MOCK if cfg.mock_rig else GREEN, "demo mode",
+             "a call can be driven from a generated session with no phone, set MOCK_RIG=0 "
+             "to require a real one" if cfg.mock_rig
+             else "off, every call has to come from a real phone"),
+        llm_line(),
+        creao_line(),
+        face_model_line(),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"
              if cfg.mock_photon else "live"),
-        line(MOCK if cfg.mock_twilio else GREEN, "clinic call",
-             "script logged, set the four Twilio keys to dial"
-             if cfg.mock_twilio else f"live to {cfg.clinic_number}"),
+        line(MOCK, "SMS",
+             "not in the fallback chain. A failed iMessage stays a failed iMessage so "
+             "the screen can say so, and the QR code is the way round it."),
         line(MOCK if cfg.mock_eleven else GREEN, "ElevenLabs voices",
              "no key, the page uses the browser's own speech synthesis"
              if cfg.mock_eleven else f"live, {cfg.eleven_tts_model}"),
@@ -256,10 +313,6 @@ def webcall_check() -> list[dict]:
             out.append(line(MOCK, "PUBLIC_URL is https but not reachable",
                             f"{url}, {str(exc)[:80]}. Start the tunnel and make dev"))
 
-    out.append(line(GREEN if cfg.web_call() else MOCK, f"CALL_MODE is {cfg.call_mode}",
-                    "the patient opens a web page" if cfg.web_call()
-                    else "the old FaceTime rig path, set CALL_MODE=web for the new flow"))
-
     # ElevenLabs. One cheap authenticated GET. The key is never printed, only used.
     if not cfg.eleven_key:
         out.append(line(MOCK, "ElevenLabs key", "not set, the page uses browser speech synthesis"))
@@ -313,13 +366,18 @@ def webcall_check() -> list[dict]:
                     f"{tool} is installed, run make tunnel for the steps" if tool
                     else "neither cloudflared nor ngrok found. brew install cloudflared"))
 
-    # Twilio, the SMS fallback and the clinic call.
-    have_twilio = all([cfg.twilio_sid, cfg.twilio_token, cfg.twilio_from])
-    out.append(line(GREEN if have_twilio else MOCK, "Twilio credentials",
-                    f"set, SMS fallback live from {cfg.twilio_from}" if have_twilio
-                    else "not all set, SMS falls back to mock"))
-    out.append(line(GREEN if cfg.clinic_number else MOCK, "CLINIC_NUMBER",
-                    "set" if cfg.clinic_number else "not set, the clinic call is logged only"))
+    # Which iMessage path can actually send. The detail comes from make send-test;
+    # this is the one line version.
+    from .comms import notify as texter
+
+    got = texter.status()
+    sidecar = got.get("sidecar") or {}
+    out.append(line(GREEN if sidecar.get("installed") else MOCK, "iMessage packages",
+                    f"cloud {'yes' if sidecar.get('cloud') else 'no'}, "
+                    f"local {'yes' if sidecar.get('local') else 'no'}"))
+    out.append(line(GREEN if got.get("imessage") else MOCK, "iMessage configured",
+                    "credentials present, run make send-test to see if it delivers"
+                    if got.get("imessage") else "mocked, messages go to the thread only"))
 
     # The mesh the viewer renders.
     from .data import mesh as meshmod
@@ -347,8 +405,13 @@ def comms_check() -> list[dict]:
              "live through the sidecar" if got["imessage"]
              else "mock. Needs PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET plus "
                   "make imessage"),
-        line(GREEN if got["sms"] else MOCK, "SMS fallback",
-             "live" if got["sms"] else "mock"),
+        # SMS is deliberately not in the fallback chain any more, so `notify.status` stopped
+        # reporting it and this row crashed `make check` outright on a KeyError. A failed
+        # iMessage stays a failed iMessage so the screen can say so, and the QR code is the
+        # way round it. The row says that rather than pretending there is a fallback.
+        line(MOCK, "SMS fallback",
+             "not in the fallback chain. A failed iMessage stays failed so the screen can "
+             "say so, and the QR code is the way round it"),
     ]
     sdk = got["sidecar"]
     out.append(line(GREEN if sdk.get("installed") else MOCK, "iMessage sidecar packages",

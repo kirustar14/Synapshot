@@ -14,7 +14,7 @@ from .. import db
 from ..agent import safety
 from ..agent.summary import SAFETY_CLOSE
 from ..config import cfg
-from . import photon, sms
+from . import photon
 
 KINDS = ["consent", "heads_up", "call_link", "midweek", "post_call", "emergency",
          "low_quality", "missed_call", "withdrawn"]
@@ -97,10 +97,18 @@ def with_close(text: str) -> str:
 
 
 def send(pid: str, kind: str, link: str = "", body: str = "", to: str = "") -> dict:
-    """Send one message. iMessage first, then SMS, then mock, recording the channel.
+    """Send one message. iMessage, then mock. Records what really happened.
 
-    Exactly one row goes in the messages table, written here once the channel is known,
-    so a fallback chain cannot leave the thread showing the same text three times.
+    Exactly one row goes in the messages table, written here once the outcome is known,
+    so a fallback chain cannot leave the thread showing the same text twice.
+
+    SMS is deliberately not in this chain. The demo is an iMessage demo, and quietly
+    falling back to a different transport makes "did the iMessage work" unanswerable
+    from the screen. `sms.send` still exists and is reachable, it is just not what a
+    failed iMessage turns into. See DECISIONS.md.
+
+    The row's status is `sent`, never `delivered`. Only `confirm()` promotes it, and only
+    because the provider said so.
     """
     if kind not in KINDS:
         raise KeyError(kind)
@@ -109,32 +117,65 @@ def send(pid: str, kind: str, link: str = "", body: str = "", to: str = "") -> d
 
     im = photon.send(number, text)
     if im.get("ok") and im.get("channel") == "imessage":
-        db.message(pid, "out", text, channel="imessage", kind=kind)
-        db.event(pid, "notify", {"kind": kind, "channel": "imessage"})
-        return {**im, "kind": kind, "body": text}
+        mid = db.message(pid, "out", text, channel="imessage", kind=kind, status="sent",
+                         provider_id=str(im.get("id") or ""),
+                         space_id=str(im.get("space") or ""))
+        db.event(pid, "notify", {"kind": kind, "channel": "imessage", "status": "sent"})
+        return {**im, "kind": kind, "body": text, "message_id": mid, "status": "sent"}
 
-    txt = sms.send(number, text)
-    if txt.get("ok") and txt.get("channel") == "sms":
-        db.message(pid, "out", text, channel="sms", kind=kind)
-        db.event(pid, "notify", {"kind": kind, "channel": "sms",
-                                 "imessage_error": im.get("error")})
-        return {**txt, "kind": kind, "body": text, "imessage_error": im.get("error")}
-
-    # Neither real transport carried it, so the row says mock and the UI says mock.
-    db.message(pid, "out", text, channel="mock", kind=kind)
+    # iMessage did not carry it. The row says so, keeps the reason, and the UI shows the
+    # reason rather than a shrug.
+    why = str(im.get("why") or "")
+    error = str(im.get("error") or "")
+    mocked = not photon.available()
+    mid = db.message(pid, "out", text, channel="mock", kind=kind,
+                     status="mock" if mocked else "failed",
+                     detail=(why or error)[:400])
     db.event(pid, "notify", {"kind": kind, "channel": "mock",
-                             "imessage_error": im.get("error"), "sms_error": txt.get("error")})
+                             "status": "mock" if mocked else "failed",
+                             "imessage_error": error})
     return {"ok": True, "channel": "mock", "kind": kind, "to": number, "body": text,
-            "imessage_error": im.get("error"), "sms_error": txt.get("error")}
+            "message_id": mid, "status": "mock" if mocked else "failed",
+            "imessage_error": error, "why": why,
+            "tried": im.get("tried", [])}
+
+
+def confirm(mid: str) -> dict:
+    """Poll one message's delivery and store the answer.
+
+    This is the only thing that can set a message to delivered. It asks the provider,
+    takes the answer, and writes it down. When the provider cannot say, the message
+    stays `sent`, which is the honest state: accepted and unconfirmed.
+    """
+    row = db.one("select * from messages where id=?", (mid,))
+    if row is None:
+        return {"ok": False, "error": "no such message"}
+    status = str(row["status"] or "sent")
+    if status in ("delivered", "failed", "mock"):
+        return {"ok": True, "status": status, "detail": row["detail"] or ""}
+
+    got = photon.delivery(str(row["channel"] or ""), str(row["space_id"] or ""),
+                          str(row["provider_id"] or ""))
+    if got.get("status") == "delivered":
+        db.message_status(mid, "delivered")
+        db.patch("messages", mid, {"delivered_at": db.now()})
+        return {"ok": True, "status": "delivered", "confirmation": "provider"}
+    if got.get("status") == "unknown":
+        # Accepted and unconfirmed. The distinction matters: a transport that cannot read
+        # receipts is not the same as one that read a receipt saying it failed, and a
+        # screen that showed both as "sent" would be hiding which of the two it was.
+        return {"ok": True, "status": status, "confirmation": "unavailable",
+                "note": "the provider could not say whether it arrived"}
+    return {"ok": True, "status": status, "confirmation": "unavailable"}
 
 
 def status() -> dict:
-    """Which transports are live, for make check and the demo console."""
+    """Which transports are live, for make check and the preflight."""
     return {
         "imessage": photon.available(),
-        "sms": sms.available(),
         "sidecar": photon.docs(),
         "allow_list": len(cfg.demo_phones),
         "note": "A message is only ever labelled imessage when a real iMessage transport "
-                "reported success. Otherwise the row says sms or mock.",
+                "reported success, and only delivered when the provider confirmed it. "
+                "SMS is not in the fallback chain.",
     }

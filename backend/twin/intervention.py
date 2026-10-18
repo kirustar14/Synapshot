@@ -16,20 +16,53 @@ from ..config import cfg
 from ..data.templates import ei_map, templates
 from . import dmf, priors, strain
 
-NOTE = "Hypothetical what-if. Not a treatment recommendation."
 
-# The five Hansen receptor and transporter maps the what-if offers. The neuromaps
-# annotation keys were written from memory and are tried in order; any that is missing
-# falls back to a fixed seed smooth random map labelled synthetic_template.
+# Receptor and transporter maps, by target, with the real neuromaps annotations behind
+# each one. Each entry is a list of (source, desc) tried in order; the second is a
+# fallback from a different study of the same target.
+#
+# These were originally written from memory as a "hansen22" source with short names like
+# "5ht2a". There is no such source in neuromaps: the Hansen 2022 paper is a synthesis of
+# other people's PET studies, and neuromaps ships those studies individually, keyed by
+# the radiotracer. The wrong keys failed silently and every map fell back to smooth
+# noise, which would have made the whole drug viewer a plausible looking random number
+# generator. These keys are checked against `available_annotations()`.
 TARGETS = {
-    "GABA-A": [("hansen22", "gabaa", "fMRI", "MNI152"), ("norgaard21", "flumazenil", "PET", "MNI152")],
-    "NMDA": [("hansen22", "nmda", "PET", "MNI152"), ("galovic21", "ge179", "PET", "MNI152")],
-    "D2": [("hansen22", "d2", "PET", "MNI152"), ("sandiego15", "flb457", "PET", "MNI152")],
-    "5-HT2A": [("hansen22", "5ht2a", "PET", "MNI152"), ("beliveau17", "cimbi36", "PET", "MNI152")],
-    "mu-opioid": [("hansen22", "mu", "PET", "MNI152"), ("kantonen20", "carfentanil", "PET", "MNI152")],
+    # target: [(source, desc), fallback...], what the tracer binds
+    "GABA-A":    [("norgaard2021", "flumazenil"), ("dukart2018", "flumazenil")],
+    "NMDA":      [("galovic2021", "ge179")],
+    "D1":        [("kaller2017", "sch23390")],
+    "D2":        [("sandiego2015", "flb457"), ("alarkurtti2015", "raclopride")],
+    "DAT":       [("dukart2018", "fpcit"), ("sasaki2012", "fepe2i")],
+    "NET":       [("ding2010", "mrb"), ("hesse2017", "methylreboxetine")],
+    "5-HT1A":    [("beliveau2017", "cumi101"), ("savli2012", "way100635")],
+    "5-HT2A":    [("beliveau2017", "cimbi36"), ("savli2012", "altanserin")],
+    "5-HTT":     [("beliveau2017", "dasb"), ("savli2012", "dasb")],
+    "SV2A":      [("finnema2016", "ucbj")],
+    "mGluR5":    [("smart2019", "abp688"), ("dubois2015", "abp688")],
+    "mu-opioid": [("kantonen2020", "carfentanil"), ("turtonen2020", "carfentanil")],
 }
+
+# What each tracer actually is, for the Evidence drawer. A map labelled "D2" is really a
+# picture of where one radioligand bound in a group of healthy volunteers, and a clinician
+# looking at a drug effect should be able to see which one.
+TRACER = {
+    "GABA-A": "[11C]flumazenil, benzodiazepine site of the GABA-A receptor",
+    "NMDA": "[18F]GE-179, open-channel NMDA receptor",
+    "D1": "[11C]SCH23390, D1 receptor",
+    "D2": "[11C]FLB457, high affinity D2/D3 receptor",
+    "DAT": "[123I]FP-CIT, dopamine transporter",
+    "NET": "[18F]MeNER, noradrenaline transporter",
+    "5-HT1A": "[11C]CUMI-101, 5-HT1A receptor",
+    "5-HT2A": "[11C]Cimbi-36, 5-HT2A receptor",
+    "5-HTT": "[11C]DASB, serotonin transporter",
+    "SV2A": "[11C]UCB-J, synaptic vesicle glycoprotein 2A",
+    "mGluR5": "[11C]ABP688, metabotropic glutamate receptor 5",
+    "mu-opioid": "[11C]carfentanil, mu-opioid receptor",
+}
+
 SIM_S = 20.0        # one short run per side of the comparison
-GAIN_LO, GAIN_HI = -0.5, 0.5
+HEMI_VERTS = 40962  # fsaverage6 per hemisphere, which is what the parcellation is on
 
 
 def _zed(arr: np.ndarray) -> np.ndarray:
@@ -39,11 +72,27 @@ def _zed(arr: np.ndarray) -> np.ndarray:
     return (arr - float(np.nanmean(arr))) / (sd if sd > 1e-9 else 1.0)
 
 
-def _from_neuromaps() -> dict | None:
-    """Z scored Schaefer-100 receptor maps from neuromaps, or None.
+def _parcellate(values: np.ndarray, labels: np.ndarray, regions: int) -> np.ndarray | None:
+    """Mean of a per-vertex map inside each parcel. None if any parcel is empty."""
+    out = np.full(regions, np.nan)
+    for i in range(regions):
+        hit = values[labels == i]
+        hit = hit[np.isfinite(hit)]
+        if hit.size:
+            out[i] = float(hit.mean())
+    if not np.isfinite(out).all():
+        return None
+    return out
 
-    The annotations are volumetric, so each is parcellated onto Schaefer-100 with the
-    same atlas the rest of the model uses.
+
+def _volume_map(source: str, desc: str, regions: int) -> np.ndarray | None:
+    """One annotation parcellated from its MNI152 volume onto Schaefer-100.
+
+    Only two of these studies ship a surface version; the rest are volumes and this is
+    the only way to read them. The parcel order is the atlas's own label order, 1 to 100,
+    which is the order `templates()["names"]` uses: the volumetric parcel centroids and
+    `templates()["xyz"]` are the same numbers to the millimetre, which is the check that
+    this is not silently permuted.
     """
     if cfg.offline:
         return None
@@ -51,31 +100,149 @@ def _from_neuromaps() -> dict | None:
         from neuromaps.datasets import fetch_annotation
         from nilearn import datasets as nid
         from nilearn.maskers import NiftiLabelsMasker
-
-        atlas = nid.fetch_atlas_schaefer_2018(n_rois=100, yeo_networks=7, resolution_mm=2)
-        masker = NiftiLabelsMasker(labels_img=atlas.maps, resampling_target="labels")
-        out: dict = {}
-        for name, tries in TARGETS.items():
-            for source, desc, space, ref in tries:
-                try:
-                    got = fetch_annotation(source=source, desc=desc, space=ref, den=None)
-                    path = got[0] if isinstance(got, (list, tuple)) else got
-                    vals = np.asarray(masker.fit_transform(str(path))).ravel()
-                    del space
-                    if vals.size == 100 and np.isfinite(vals).any():
-                        out[name] = _zed(vals)
-                        break
-                except Exception:
-                    continue
-            if name not in out:
-                return None
-        return out
     except Exception:
         return None
 
+    try:
+        got = fetch_annotation(source=source, desc=desc, space="MNI152")
+    except Exception:
+        return None
+    path = got
+    if isinstance(got, dict):
+        path = next((v for k, v in got.items() if k[2] == "MNI152"), None)
+    if isinstance(path, (list, tuple)):
+        path = path[0] if path else None
+    if not path:
+        return None
+
+    try:
+        atlas = nid.fetch_atlas_schaefer_2018(n_rois=regions, yeo_networks=7, resolution_mm=2)
+        masker = NiftiLabelsMasker(labels_img=atlas.maps, resampling_target="labels",
+                                   strategy="mean")
+        vals = np.asarray(masker.fit_transform(str(path))).ravel()
+    except Exception:
+        return None
+    if vals.size != regions or not np.isfinite(vals).any():
+        return None
+    return vals
+
+
+def _surface_map(source: str, desc: str) -> np.ndarray | None:
+    """One annotation, on fsaverage6 vertices, left hemisphere then right, or None.
+
+    Preferred where it exists: the parcellation here is a surface parcellation, and
+    neuromaps warns that several of these volumes should only be used for subcortical
+    data. Only norgaard2021 and beliveau2017 publish a surface version, so most targets
+    fall through to `_volume_map`.
+    """
+    try:
+        import nibabel as nib
+        from neuromaps.datasets import fetch_annotation
+    except Exception:
+        return None
+
+    try:
+        got = fetch_annotation(source=source, desc=desc, space="fsaverage", den="164k")
+    except Exception:
+        return None
+    # With space and den pinned, fetch_annotation returns a list of the two hemisphere
+    # files. Without them it returns a dict keyed by (source, desc, space, den).
+    if isinstance(got, dict):
+        pair = next((v for k, v in got.items() if k[2] == "fsaverage"), None)
+    else:
+        pair = got
+    if not pair or len(pair) != 2:
+        return None
+
+    out = []
+    for part in pair:
+        try:
+            img = nib.load(str(part))
+            vals = np.asarray(img.agg_data(), dtype=float).ravel()
+        except Exception:
+            return None
+        if vals.size == HEMI_VERTS:
+            out.append(vals)
+            continue
+        small = _downsample(vals)
+        if small is None:
+            return None
+        out.append(small)
+
+    if len(out) != 2:
+        return None
+    return np.concatenate(out)
+
+
+def _downsample(vals: np.ndarray) -> np.ndarray | None:
+    """A 164k fsaverage map at fsaverage6's 40962 vertices.
+
+    neuromaps resamples surfaces by shelling out to Connectome Workbench, which is a
+    separate install and is not here. It does not need to be: FreeSurfer builds its
+    fsaverage surfaces by recursive icosahedral subdivision, so the vertex ordering is
+    nested and fsaverage6's 40962 vertices are exactly the first 40962 of fsaverage7's
+    163842, in the same order. The same nesting is what made this work at fsaverage5's
+    10242, and it holds at every level of the subdivision for the same reason. That was
+    checked against both spheres neuromaps ships, and the largest angle between a vertex
+    and its counterpart is 0.04 degrees, which is float noise.
+
+    So this takes the value at each vertex rather than area-averaging the way
+    wb_command's ADAP_BARY_AREA would. The difference matters for a sharp map; these are
+    smooth PET maps that are then averaged over several hundred vertices per parcel, where
+    a subsample of a smooth field is an unbiased estimate of its parcel mean.
+    """
+    if vals.size < HEMI_VERTS:
+        return None
+    # The fsaverage densities at or above fsaverage6. Anything smaller cannot be
+    # subsampled up to it and is already rejected above; anything else is not an
+    # fsaverage density at all, and subsampling an unknown ordering would be guessing.
+    if vals.size not in (163842, HEMI_VERTS):
+        return None
+    return vals[:HEMI_VERTS]
+
+
+def _from_neuromaps() -> tuple[dict, list[str]] | None:
+    """Z scored Schaefer-100 receptor maps from neuromaps, and which tracer each used.
+
+    Returns None only if nothing at all could be loaded. A target that fails is left out,
+    so one unreachable study does not cost the other eleven.
+    """
+    if cfg.offline:
+        return None
+    try:
+        from ..data import mesh as meshmod
+
+        arrays = meshmod.arrays()
+        labels = np.asarray(arrays["labels"], dtype=np.int64)
+    except Exception:
+        return None
+    regions = int(templates()["xyz"].shape[0])
+    if labels.size != 2 * HEMI_VERTS:
+        return None
+
+    out: dict = {}
+    used: list[str] = []
+    for name, tries in TARGETS.items():
+        for source, desc in tries:
+            parcel = None
+            how = ""
+            vals = _surface_map(source, desc)
+            if vals is not None:
+                parcel = _parcellate(vals, labels, regions)
+                how = "fsaverage surface"
+            if parcel is None:
+                parcel = _volume_map(source, desc, regions)
+                how = "MNI152 volume"
+            if parcel is None:
+                continue
+            out[name] = _zed(parcel)
+            used.append(f"{name}: {source} {desc}, {how}")
+            break
+    return (out, used) if out else None
+
 
 def _synthetic_maps() -> dict:
-    """Five smooth random maps from a fixed seed, so the layer always has something."""
+    """Smooth random maps from a fixed seed, so the layer always has something."""
     from ..data.templates import _smooth_map
 
     xyz = templates()["xyz"]
@@ -96,20 +263,32 @@ def receptors() -> dict:
     path = cfg.cache_dir() / "receptors.json"
     if path.exists():
         try:
-            _CACHE = json.loads(path.read_text())
-            return _CACHE
+            cached = json.loads(path.read_text())
+            if (set(cached.get("maps", {})) == set(TARGETS)
+                    and all(key in cached for key in ("stand_in", "tracers", "sources"))):
+                _CACHE = cached
+                return _CACHE
         except Exception:
             pass
 
-    maps = _from_neuromaps()
-    synthetic = maps is None
-    if maps is None:
-        maps = _synthetic_maps()
+    got = _from_neuromaps()
+    real, used = got if got else ({}, [])
+    fake = _synthetic_maps()
+    # Per target, not all or nothing: a study that will not download costs that one map.
+    maps = {k: (real[k] if k in real else fake[k]) for k in TARGETS}
+    stand_in = sorted(set(TARGETS) - set(real))
     _CACHE = {
         "names": list(TARGETS),
         "maps": {k: [round(float(v), 4) for v in maps[k]] for k in TARGETS},
-        "synthetic_template": bool(synthetic),
-        "note": "Group average maps, not this patient. Z scored across the 100 regions.",
+        # True when nothing real loaded at all, which is what the old field meant.
+        "synthetic_template": not real,
+        # Which individual maps are stand-ins. A drug whose target is on this list is
+        # being simulated against smooth noise and the screen has to say so.
+        "stand_in": stand_in,
+        "tracers": {k: TRACER.get(k, "") for k in real},
+        "sources": used,
+        "note": "Group average PET and SPECT maps from healthy volunteers, parcellated "
+                "onto Schaefer-100 and z scored. Not this patient's receptors.",
     }
     try:
         path.write_text(json.dumps(_CACHE))
@@ -118,77 +297,13 @@ def receptors() -> dict:
     return _CACHE
 
 
-def scaled(name: str) -> np.ndarray:
-    """One receptor map min-max scaled to 0 to 1, the weight on the local gain."""
-    got = receptors()
-    if name not in got["maps"]:
-        raise KeyError(name)
-    arr = np.asarray(got["maps"][name], dtype=float)
-    lo, hi = float(arr.min()), float(arr.max())
-    return (arr - lo) / (hi - lo if hi - lo > 1e-9 else 1.0)
-
-
-def run(pid: str, target: str, gain: float) -> dict:
-    """Scale local gain by 1 + gain * receptor_z_scaled, run the DMF, report the change.
-
-    Luppi style regional gain perturbation: the receptor map says where a drug acting on
-    that receptor would bite hardest, and the perturbation scales each region's local
-    recurrent weight by 1 + gain * weight_i. Both sides are simulated with this patient's
-    structural connectivity and current damage, so the difference is the effect.
-    """
-    row = db.patient(pid)
-    if row is None:
-        raise KeyError(f"no patient {pid}")
-    if target not in receptors()["maps"]:
-        raise KeyError(target)
-
-    from .attribution import damage_now
-    from .shape import personal_sc
-
-    gain = float(np.clip(gain, GAIN_LO, GAIN_HI))
-    bio = db.dec(row["biomarkers"], {"gfap_z": 0.0, "uchl1_z": 0.0}) or {}
-    zbio = float(0.5 * (float(bio.get("gfap_z", 0.0)) + float(bio.get("uchl1_z", 0.0))))
-    params = db.dec(row["params"], {}) or {}
-    gval = float(params.get("G") or priors.HYPER["mu_G"])
-
-    dmg, _ = damage_now(pid)
-    sc = personal_sc(pid) * (1.0 - strain.damage_matrix(np.clip(dmg, 0.0, 1.0)))
-    base_ei = ei_map(zbio)
-    pert_ei = base_ei * (1.0 + gain * scaled(target))
-
-    base = _summaries(sc, gval, base_ei, seed=11)
-    alt = _summaries(sc, gval, pert_ei, seed=11)
-    effect = alt["rates"] - base["rates"]
-
-    return {
-        "target": target,
-        "gain": round(gain, 4),
-        "region_effect": [round(float(v), 5) for v in effect],
-        "summary_delta": {
-            "fc_strength": round(float(alt["fc_strength"] - base["fc_strength"]), 5),
-            "rate": round(float(alt["rate"] - base["rate"]), 5),
-            "metastability": round(float(alt["metastability"] - base["metastability"]), 5),
-        },
-        "baseline": {
-            "fc_strength": round(float(base["fc_strength"]), 5),
-            "rate": round(float(base["rate"]), 5),
-            "metastability": round(float(base["metastability"]), 5),
-        },
-        "receptor": [round(float(v), 4) for v in scaled(target)],
-        "synthetic_template": bool(receptors()["synthetic_template"]),
-        "note": NOTE,
-    }
-
-
-def _summaries(sc: np.ndarray, gval: float, ei: np.ndarray, seed: int = 0) -> dict:
-    """Mean FC strength, mean rate, metastability and per region rates for one setting."""
-    jj = dmf.fic(sc, gval, ei)
-    sim = dmf.simulate(sc, gval, ei=ei, dur_s=SIM_S, seed=seed, j=jj)
-    fc = dmf.fc_lin(sc, gval, ei=ei, j=jj)
-    strength = float(dmf.upper(fc).mean()) if np.isfinite(fc).all() else float(dmf.upper(dmf.fc_of(sim["bold"])).mean())
-    return {
-        "rates": sim["rate"].mean(axis=0),
-        "rate": float(sim["rate"].mean()),
-        "fc_strength": strength,
-        "metastability": float(dmf.metastability(sim["bold"])),
-    }
+# What used to live below here: `scaled`, `run` and `_summaries`, the Luppi style regional
+# gain perturbation. It scaled each region's local recurrent weight by 1 + gain * receptor
+# weight, ran the dynamic mean field model twice, and reported the difference as the effect
+# of a drug. That is a treatment response prediction, and nothing in this system has the
+# standing to make one, so it is gone along with the /intervention route and the Treatment
+# tab's Simulate button. See DECISIONS.md.
+#
+# Everything above is kept because it is the receptor and transporter atlas itself, which
+# the pathway viewer and the evidence drawer both still read. The atlas was never the
+# problem; what was done with it was.

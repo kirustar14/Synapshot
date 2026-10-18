@@ -1,20 +1,18 @@
 """The FastAPI app. Every route in the contract, with the contract's exact field names."""
 
-import asyncio
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+import time
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import alerts as alertmod
-from . import auth, db, demo, logs, models, rig_hub, team, telemetry, tiger
+from . import auth, db, demo, live, logs, models, observability, team, telemetry, tiger
 from .agent import creao, safety, summary
-from .agent import summary as agent_summary
 from .calls import audio as callaudio
 from .calls import run as callrun
 from .calls import script as callscript
@@ -24,9 +22,9 @@ from .config import ROOT, cfg
 from .data import upload
 from .features import sem as semmod
 from .features import webframes
+from .ingest import run as ingestrun
+from .ingest import schema as ingest_schema
 from .twin import attribution, build, counterfactual, forecast as fcast, population
-from . import observability
-
 # Before the app exists, so the FastAPI integration instruments it. A no-op without
 # SENTRY_DSN in .env.
 observability.init()
@@ -34,18 +32,15 @@ observability.init()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Open the database, mask tokens in the logs, hand the loop to the rig bridge."""
+    """Open the database and mask call tokens in the access log."""
     db.conn()
     logs.install()
-    rig_hub.set_loop(asyncio.get_running_loop())
-    # Both are idempotent and both are cheap on a database that is already set up. The
-    # team seed is what makes a fresh checkout able to sign in at all.
     team.ensure_demo()
     tiger.bootstrap()
     yield
 
 
-app = FastAPI(title="Synapshot", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Synapshot", version="0.2.0", lifespan=lifespan)
 
 # The mesh is about 1.5 MB of JSON and the twin payload is not small either, so every
 # response over a kilobyte is compressed. Measured: the mesh goes to 499 KB and the twin
@@ -62,13 +57,12 @@ PUBLIC_API = (
     "/api/auth/me",
     "/api/auth/demo",
     "/api/call/",
-    "/api/consent/",
-    "/api/stretch/",
     "/api/mesh",
     "/api/receptors",
     "/api/loadings",
     "/api/voices",
     "/api/messages/inbound",
+    "/api/creao/callback",
 )
 
 
@@ -105,16 +99,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-STIM_DIR = ROOT / "stimulus"
-if STIM_DIR.exists():
-    app.mount("/stimulus", StaticFiles(directory=str(STIM_DIR), html=True), name="stimulus")
-
-# A dummy test harness, not the product. The clinician frontend is built separately
-# against the contract; this exists so the backend can be seen without curl.
-UI_DIR = ROOT / "frontend"
-if UI_DIR.exists():
-    app.mount("/ui", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
 
 
 def reach_only(name: str) -> None:
@@ -201,6 +185,7 @@ def patient_obj(pid: str) -> dict:
         "sex": row["sex"],
         "week": int(row["week"] or 0),
         "injury": db.dec(row["injury"], {}) or {},
+        "chart": db.dec(row["chart"], {}) or {},
         # current_inputs reads the uploads table first and only decrypts the twin bundle
         # when there are none, so this no longer pulls 145 KB to build a four item list.
         "inputs": current_inputs(pid),
@@ -208,6 +193,7 @@ def patient_obj(pid: str) -> dict:
         "biomarkers": db.dec(row["biomarkers"], {}) or {},
         "fc_fit": None if row["fc_fit"] is None else float(row["fc_fit"]),
         "coverage": round(float(row["coverage"] or 0.0), 3),
+        "drift_z": round(float(row["drift_z"] or 0.0), 3),
         "contraction": db.dec(row["contraction"], {"k": 0.0}) or {"k": 0.0},
         "params": {
             "G": float(params.get("G", 0.0)), "k": float(params.get("k", 0.0)),
@@ -383,11 +369,8 @@ def list_patients(request: Request) -> list[dict]:
     return [patient_row(r, flags.get(str(r["id"]), [])) for r in rows]
 
 
-@app.post("/api/patients", response_model=models.Patient)
-def create_patient(body: models.NewPatient, request: Request) -> dict:
-    """Create a patient, put it in the clinician's clinic, and build its twin."""
-    who = auth.current(request)
-    pid = demo.new_patient(body.name, body.age, body.sex)
+def assign_patient(pid: str, who: dict) -> None:
+    """Put a newly created record in its creator's clinic and worklist."""
     if who.get("clinic_id"):
         db.patch("patients", pid, {"clinic_id": who["clinic_id"]})
         team.assign(pid, str(who["id"]), "primary")
@@ -399,7 +382,73 @@ def create_patient(body: models.NewPatient, request: Request) -> dict:
         if clinic is not None:
             db.patch("patients", pid, {"clinic_id": str(clinic["id"])})
             team.assign_demo()
+
+
+@app.post("/api/patients", response_model=models.Patient)
+def create_patient(body: models.NewPatient, request: Request) -> dict:
+    """Create a patient, put it in the clinician's clinic, and build its twin."""
+    who = auth.current(request)
+    pid = demo.new_patient(body.name, body.age, body.sex)
+    assign_patient(pid, who)
     return patient_obj(pid)
+
+
+@app.post("/api/patients/ingest", response_model=None)
+async def post_ingest(request: Request, files: list[UploadFile] = File(default=[]), sample: int = Form(default=0)):
+    """Build a patient from their documents, streaming the five steps as they happen.
+
+    The response is an event stream on the POST itself rather than a job id and a second
+    connection: there is one upload, one pipeline and one page waiting on it, and a job
+    table would be three moving parts where one will do. The page reads it with fetch and
+    draws a line per step.
+
+    With sample=1 the bundle comes from backend/data/sample, so the demo works with no
+    files to hand. It is the same code path either way: the sample files are read off disk
+    and pushed through the same reader, the same extractor and the same checks.
+    """
+    import asyncio
+
+    who = auth.current(request)
+    got: list[tuple[str, bytes]] = []
+    for item in files or []:
+        got.append((item.filename or "unnamed", await item.read()))
+    if sample or not got:
+        got = ingestrun.sample_files()
+    if not got:
+        raise HTTPException(
+            400,
+            "no files, and the sample bundle is not on disk. Run `make sample` or attach files.",
+        )
+
+    async def body():
+        # The pipeline is synchronous and CPU bound (the twin fit is numpy), so it runs in
+        # a worker thread. Without that the event loop would block and the events would
+        # all arrive at once at the end, which would make the build log a lie.
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def work():
+            try:
+                for event in ingestrun.stream(got):
+                    if event.get("kind") == "done":
+                        assign_patient(str(event["patient_id"]), who)
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        task = asyncio.get_running_loop().run_in_executor(None, work)
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield live.sse(event)
+        await task
+
+    return StreamingResponse(
+        body(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/patients/{pid}", response_model=models.Patient)
@@ -407,6 +456,30 @@ def get_patient(pid: str, request: Request) -> dict:
     """One patient, everything the detail view needs."""
     auth.require_patient(pid, request)
     return patient_obj(pid)
+
+
+@app.get("/api/patients/{pid}/provenance")
+def get_provenance(pid: str, request: Request) -> dict:
+    """Where every extracted field came from: the file, the quote and the confidence.
+
+    This is what the Data tab shows on hover. A patient created without documents has no
+    provenance and says so, rather than returning an empty object that reads like a
+    clean extraction.
+    """
+    auth.require_patient(pid, request)
+    rows = db.rows("select * from events where patient_id=? and kind='ingest' order by time",
+                   (pid,))
+    if not rows:
+        return {"ok": True, "ingested": False, "threshold": ingest_schema.NEEDS_REVIEW,
+                "fields": {}, "needs_review": [],
+                "note": "This patient was generated, not read from documents. "
+                        "Every value comes from the synthetic generator."}
+    got = db.dec(rows[-1]["payload"], {}) or {}
+    return {"ok": True, "ingested": True, "threshold": ingest_schema.NEEDS_REVIEW,
+            "fields": got.get("sources") or {},
+            "needs_review": got.get("needs_review") or [],
+            "extraction": got.get("extraction") or {},
+            "note": "Hover a value to see the file and the sentence it was read from."}
 
 
 @app.get("/api/patients/{pid}/forecast", response_model=models.Forecast)
@@ -444,6 +517,32 @@ def get_shape(pid: str, request: Request) -> dict:
     return shapemod.shape_of(pid)
 
 
+@app.get("/api/evidence")
+def get_evidence() -> dict:
+    """What the model rests on, parsed out of docs/RESEARCH.md, plus the live numbers.
+
+    Served from the file rather than a second copy in code, so the drawer and the
+    document cannot drift apart. The validation numbers are read from the cohort fit as
+    it actually is right now, not from a figure somebody typed in once.
+    """
+    from . import evidence as evmod
+
+    return evmod.payload()
+
+
+@app.get("/api/vessels")
+def get_vessels() -> dict:
+    """The schematic vessel layout, in the same millimetre space as the mesh.
+
+    A diagram, not this patient's vessels. The caption says so and the viewer shows it on
+    the layer, because a rendered vessel beside a rendered brain is exactly the thing that
+    gets mistaken for an angiogram.
+    """
+    from .data import vessels as vesselmod
+
+    return vesselmod.load()
+
+
 @app.get("/api/receptors", response_model=models.Receptors)
 def get_receptors() -> dict:
     """Group average receptor maps for the what-if overlay."""
@@ -452,16 +551,82 @@ def get_receptors() -> dict:
     return interv.receptors()
 
 
-@app.post("/api/patients/{pid}/intervention", response_model=models.Intervention)
-def post_intervention(pid: str, body: models.InterventionBody, request: Request) -> dict:
-    """A clinician only receptor weighted gain what-if. Never reaches a patient."""
-    auth.require_patient(pid, request)
-    from .twin import intervention as interv
+# The Treatment tab used to simulate a drug: it perturbed the dynamic mean field model
+# with a receptor-weighted gain and showed a baseline, a with-drug and a difference. That
+# is a treatment response prediction, and nothing in this system has the standing to make
+# one. It is gone, along with the /intervention route and the effect size slider, and
+# what replaced it only shows where a medicine's known targets and pathways are. See
+# DECISIONS.md.
 
-    try:
-        return interv.run(pid, body.target, body.gain)
-    except KeyError:
-        raise HTTPException(400, f"unknown receptor target {body.target}") from None
+
+@app.get("/api/formulary", response_model=None)
+def get_formulary() -> dict:
+    """Every medicine, what it does, what it acts on, and where that is in the brain.
+
+    Medicines with no mapped brain target stay in the list with that said plainly.
+    Leaving them out would make the formulary look like a complete picture of what
+    somebody is taking when it is not.
+    """
+    from .data import drugs as drugmod
+
+    return drugmod.listing()
+
+
+@app.get("/api/pathways", response_model=None)
+def get_pathways() -> dict:
+    """Schematic transmitter pathways, in the same space as the mesh and the vessels."""
+    from .data import drugs as drugmod
+
+    return drugmod.pathways()
+
+
+@app.get("/api/drugs/{name}", response_model=None)
+def get_drug(name: str) -> dict:
+    """One medicine's full record."""
+    from .data import drugs as drugmod
+
+    got = drugmod.drug(name)
+    if got is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.clean_record(got)
+
+
+@app.get("/api/drugs/{name}/map", response_model=None)
+def get_drug_map(name: str) -> dict:
+    """Per target z scored density over the 100 regions, and the mean across targets."""
+    from .data import drugs as drugmod
+
+    if drugmod.drug(name) is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.density(name)
+
+
+@app.get("/api/patients/{pid}/drugs/{name}/overlap", response_model=None)
+def get_drug_overlap(pid: str, request: Request, name: str, week: int = 0) -> dict:
+    """Regions that are both damaged in this patient and dense in this drug's targets.
+
+    An intersection of two maps. It does not say the medicine reaches those regions and
+    it does not say anything would improve if it did.
+    """
+    auth.require_patient(pid, request)
+    from .data import drugs as drugmod
+
+    if drugmod.drug(name) is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.overlap(pid, name, week=week)
+
+
+@app.get("/api/patients/{pid}/suggested-drugs", response_model=None)
+def get_suggested_drugs(pid: str, request: Request) -> dict:
+    """Medicines commonly considered for the symptoms this patient reported.
+
+    Ordered by how many of their elevated symptoms each one is ordinarily used for. Not a
+    ranking of which is better, because nothing here could know that.
+    """
+    auth.require_patient(pid, request)
+    from .data import suggest
+
+    return suggest.suggested(pid)
 
 
 @app.get("/api/loadings", response_model=models.Loadings)
@@ -717,14 +882,50 @@ def ack_alert(aid: str, request: Request) -> dict:
     return {"ok": True, "id": aid, "acked": True}
 
 
-@app.post("/api/alerts/{aid}/call")
-def call_alert(aid: str, request: Request) -> dict:
-    """Ring the clinic for an alert now."""
+@app.get("/api/alerts/{aid}/explain")
+def explain_alert(aid: str, request: Request) -> dict:
+    """The rule behind one flag, its threshold, and where this patient sits against it.
+
+    The left rail shows one line of reason per flag and clicking it opens this, so a flag
+    is never a coloured dot with an assertion attached.
+    """
     _alert_row(aid, request)
-    got = alertmod.call_now(aid)
-    if not got.get("ok") and got.get("error") == "no such alert":
+    got = alertmod.explain(aid)
+    if not got.get("ok"):
         raise HTTPException(404, f"no alert {aid}")
-    return {"ok": bool(got.get("ok")), "id": aid, "how": got.get("how"), "called": True}
+    return got
+
+
+@app.get("/api/patients/{pid}/timeline")
+def get_timeline(pid: str, request: Request) -> dict:
+    """Everything dated that happened to this patient, plus the calendar day summary.
+
+    Four tables, one list. The Timeline tab should not have to know that a check-in, an
+    alert, a text and a document ingest are stored in different places.
+    """
+    auth.require_patient(pid, request)
+    from . import timeline as tl
+
+    return {
+        "events": tl.events(pid),
+        "days": tl.days(pid),
+        "next_call": tl.next_call(pid),
+        "bands": tl.BANDS,
+    }
+
+
+@app.get("/api/patients/{pid}/percentile")
+def get_percentile(pid: str, request: Request) -> dict:
+    """Where this patient's fitted recovery rate sits in the cohort.
+
+    A ribbon with a marker on it, not a grade. `limits` is served with it and the panel
+    shows it, because "68th percentile" reads like a result and is a much narrower claim
+    than it looks.
+    """
+    auth.require_patient(pid, request)
+    from . import timeline as tl
+
+    return tl.percentile(pid)
 
 
 # ---------------------------------------------------------------- the data platform
@@ -759,17 +960,6 @@ def get_cohort() -> dict:
 
         got = seed.build(quiet=True)["cohort"]
     return got
-
-
-@app.get("/api/rig/preflight", response_model=list[models.Check])
-def get_preflight() -> list[dict]:
-    """The rig checks, same list the command line prints."""
-    import sys
-
-    sys.path.insert(0, str(ROOT))
-    from rig import preflight
-
-    return preflight.run()
 
 
 # ---------------------------------------------------------------- demo controls
@@ -834,20 +1024,12 @@ def demo_drift(body: models.DemoBody, request: Request) -> dict:
 def demo_call(body: models.DemoBody, tasks: BackgroundTasks, request: Request) -> dict:
     """Start a call now.
 
-    In web mode with a real transport, create a session and text the link, then wait for
-    the patient to open it. In web mock mode, run a generated web session through the real
-    ingest and the real pipeline, so the whole web path is exercised with no phone at all.
-    In facetime mode, the old rig path runs unchanged.
+    With a real transport, create a session and text the link, then wait for the patient
+    to open it on their own phone. In demo mode, run a generated session through the real
+    ingest and the real pipeline, so the whole path is exercised with no phone at all.
     """
     pid = body.patient_id or ""
     auth.require_patient(pid, request)
-
-    if not cfg.web_call():
-        got = rig_hub.start_call(pid)
-        del tasks
-        return {"ok": bool(got.get("ok")), "patient_id": pid, "mode": "facetime",
-                "started": got.get("started", False), "mock": cfg.mock_rig,
-                "error": got.get("error")}
 
     start = sessions.create(pid)
     if photon.available() or cfg.mode() == "live":
@@ -864,135 +1046,102 @@ def demo_call(body: models.DemoBody, tasks: BackgroundTasks, request: Request) -
             "waiting": False, "note": "a generated web session is running through the real pipeline"}
 
 
-# ---------------------------------------------------------------- consent and stretch
+@app.get("/api/patients/{pid}/baseline", response_model=None)
+def get_baseline(pid: str, request: Request) -> dict:
+    """The brain as it was first built, plus every check-in appended since.
 
-CONSENT_TEXT = [
-    "This is a research check-in, not medical care. The assistant on the call is software, "
-    "not a clinician.",
-    "The assistant will never tell you what is wrong with you, and will never tell you when "
-    "you can return to sport, work or driving. Those are your clinician's decisions.",
-    "Each call takes about 14 minutes. It is recorded: video, audio and the measurements "
-    "taken from them. Your clinician sees all of it.",
-    "What is measured: eye movements, speech, memory and facial movement, plus the symptom "
-    "scores you say out loud.",
-    "If you upload a genetic file, only four specific markers are read and the file is "
-    "deleted straight afterwards. Nothing else in it is looked at or kept.",
-    "You can stop a call at any time by saying stop, and you can withdraw completely by "
-    "replying STOP to any text. Withdrawing deletes nothing you have already given unless "
-    "you ask, and you can ask.",
-    "If anything you say suggests an emergency, the call stops and you will be told to get "
-    "medical help immediately.",
-]
+    The viewer's Baseline and Latest toggle reads this. Before it existed there was one
+    copy of the brain and a check-in overwrote it, so the state the patient was built
+    from could not be got back and a call looked like it had replaced them.
+    """
+    auth.require_patient(pid, request)
+    from .twin import build as buildmod
 
-
-@app.get("/api/consent/{token}", response_model=models.ConsentText)
-def get_consent(token: str) -> dict:
-    """What the consent page shows."""
-    row = db.consent(token)
-    if row is None:
-        raise HTTPException(404, "unknown consent link")
-    pat = db.patient(row["patient_id"])
-    return {"patient_name": str(pat["name"]) if pat else "", "text": CONSENT_TEXT}
-
-
-@app.post("/api/consent/{token}")
-def post_consent(token: str, body: models.ConsentBody) -> dict:
-    """Record the four consent answers."""
-    row = db.consent(token)
-    if row is None:
-        raise HTTPException(404, "unknown consent link")
-    db.patch("consents", token, {
-        "calls": int(body.calls), "ai": int(body.ai), "recording": int(body.recording),
-        "genetic": int(body.genetic), "time": db.now(),
-        "withdrawn": 0 if body.calls else 1,
-    }, key="token")
-    db.event(row["patient_id"], "consent", body.model_dump())
-    return {"ok": True, "token": token, **body.model_dump()}
-
-
-@app.post("/api/stretch/{token}")
-def post_stretch(token: str, body: models.StretchBody) -> dict:
-    """Gait and hearing results from the texted web page. Both exploratory."""
-    reach_only("the gait and hearing stretch")
-    row = db.consent(token)
-    if row is None:
-        raise HTTPException(404, "unknown link")
-    pid = str(row["patient_id"])
-    got: dict = {}
-    feats: list[dict] = []
-    if body.gait:
-        got["gait"] = body.gait.model_dump()
-        feats += [
-            feature_row("gait_cadence", body.gait.cadence, "steps/min"),
-            feature_row("gait_variability", body.gait.variability, "%"),
-            feature_row("gait_steps", float(body.gait.steps), "count"),
-        ]
-    if body.hearing:
-        got["hearing"] = body.hearing.model_dump()
-        vals = list(body.hearing.thresholds.values())
-        if vals:
-            feats.append(feature_row("hearing_mean_db", float(sum(vals) / len(vals)), "dB"))
-    db.event(pid, "stretch", got)
-
-    rows = db.checkins(pid)
-    if rows and feats:
-        latest = rows[-1]
-        have = db.dec(latest["features"], []) or []
-        names = {f["name"] for f in feats}
-        have = [f for f in have if f["name"] not in names] + feats
-        db.patch("checkins", latest["id"], {"features": db.enc(have)})
-    return {"ok": True, "patient_id": pid, "stored": list(got), "features": feats}
-
-
-def feature_row(name: str, value: float, unit: str) -> dict:
-    """One exploratory Feature row in the contract shape."""
+    points = buildmod.timepoints_of(pid)
     return {
-        "name": name, "tier": "B", "value": float(value), "prev": None,
-        "mdc": semmod.mdc(name), "unit": unit, "changed": False,
+        "baseline": buildmod.baseline_of(pid),
+        "timepoints": points,
+        "count": len(points),
+        "note": "The baseline is the brain as first built from this patient's documents. "
+                "It is never rewritten. Each check-in is appended on top of it.",
     }
 
 
-# ---------------------------------------------------------------- websockets
+@app.post("/api/dev/reset-demo-patient", response_model=None)
+def post_reset_demo_patient(request: Request, pid: str = "") -> dict:
+    """Put the flagship demo patient back to pristine, so the demo can be run again.
 
-@app.websocket("/ws/rig")
-async def ws_rig(ws: WebSocket) -> None:
-    """Live rig stream: RigEvent JSON out, nothing expected in."""
-    await ws.accept()
-    rig_hub.RIG.append(ws)
-    await ws.send_json({"type": "hello", "mode": cfg.mode(), "state": rig_hub.STATE})
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        if ws in rig_hub.RIG:
-            rig_hub.RIG.remove(ws)
+    Demo mode only. It rebuilds from the sample documents, which is the same path the
+    Add patient screen uses, so what comes back is what a judge would have seen the first
+    time rather than a special case.
+    """
+    if cfg.mode() != "mock":
+        raise HTTPException(403, "only available in demo mode")
+
+    from .twin import build as buildmod
+
+    want = pid
+    if not want:
+        # The flagship one by name, so the demo button needs no id.
+        allowed = auth.scoped_patients(request)
+        hit = [p for p in db.patients()
+               if "maya" in str(p["name"]).lower()
+               and (allowed is None or str(p["id"]) in allowed)]
+        if not hit:
+            raise HTTPException(404, "no sample patient to reset. Add one from the sample files.")
+        want = str(hit[-1]["id"])
+    auth.require_patient(want, request)
+
+    # Everything a call wrote. The documents, the extraction and the patient's own record
+    # are left alone, which is what makes this a reset rather than a delete.
+    db.run("delete from checkins where patient_id=?", (want,))
+    db.run("delete from observations where patient_id=?", (want,))
+    db.run("delete from alerts where patient_id=?", (want,))
+    db.run("delete from call_sessions where patient_id=?", (want,))
+    db.run("delete from events where patient_id=? and kind in "
+           "('call_update','call_session','notify','agent_triage','creao_run_started')", (want,))
+    db.patch("patients", want, {"week": 0, "drift_z": 0.0, "coverage": 0.0, "last_call": None})
+
+    got = buildmod.build_twin(want)
+    return {"ok": True, "patient_id": want, "regions": len(got["twin"]["regions"]),
+            "note": "rebuilt from this patient's own documents and inputs. "
+                    "Nothing uploaded was deleted."}
 
 
-@app.websocket("/ws/stimulus")
-async def ws_stimulus(ws: WebSocket) -> None:
-    """The stimulus page: commands out, shown and flashed timestamps back."""
-    await ws.accept()
-    rig_hub.STIM.append(ws)
-    await ws.send_json({"type": "clock", "mono_ns": time.monotonic_ns(), "perf_ns": 0})
-    try:
-        while True:
-            msg = await ws.receive_json()
-            if isinstance(msg, dict):
-                if msg.get("type") == "hello":
-                    await ws.send_json({"type": "clock", "mono_ns": time.monotonic_ns(),
-                                        "perf_ns": int(msg.get("perf_ns", 0))})
-                rig_hub.stim_in(msg)
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        if ws in rig_hub.STIM:
-            rig_hub.STIM.remove(ws)
+@app.get("/api/patients/{pid}/latest-update", response_model=models.CallUpdate | None)
+def get_latest_update(pid: str, request: Request) -> dict | None:
+    """What the most recent check-in changed in the brain, or null if there has not been one.
+
+    The same payload the stream pushes on `call_done`. A page that loads after the call
+    landed needs it too, and reading it back from the event row rather than recomputing
+    it means the banner says the same thing either way.
+    """
+    auth.require_patient(pid, request)
+    rows = db.rows(
+        "select * from events where patient_id=? and kind='call_update' "
+        "order by time desc limit 1", (pid,))
+    if not rows:
+        return None
+    return db.dec(rows[0]["payload"], {}) or None
+
+
+# ---------------------------------------------------------------- the event stream
+
+@app.get("/api/patients/{pid}/stream")
+async def get_stream(pid: str, request: Request):
+    """Server-sent events for one patient: live call frames, alerts, and call_done.
+
+    This replaces the rig websocket. The workspace opens it when it loads, so the brain
+    and the flags update themselves rather than waiting for somebody to hit refresh. One
+    stream per patient, so a clinician with one chart open is never sent another
+    patient's measurements.
+    """
+    auth.require_patient(pid, request)
+    return StreamingResponse(
+        live.stream(pid),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------- pages
@@ -1018,9 +1167,7 @@ def index_or_json():
         "web": "not built yet, run make web",
         "api": "/api/health",
         "docs": "/docs",
-        "ui": "/ui/",
-        "stimulus": "/stimulus/",
-        "websockets": ["/ws/rig", "/ws/stimulus"],
+        "routes": ["/", "/clinic", "/patients/new", "/patients/:id", "/call/:token"],
     })
 
 
@@ -1028,17 +1175,6 @@ def index_or_json():
 def root():
     """The clinician app, or a pointer list before the frontend is built."""
     return index_or_json()
-
-
-@app.get("/consent/{token}", response_model=None)
-def consent_page(token: str):
-    """The consent page the text links to."""
-    if (WEB_DIR / "index.html").exists():
-        return index_or_json()
-    got = db.consent(token)
-    if got is None:
-        raise HTTPException(404, "unknown consent link")
-    return JSONResponse(get_consent(token))
 
 
 @app.get("/call/{token}", response_model=None)
@@ -1112,7 +1248,13 @@ def limit(token: str, request: Request, per: int = sessions.RATE_MAX) -> None:
 
 @app.post("/api/calls", response_model=models.CallStart)
 def post_calls(body: models.CallBody, request: Request) -> dict:
-    """Create a call session and, when asked, text the patient the link."""
+    """Create a call session and, when asked, text the patient the link.
+
+    What comes back about the text is deliberately detailed: the channel, the status,
+    the message row so delivery can be polled, and the real reason when it failed. The
+    modal shows all of it, because "iMessage could not deliver" with no reason is the
+    thing that wasted an afternoon.
+    """
     pid = body.patient_id or ""
     auth.require_patient(pid, request)
     got = sessions.create(pid, body.week)
@@ -1120,7 +1262,16 @@ def post_calls(body: models.CallBody, request: Request) -> dict:
         from .comms import notify as texter
 
         sent = texter.send(pid, "call_link", link=got["url"])
-        got = {**got, "sent": True, "channel": sent.get("channel", "mock")}
+        got = {
+            **got,
+            "sent": True,
+            "channel": sent.get("channel", "mock"),
+            "status": sent.get("status", "mock"),
+            "message_id": sent.get("message_id", ""),
+            "why": sent.get("why", ""),
+            "error": sent.get("imessage_error", ""),
+            "tried": sent.get("tried", []),
+        }
     return got
 
 
@@ -1145,15 +1296,62 @@ def post_call_send(token: str, request: Request) -> dict:
             "error": str(sent.get("error") or "")}
 
 
+@app.get("/api/messages/{mid}/status")
+def get_message_status(mid: str, request: Request) -> dict:
+    """Has this message been delivered yet?
+
+    The call modal polls this for half a minute after a send. It is the only thing that
+    can turn `sent` into `delivered`, and it only does so when the provider says so: a
+    message that was accepted and never confirmed stays `sent` forever, which is the
+    truth about it.
+    """
+    from .comms import notify as texter
+
+    row = db.one("select * from messages where id=?", (mid,))
+    if row is None:
+        raise HTTPException(404, f"no message {mid}")
+    auth.require_patient(str(row["patient_id"]), request)
+    got = texter.confirm(mid)
+    fresh = db.one("select * from messages where id=?", (mid,))
+    status = str(got.get("status") or fresh["status"] or "sent")
+    # `failed` is what the transport layer calls it. `not_sent` is what it means on a
+    # screen: nothing left the building. Four states, and none of them is a guess.
+    if status == "failed":
+        status = "not_sent"
+    if status not in ("sent", "delivered", "not_sent", "mock"):
+        status = "sent"
+
+    delivered_at = str(fresh["delivered_at"] or "") or None
+    confirmation = "provider" if status == "delivered" else got.get("confirmation", "unavailable")
+    return {
+        "ok": True,
+        "id": mid,
+        "channel": str(fresh["channel"] or ""),
+        "status": status,
+        "provider_id": str(fresh["provider_id"] or "") or None,
+        "error": str(fresh["detail"] or "") or None,
+        "delivered_at": delivered_at,
+        # Only ever "provider" when a provider actually said so. Everything else is
+        # "unavailable", including local iMessage, which cannot read receipts at all.
+        "delivery_confirmation": confirmation,
+        "note": got.get("note", ""),
+    }
+
+
 @app.get("/api/call/{token}/script", response_model=models.CallScript)
-def get_call_script(token: str) -> dict:
-    """The script the page runs. Marks the session opened."""
+def get_call_script(token: str, full: int = 0) -> dict:
+    """The script the page runs. Marks the session opened.
+
+    The brief four minute version by default, which is what a patient on a phone gets.
+    ?full=1 serves the whole fourteen minute protocol. `short` is the separate symptom
+    rule and applies to either.
+    """
     row = call_row(token, want_consent=False)
     sessions.open_session(token)
     from .agent import voices
 
-    short = bool(row["short"])
-    return callscript.payload(short=short, audio=voices.audio_map())
+    return callscript.payload(short=bool(row["short"]), full=bool(full),
+                              audio=voices.audio_meta())
 
 
 @app.post("/api/call/{token}/consent")
@@ -1184,12 +1382,9 @@ def post_call_redflags(token: str, body: models.RedflagBody) -> dict:
 
     audio = voices.audio_map()
     if got["stop"]:
+        # The patient is told to get help now and the tasks stop. The alert lands in the
+        # clinician's workspace over the event stream; nothing here phones anybody.
         alertmod.red_flag(pid, answers, notify=True)
-        pat = db.patient(pid)
-        from .comms import clinic_call
-
-        clinic_call.call(pid, agent_summary.clinician_text(str(pat["name"]), int(row["week"] or 0),
-                                                           None, got["flags"]))
         sessions.set_state(token, "stopped", finished=db.now())
         db.event(pid, "call_red_flag", {"week": int(row["week"] or 0), "flags": got["flags"]})
         name = audio.get("emergency")
@@ -1260,17 +1455,22 @@ def post_call_answer(token: str, body: models.AnswerBody) -> dict:
 
 @app.post("/api/call/{token}/live")
 def post_call_live(token: str, body: models.LiveBody, request: Request) -> dict:
-    """Fire and forget live telemetry, forwarded to the R1 console as a RigEvent."""
+    """Fire and forget live telemetry, pushed to the clinician's open call modal.
+
+    The phone posts this about every 200 ms while a task runs. It is numbers only, never
+    video, and it is not stored or scored: the measurements that count arrive in whole
+    chunks on /frames. This exists so the strip in the modal shows something true while
+    the call is happening.
+    """
     row = sessions.live(token)
     if row is None:
         raise HTTPException(404, "unknown link")
     limit(token, request, per=sessions.RATE_MAX * 2)
-    rig_hub.STATE.update({"running": True, "pid": row["patient_id"],
-                          "week": int(row["week"] or 0), "step": body.step})
-    rig_hub.frame_event(
+    live.frame(
+        str(row["patient_id"]),
         body.step,
-        (body.gaze.x, body.gaze.y),
-        (body.target.x, body.target.y),
+        {"x": body.gaze.x, "y": body.gaze.y},
+        {"x": body.target.x, "y": body.target.y},
         body.quality.model_dump(),
         body.pursuit_gain,
         body.line.model_dump() if body.line else None,
@@ -1358,39 +1558,6 @@ def get_call_status(token: str) -> dict:
     return out
 
 
-@app.get("/api/call/{token}/agent")
-def get_call_agent(token: str) -> dict:
-    """Whether the optional question and answer agent is available after the script.
-
-    Off by default. It is never on the safety or the measurement path: the red flag
-    decision is made from the answers by the backend, the script is fixed, and this
-    agent's transcript is stored but never scored and never fed to the twin.
-    """
-    call_row(token, want_consent=False)
-    on = bool(cfg.live_agent and cfg.eleven_agent and cfg.eleven_key)
-    return {
-        "enabled": on,
-        "agent_id": cfg.eleven_agent if on else "",
-        "banner": "This assistant is software and cannot give medical advice. It will not "
-                  "tell you what is wrong with you, and it will not tell you when you can "
-                  "go back to sport, work or driving. Ask your clinician those.",
-        "note": "Anything said here is passed to your clinician but is not measured and "
-                "does not change your results.",
-    }
-
-
-@app.post("/api/call/{token}/agent/transcript")
-def post_call_agent_transcript(token: str, body: models.AgentTranscript) -> dict:
-    """Store what was said to the optional agent. Never used for scoring or safety."""
-    row = call_row(token, want_consent=False)
-    if not cfg.live_agent:
-        raise HTTPException(404, "the question and answer agent is off")
-    sessions.store_chunk(token, "agent", "agent_line",
-                         {"who": body.who, "text": safety.clean(body.text), "t": body.t})
-    db.event(row["patient_id"], "agent_qa", {"who": body.who, "chars": len(body.text)})
-    return {"ok": True, "scored": False}
-
-
 @app.get("/api/voices", response_model=models.Voices)
 def get_voices() -> dict:
     """Every script line, its hash, and whether its mp3 exists."""
@@ -1414,8 +1581,9 @@ def post_voice_regenerate(step_id: str) -> dict:
 # ---------------------------------------------------------------- CREAO briefing agent
 
 @app.post("/api/patients/{pid}/pipeline", response_model=models.AgentPipeline, status_code=202)
-def start_pipeline(pid: str) -> dict:
+def start_pipeline(pid: str, request: Request) -> dict:
     """Start the CREAO care pipeline (triage, then briefing and outreach). Returns at once."""
+    auth.require_patient(pid, request)
     row = db.patient(pid)
     if row is None:
         raise HTTPException(404, "no such patient")
@@ -1423,8 +1591,9 @@ def start_pipeline(pid: str) -> dict:
 
 
 @app.get("/api/patients/{pid}/pipeline", response_model=models.AgentPipeline | None)
-def get_pipeline(pid: str) -> dict | None:
+def get_pipeline(pid: str, request: Request) -> dict | None:
     """The newest pipeline for this patient, advanced from CREAO if it is still going."""
+    auth.require_patient(pid, request)
     if db.patient(pid) is None:
         raise HTTPException(404, "no such patient")
     return creao.latest(pid)
@@ -1457,7 +1626,7 @@ def get_summary(pid: str, week: int, request: Request) -> dict:
     return summary.for_checkin(pid, int(week))
 
 
-RESERVED = ("api", "voice", "ui", "stimulus", "docs", "redoc", "openapi.json", "ws", "assets")
+RESERVED = ("api", "voice", "docs", "redoc", "openapi.json", "assets")
 
 
 @app.get("/{path:path}", response_model=None)

@@ -5,7 +5,7 @@ import { Check, CheckCheck, ExternalLink, PhoneCall } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { useAckAlert, useAlerts, useCallAlert, useNote, usePatients } from "@/api/client";
+import { useAckAlert, useAlerts, useNote, usePatients } from "@/api/client";
 import type { Alert } from "@/api/types";
 import { Empty, ErrorState, Loading, PageHeader, Panel } from "@/components/common";
 import { AlertCard } from "@/components/panels/AlertCard";
@@ -25,7 +25,6 @@ export default function Alerts() {
   const { data, isLoading, error, refetch } = useAlerts();
   const { data: patients } = usePatients();
   const ack = useAckAlert();
-  const callPatient = useCallAlert();
   const note = useNote();
 
   const names = useMemo(() => new Map((patients ?? []).map((p) => [p.id, p.name])), [patients]);
@@ -55,18 +54,10 @@ export default function Alerts() {
       >
         <Check aria-hidden /> Acknowledge
       </Button>
-      <Button
-        size="sm"
-        variant="secondary"
-        onClick={() =>
-          callPatient.mutate(a.id, {
-            onSuccess: () => toast.success("Clinic call recorded, the patient has been told to expect it"),
-            onError: (err) => toast.error(err.message),
-          })
-        }
-        disabled={callPatient.isPending || a.called}
-      >
-        <PhoneCall aria-hidden /> {a.called ? "Patient called" : "Call patient"}
+      <Button size="sm" variant="secondary" asChild>
+        <Link to={`/patients/${a.patient_id}`}>
+          <PhoneCall aria-hidden /> Open check-in workspace
+        </Link>
       </Button>
       <Button size="sm" variant="secondary" onClick={() => resolve(a)} disabled={ack.isPending}>
         <CheckCheck aria-hidden /> Resolve

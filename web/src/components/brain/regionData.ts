@@ -34,6 +34,14 @@ export interface LayerValues {
   empty: boolean;
   /** What the bright end of the ramp means for this patient, when the layer auto scales. */
   scaleTop?: number;
+  /** What the dark end means. Set when the ramp spans a range rather than starting at 0. */
+  scaleLo?: number;
+  /**
+   * The largest raw value in the field, which is not the same as `scaleTop` when the ramp
+   * windows out an outlier. Anything between the two is clamped to the bright end, so a
+   * legend printing `scaleTop` as "the worst region" would be wrong by exactly this gap.
+   */
+  scaleMax?: number;
 }
 
 export interface LayerCtx {
@@ -100,24 +108,72 @@ export function layerValues(id: LayerId, ctx: LayerCtx): LayerValues {
   const regions = twin.regions;
 
   if (id === "damage") {
-    // The model's damage runs small, often under 0.2, so a fixed 0 to 1 ramp would leave the
-    // cortex dark. The ramp is scaled to this patient's own worst region at week 0, with a
-    // floor so a nearly healthy brain does not get amplified into looking wrecked. The legend
-    // prints the real number at the bright end.
-    // Scaled to this patient's worst region at week 0, so scrubbing the weeks shows the damage
-    // fading as it heals. The floor keeps a nearly healthy brain from being amplified.
-    let top = 0.12;
-    for (const r of regions) top = Math.max(top, r.damage?.[0] ?? 0);
+    // Damage from a rotational impact is diffuse, not focal: the strain model damages
+    // edges by how they are oriented against the blow, so most of the brain carries
+    // some. A real patient's week 0 field is often 0.12 to 0.17, a spread of about 1.5x
+    // sitting well above zero.
+    //
+    // Dividing by the maximum, which is what this used to do, then mapped that whole
+    // field onto the top third of the ramp and lit the entire cortex red. The brain
+    // looked catastrophically injured when the model was saying something quite mild and
+    // quite even.
+    //
+    // So the ramp spans the patient's own range instead of starting at zero: dark is
+    // their least damaged region, bright is their worst. That makes the relative
+    // structure visible, which is the useful thing, and it is explicitly a relative map.
+    // `scaleLo` and `scaleTop` are both reported so the legend can say what the two ends
+    // actually are rather than implying 0 to 1.
+    //
+    // Both ends are read at the week being shown, not at week 0. The ramp follows the
+    // recovery instead of staying pinned to the injury, which is what makes the later
+    // weeks readable: by week 12 the whole field has shrunk, and a ramp still scaled to
+    // week 0 renders all of it as uniformly dark.
+    //
+    // The top end is the 98th percentile, not the maximum, and that matters more than it
+    // sounds. A real field has one region clearly worst and then a cluster packed just
+    // under it: on the flagship patient the gap from first to second is 0.024, which is
+    // larger than the whole spread from second to twelfth. Scaling to the maximum spends
+    // a fifth of the ramp on that one gap and leaves the entire cluster around the impact
+    // sitting at 0.74 to 0.80, which is orange. So the regions a clinician is looking at,
+    // the ones with damage within one percent of the worst, were the one thing on the
+    // screen that did not read as damaged. A percentile puts the cluster at the top of
+    // the ramp together and clamps the outlier, which is the normal way to window a
+    // medical image and is what freeview and FSL do by default.
+    //
+    // The low end stays the true minimum. The bottom of this distribution is dense, so it
+    // has no outlier to be dragged by, and keeping it exact preserves the property the
+    // rest of this function leans on: the least damaged region sits at exactly 0.
+    const sorted = regions
+      .map((r) => atWeek(r.damage, week))
+      .sort((a, b) => a - b);
+    const lo = sorted.length ? sorted[0] : 0;
+    const top = sorted.length
+      ? sorted[Math.min(sorted.length - 1, Math.round(0.98 * (sorted.length - 1)))]
+      : 0;
+    // A floor on the span, so a perfectly even field is not amplified into noise. Below
+    // this the differences between regions are smaller than the filter's own spread.
+    const span = Math.max(0.02, top - lo);
     for (let i = 0; i < REGIONS; i++) {
       const v = atWeek(regions[i]?.damage, week);
       out.raw[i] = v;
-      out.pos[i] = clamp01(v / top);
-      // The glow curve is steeper than the colour so only the genuinely worst regions burn.
-      // No floor: undamaged cortex keeps its own blue, damage shows as amber then red.
-      out.glow[i] = clamp01(Math.pow(v / top, 1.1));
+      out.pos[i] = clamp01((v - lo) / span);
+      // Spans the full 0 to 1, very slightly eased. This has to match the knee in the
+      // fragment shader, which fades a region in over `smoothstep(0.1, 0.6, glow)`: that
+      // curve expects glow to use its whole range. The old cap of 0.55 with an exponent
+      // of 1.8 was for the bloom pass, and stacking it under the new knee put the median
+      // region at a colour mix of 0.001 and lit only the single worst one, which is not a
+      // damage map. Nothing here protects against a blown-out highlight any more because
+      // nothing needs to: bloom is gone, and the shader's own tone curve is the limit.
+      //
+      // What keeps this honest is the `lo` subtraction above, not a ceiling on the glow.
+      // The least damaged region sits at exactly 0 and keeps its lobe colour however bad
+      // the patient is, so a diffuse field still reads as a gradient rather than a wall.
+      out.glow[i] = clamp01(Math.pow((v - lo) / span, 1.1));
     }
+    out.scaleLo = lo;
     out.scaleTop = top;
-    out.format = (v) => v.toFixed(2);
+    out.scaleMax = sorted.length ? sorted[sorted.length - 1] : 0;
+    out.format = (v) => v.toFixed(3);
     return out;
   }
 

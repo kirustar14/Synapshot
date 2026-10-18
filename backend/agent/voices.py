@@ -225,15 +225,32 @@ def build(force: bool = False, only: str = "") -> dict:
             out[sid] = {"text": text, "hash": want, "file": path.name,
                         "duration_s": duration_of(path), "bytes": got["bytes"]}
             made += 1
-        else:
-            out[sid] = {"text": text, "hash": want, "file": None,
-                        "duration_s": None, "error": got["error"]}
-            failed += 1
+            continue
+
+        # Generation failed, usually because the ElevenLabs quota is spent. A good mp3
+        # already on disk is worth more than a fresh manifest entry, so it is kept and
+        # the failure is recorded beside it. Writing file: None here instead would leave
+        # the audio sitting on disk while `audio_map` stopped offering it, and the call
+        # would quietly drop to the browser voice for a line that had been generated.
+        if path.exists() and path.stat().st_size > 500:
+            prev = dict(have)
+            prev.update({"text": text, "file": path.name,
+                         "duration_s": have.get("duration_s") or duration_of(path),
+                         "error": got["error"], "stale": have.get("hash") != want})
+            out[sid] = prev
+            kept += 1
+            continue
+
+        out[sid] = {"text": text, "hash": want, "file": None,
+                    "duration_s": None, "error": got["error"]}
+        failed += 1
 
     used = resolve_voice() if live() else ""
     save_manifest({"model": cfg.eleven_tts_model, "voice_id": used,
                    "configured_voice": cfg.eleven_voice, "live": live(), "lines": out})
+    missing = [sid for sid, row in out.items() if not row.get("file")]
     return {"made": made, "kept": kept, "failed": failed, "total": len(lines()),
+            "have": len(lines()) - len(missing), "missing": sorted(missing),
             "live": live(), "voice_id": used, "lines": out}
 
 
@@ -244,6 +261,21 @@ def audio_map() -> dict:
         name = row.get("file")
         if name and (voice_dir() / name).exists():
             out[sid] = name
+    return out
+
+
+def audio_meta() -> dict:
+    """Step id to {file, duration_ms} for the lines with an mp3 on disk.
+
+    The page needs the length as well as the name. It plays one line at a time and will
+    not start the next until this one has ended, so a line whose `ended` event never
+    arrives would stall the call. The duration is the timeout that stops that happening,
+    and a line with no measured duration gets None rather than a guess.
+    """
+    out = {}
+    for sid, name in audio_map().items():
+        secs = manifest().get("lines", {}).get(sid, {}).get("duration_s")
+        out[sid] = {"file": name, "duration_ms": round(secs * 1000) if secs else None}
     return out
 
 
@@ -290,14 +322,20 @@ def main() -> int:
             print(f"           ELEVENLABS_VOICE_ID={used}")
         elif used:
             print(f"  voice    {voice_name(used)}")
-    print(f"  lines    {got['total']} total, {got['made']} generated, {got['kept']} unchanged, "
-          f"{got['failed']} without audio")
-    if got["failed"]:
+    print(f"  lines    {got['have']} of {got['total']} have audio. "
+          f"{got['made']} generated, {got['kept']} kept, {got['failed']} could not be made")
+    kept_bad = [sid for sid, row in got["lines"].items() if row.get("error") and row.get("file")]
+    if kept_bad:
         print("")
-        print("  Without audio, these fall back to the browser's speech synthesis:")
-        for sid, row in got["lines"].items():
-            if row.get("error"):
-                print(f"    {sid:28s} {row['error']}")
+        print("  These could not be regenerated, so the mp3 already on disk was kept:")
+        for sid in sorted(kept_bad):
+            print(f"    {sid:28s} {got['lines'][sid]['error']}")
+    if got["missing"]:
+        print("")
+        print("  These steps have no audio and fall back to the browser's own voice:")
+        for sid in got["missing"]:
+            why = got["lines"].get(sid, {}).get("error") or "never generated"
+            print(f"    {sid:28s} {why}")
     print("")
     print(f"  written  {voice_dir()}")
     print("")

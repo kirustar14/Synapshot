@@ -1,11 +1,22 @@
 @import "tailwindcss" source(none);
+
+/* Local, not a CDN: the call page has to work on a phone over a tunnel with no
+   guarantee of outside network. */
+@import "@fontsource/instrument-serif/400.css";
+@import "@fontsource/instrument-serif/400-italic.css";
+@import "@fontsource/space-grotesk/400.css";
+@import "@fontsource/space-grotesk/500.css";
+@import "@fontsource/space-grotesk/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
 @source "../src";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -212,4 +223,109 @@
   .print-page { padding: 0 !important; margin: 0 !important; }
   .panel { box-shadow: none; break-inside: avoid; }
   @page { size: A4; margin: 12mm; }
+}
+
+
+/* ---------------------------------------------------------------- the restyle
+   Editorial serif headings with one italic word, a grotesque for body, and mono for
+   anything that is a label rather than a sentence. Applied as utilities so a screen
+   opts in rather than every heading on the site changing shape at once. */
+
+@utility display {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.04;
+}
+
+/* The one italic word per headline. */
+@utility display-em {
+  font-family: var(--font-serif);
+  font-style: italic;
+}
+
+/* Eyebrows, status text and chart labels. Never a sentence. */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+/* One featured card per screen. Everything else stays flat. */
+@utility featured {
+  border: 1.5px solid #111;
+  box-shadow: 4px 4px 0 #111;
+  border-radius: var(--radius);
+  background: var(--color-card);
+}
+
+@utility flat-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-card);
+  box-shadow: none;
+}
+
+/* Chat style system and status messages. */
+/* Chat style, from the inspiration: a soft grey bubble with a tiny mono name above it,
+   never a bordered card. Used by the call modal, the build log and the call page. */
+@utility bubble {
+  background: color-mix(in oklab, var(--color-muted) 70%, var(--color-background));
+  border-radius: 1.1rem;
+  padding: 0.6rem 0.9rem;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 46ch;
+}
+
+@utility bubble-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+  display: block;
+  margin-bottom: 0.3rem;
+}
+
+/* The stepper from the inspiration: a dot, a mono uppercase label, the live one in ink
+   and the rest in grey. */
+@utility step-row {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* The thin mono strip across the top of the app. */
+@utility status-strip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+
+@layer base {
+  /* Soft fades and short slides, and none of it when the reader asked for none. */
+  @media (prefers-reduced-motion: no-preference) {
+    .enter {
+      animation: enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
+
+@keyframes enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }

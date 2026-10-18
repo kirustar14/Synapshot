@@ -17,6 +17,12 @@ SQLITE_ADDED = [
     ("patients", "phone", "text"),
     ("patients", "clinic_id", "text"),
     ("agent_runs", "pipeline", "text"),
+    ("patients", "chart", "text"),
+    ("messages", "status", "text default 'sent'"),
+    ("messages", "provider_id", "text"),
+    ("messages", "space_id", "text"),
+    ("messages", "detail", "text"),
+    ("messages", "delivered_at", "text"),
 ]
 
 TEAM = """
@@ -47,7 +53,7 @@ create table if not exists patients (
   twin_built integer default 0, template_only integer default 0,
   low_fidelity integer default 0, synthetic integer default 1,
   last_call text, created text, seed integer, d0 real, truth text, state text, note text,
-  phone text, clinic_id text
+  phone text, clinic_id text, chart text
 );
 create table if not exists events (
   id text primary key, patient_id text, kind text, time text, payload text
@@ -76,7 +82,8 @@ create table if not exists consents (
 );
 create table if not exists messages (
   id text primary key, patient_id text, dir text, body text, time text,
-  channel text default 'mock', kind text
+  channel text default 'mock', kind text, status text default 'sent',
+  provider_id text, space_id text, detail text, delivered_at text
 );
 create table if not exists uploads (
   id text primary key, patient_id text, kind text, file text, status text, sets text,

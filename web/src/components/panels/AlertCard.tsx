@@ -25,14 +25,13 @@ export function AlertCard({
         {patientName && <span className="text-base font-extrabold">{patientName}</span>}
         <span className="text-[13px] font-semibold text-muted-foreground">{fmtTime(alert.time)}</span>
         <span className="ml-auto flex items-center gap-3 text-[13px] font-bold">
-          {alert.called ? (
+          {alert.acked ? (
             <span className="flex items-center gap-1.5 text-success">
-              <CheckCircle2 className="h-4 w-4" aria-hidden /> Clinic called
+              <CheckCircle2 className="h-4 w-4" aria-hidden /> Acknowledged
             </span>
           ) : (
-            <span className="text-muted-foreground">Clinic not called yet</span>
+            <span className="text-muted-foreground">Needs review</span>
           )}
-          {alert.acked && <span className="text-muted-foreground">Acknowledged</span>}
         </span>
       </div>
       <p className="mt-2.5 max-w-3xl text-[15px] leading-relaxed">{alert.trigger}</p>

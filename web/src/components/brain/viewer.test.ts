@@ -92,19 +92,99 @@ describe("week reads", () => {
 });
 
 describe("layer values", () => {
-  it("scales damage to this patient's own peak and reports it", () => {
+  it("spans this patient's own range and reports every end", () => {
+    // The fixture is one region at the peak and ninety-nine at a tenth of it, which is
+    // the shape the percentile top exists for: region 7 is the outlier, so it is windowed
+    // out of the scale and clamped to the bright end rather than owning it. scaleTop is
+    // therefore the top of the colour scale, and scaleMax is the worst region. They are
+    // different numbers on purpose and a legend has to use the right one.
     const twin = twinFixture(0.2);
     const v = layerValues("damage", { twin, week: 0 });
-    expect(v.scaleTop).toBeCloseTo(0.2, 5);
+    expect(v.scaleLo).toBeCloseTo(0.02, 5);
+    expect(v.scaleTop).toBeCloseTo(0.02, 5);
+    expect(v.scaleMax).toBeCloseTo(0.2, 5);
     expect(v.pos[7]).toBeCloseTo(1, 5);
+    expect(v.pos[0]).toBeCloseTo(0, 5);
     expect(v.raw[7]).toBeCloseTo(0.2, 5);
     expect(v.glow[0]).toBeLessThan(v.glow[7]);
   });
 
-  it("never amplifies a nearly healthy brain past the floor", () => {
-    const v = layerValues("damage", { twin: twinFixture(0.01), week: 0 });
-    expect(v.scaleTop).toBe(0.12);
-    expect(v.pos[7]).toBeLessThan(0.15);
+  it("puts the cluster just under the worst region at the top of the ramp too", () => {
+    // The bug this is here for: on a real field the gap from the worst region to the
+    // second worst is wider than the whole spread from second to twelfth, so scaling to
+    // the maximum left every region within one percent of the worst sitting in orange
+    // while exactly one went red. Regions that are nearly as damaged have to look nearly
+    // as damaged.
+    const twin = twinFixture(0.2);
+    twin.regions.forEach((r, i) => {
+      // One outlier, then a tight cluster, then a long tail down to 0.315.
+      const d0 = i === 7 ? 0.436 : i < 14 ? 0.405 + (i % 7) * 0.001 : 0.315 + (i % 60) * 0.0012;
+      r.damage = r.damage.map(() => d0);
+    });
+    const v = layerValues("damage", { twin, week: 0 });
+
+    // The cluster members are all within 0.007 of each other and all read at the top.
+    for (const i of [1, 2, 3, 4, 5, 6]) {
+      expect(v.raw[i]).toBeGreaterThan(0.4);
+      expect(v.pos[i]).toBeGreaterThan(0.9);
+    }
+    // And the floor is untouched: the least damaged region still keeps its own colour.
+    expect(Math.min(...v.pos)).toBeCloseTo(0, 5);
+  });
+
+  it("spreads glow across the whole range, not just the worst region", () => {
+    // This used to cap glow at 0.55 for the bloom pass. Bloom is gone, and the shader
+    // that replaced it fades a region in over smoothstep(0.1, 0.6, glow), so the cap put
+    // the median region at a colour mix of 0.001: one bright parcel on an otherwise
+    // untouched cortex, which is not a damage map. The worst region must reach the top of
+    // the range and the middle of the field has to land in the middle of it.
+    // A real field, spread evenly from 0.12 to 0.17, rather than the one-hot fixture:
+    // the bug was about the middle of a spread field going dark, and a fixture with one
+    // spike and ninety-nine identical regions has no middle to lose.
+    const spread = twinFixture(0.2);
+    spread.regions.forEach((r, i) => {
+      const d0 = 0.12 + (0.05 * i) / (REGIONS - 1);
+      r.damage = WEEKS.map((w) => d0 * Math.exp(-0.2 * w));
+    });
+    const v = layerValues("damage", { twin: spread, week: 0 });
+
+    expect(Math.max(...v.glow)).toBeCloseTo(1, 5);
+
+    // The middle of the field lands in the middle of the ramp. Under the old cap this
+    // was 0.14, which the shader's knee then crushed to a colour mix of 0.001.
+    const mid = [...v.glow].sort((a, b) => a - b)[Math.floor(REGIONS / 2)];
+    expect(mid).toBeGreaterThan(0.3);
+    expect(mid).toBeLessThan(0.7);
+
+    // The floor still holds: the least damaged region keeps its own colour, so a diffuse
+    // field reads as a gradient instead of a wall of red.
+    expect(Math.min(...v.glow)).toBeCloseTo(0, 5);
+  });
+
+  it("does not amplify an even field into structure that is not there", () => {
+    // Every region the same. The spread floor means this renders flat rather than
+    // turning rounding noise into a map.
+    const flat = twinFixture(0.01);
+    for (const r of flat.regions) r.damage = r.damage.map(() => 0.01);
+    const v = layerValues("damage", { twin: flat, week: 0 });
+    expect(v.scaleLo).toBeCloseTo(0.01, 5);
+    expect(v.scaleTop).toBeCloseTo(0.01, 5);
+    expect(Math.max(...v.pos)).toBeCloseTo(0, 5);
+  });
+
+  it("shows structure in a narrow field instead of a wall of red", () => {
+    // A real week 0 is about 0.12 to 0.17, a spread of 1.5x well above zero. Dividing by
+    // the maximum put the least damaged region at 68 percent of the ramp and lit the
+    // whole cortex. The range mapping puts it at zero, where it belongs.
+    const narrow = twinFixture(0.17);
+    narrow.regions.forEach((r, i) => {
+      const v = i === 7 ? 0.17 : 0.12 + (i % 5) * 0.004;
+      r.damage = r.damage.map(() => v);
+    });
+    const v = layerValues("damage", { twin: narrow, week: 0 });
+    expect(v.pos[7]).toBeCloseTo(1, 5);
+    expect(Math.min(...v.pos)).toBeCloseTo(0, 5);
+    expect(v.raw[7]).toBeCloseTo(0.17, 5);
   });
 
   it("fades damage as the weeks run", () => {

@@ -2,10 +2,10 @@
 // imports it through React.lazy keeps three, drei and postprocessing out of the main chunk.
 
 import { Canvas } from "@react-three/fiber";
-import { Eye, FlaskConical, Info, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
+import { Eye, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useMesh, useShape, useTwin } from "@/api/client";
-import type { Shape } from "@/api/types";
+import { useFormulary, useMesh, usePathways, usePatient, useShape, useTwin, useVessels } from "@/api/client";
+import type { Shape, Twin } from "@/api/types";
 import { ErrorState, Loading } from "@/components/common";
 import { cn } from "@/lib/utils";
 import { Fallback2D } from "./Fallback2D";
@@ -22,6 +22,7 @@ import {
   topLit,
   type LayerValues,
 } from "./regionData";
+import type { Focus } from "./Vessels";
 import { useViewer, type HemiMode, type ViewPreset } from "./viewerStore";
 
 export interface BrainViewerProps {
@@ -43,6 +44,18 @@ export interface BrainViewerProps {
   /** Replaces the computed layer values outright, which the difference toggle uses. */
   valuesOverride?: LayerValues | null;
   caption?: string;
+  /** Slow automatic rotation. Used by the landing page.  */
+  spin?: boolean;
+  /** Drops every overlay except one honesty label, so the brain can be the whole frame. */
+  bare?: boolean;
+  /** Fill the parent instead of using a fixed height. The workspace column drives it. */
+  fill?: boolean;
+  /** Hide the viewer's own preset row when the page supplies its own. */
+  presets?: boolean;
+  /** Draw the brain as first built instead of the current one. The Baseline toggle. */
+  baselineTwin?: Twin | null;
+  /** Region ids the last check-in moved, marked so the change is visible on the mesh. */
+  markRegions?: number[];
 }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -93,11 +106,34 @@ const HEMIS: { id: HemiMode; label: string }[] = [
 ];
 
 export default function BrainViewer(props: BrainViewerProps) {
-  const { patientId, compact = false, height, syncId, caption } = props;
+  const { patientId, compact = false, height, syncId, caption, spin = false, bare = false,
+          fill = false, presets = true } = props;
   const mesh = useMesh();
   const shape = useShape(patientId);
-  const twin = useTwin(patientId);
+  const live = useTwin(patientId);
+  // One swap, here, so every layer, tract, callout and ranked list below reads whichever
+  // brain the toggle is on without any of them needing to know the toggle exists.
+  const twin = props.baselineTwin
+    ? { ...live, data: props.baselineTwin }
+    : live;
+  const patient = usePatient(patientId);
   const v = useViewer();
+  // Only fetched when the layer is on. It is 11 KB of polylines and most sessions never
+  // turn it on, so there is no reason to pull it down on every workspace load.
+  const vessels = useVessels(v.vessels);
+  // The transmitter pathways for whichever medicines are lit in the Treatment tab. Only
+  // fetched when something is lit, because with nothing on there is nothing to draw.
+  const pathways = usePathways();
+  const formulary = useFormulary();
+  const pathwayGroups = useMemo(() => {
+    const book = formulary.data?.drugs ?? [];
+    const on = new Set(v.drugs);
+    const out = new Set<string>();
+    for (const d of book) {
+      if (on.has(d.name)) for (const g of d.pathways) out.add(g);
+    }
+    return [...out];
+  }, [formulary.data, v.drugs]);
   const caps = useMemo(() => detectCaps(), []);
   const [big, setBig] = useState(false);
 
@@ -110,7 +146,11 @@ export default function BrainViewer(props: BrainViewerProps) {
   const cortex = useMemo(() => (mesh.data ? buildCortex(mesh.data, liveShape) : null), [mesh.data, liveShape]);
   useEffect(() => {
     const geometry = cortex?.geometry;
-    return () => geometry?.dispose();
+    return () => {
+      // The BVH holds its own typed arrays, so disposing the geometry alone leaks them.
+      geometry?.disposeBoundsTree?.();
+      geometry?.dispose();
+    };
   }, [cortex]);
 
   const points = useMemo(() => regionPoints(mesh.data, twin.data), [mesh.data, twin.data]);
@@ -159,6 +199,29 @@ export default function BrainViewer(props: BrainViewerProps) {
 
   const ranked = useMemo(() => topLit(values, 5), [values]);
 
+  // SWI microhaemorrhage foci, placed inside the contusion the report localised.
+  //
+  // The report gives a count and a lobe, not coordinates, so the positions are spread
+  // around the impact point rather than measured. That is why they are only drawn when
+  // the vessel layer is on and why the layer's caption covers them: a node here says
+  // "the report counted this many foci in this region", not "a focus is here".
+  const foci = useMemo<Focus[]>(() => {
+    const n = patient.data?.injury?.swi_foci ?? 0;
+    const at = liveShape?.impact?.point;
+    if (!n || !at) return [];
+    const spread = (liveShape?.impact?.radius || 25) * 0.45;
+    return Array.from({ length: Math.min(12, n) }, (_, i) => {
+      // Deterministic from the index, so the same report draws the same nodes every time
+      // rather than scattering them again on every render.
+      const a = (i * 2.399963) % (Math.PI * 2);
+      const r = spread * (0.35 + 0.5 * ((i * 0.618) % 1));
+      return {
+        at: [at[0] + r * Math.cos(a), at[1] + r * Math.sin(a), at[2] + r * 0.4 * Math.sin(a * 1.7)] as [number, number, number],
+        mm: 2 + (i % 2),
+      };
+    });
+  }, [patient.data, liveShape]);
+
   const readout = v.hovered ?? v.selected;
   const def = LAYER_BY_ID[layer];
   const placeholder = !!mesh.data && mesh.data.source !== "fsaverage6";
@@ -185,18 +248,24 @@ export default function BrainViewer(props: BrainViewerProps) {
   return (
     <div
       className={cn(
-        "workspace-visual relative overflow-hidden rounded-xl border border-[#c9c9c4] bg-[#e4e4e0]",
+        "workspace-visual relative overflow-hidden bg-transparent",
+        // `bare` is the landing page, where the canvas is the whole frame. A border and
+        // a corner radius there draw a box around what is meant to be the background.
+
         big && "fixed inset-4 z-50",
       )}
-      style={big ? undefined : { height: stageHeight }}
+      style={big ? undefined : bare || fill ? { height: "100%" } : { height: stageHeight }}
     >
       <Canvas
         dpr={[1, 1.75]}
-        gl={{ antialias: !compact, alpha: false, powerPreference: "high-performance" }}
+        // The hero is transparent so the brain sits on the page rather than in a box.
+        // Everywhere else keeps an opaque buffer, which is cheaper.
+        // Always transparent now. The brain sits on the off-white page rather than in
+        // a grey stage, on the workspace as well as the hero.
+        gl={{ antialias: !compact, alpha: true, powerPreference: "high-performance" }}
         camera={{ fov: 34, near: 1, far: 4000, position: [-240, 90, -160] }}
-        style={{ touchAction: "pan-y" }}
+        style={{ touchAction: "pan-y", background: "transparent" }}
       >
-        <color attach="background" args={["#e4e4e0"]} />
         <Scene
           cortex={cortex}
           mesh={mesh.data}
@@ -211,6 +280,11 @@ export default function BrainViewer(props: BrainViewerProps) {
           ranked={ranked}
           compact={compact}
           syncId={syncId ?? null}
+          spin={spin}
+          vessels={vessels.data}
+          pathways={pathways.data}
+          pathwayGroups={pathwayGroups}
+          foci={foci}
         />
       </Canvas>
 
@@ -220,33 +294,32 @@ export default function BrainViewer(props: BrainViewerProps) {
         aria-hidden
       />
 
+      {/* The surface space, the shape source and the "model output" line all used to sit
+          here as permanent chips. They say the same thing on every frame of every
+          patient, so they stopped being read; they live in the Evidence drawer now. What
+          is left is the failure case, which is not permanent and does change what you
+          should believe, plus any caption a layer asks for. */}
+      {!bare && (placeholder || caption) && (
       <div className="pointer-events-none absolute left-3 top-3 flex max-w-[55%] flex-wrap items-center gap-1.5 text-[10px] font-bold">
-        <span
-          className={cn(
-            "rounded-full border px-2 py-0.5",
-            placeholder
-              ? "border-synthetic/60 bg-synthetic-soft/90 text-synthetic-foreground"
-              : "border-cyan-300/40 bg-cyan-950/70 text-cyan-100",
-          )}
-        >
-          {placeholder ? "Placeholder mesh" : "fsaverage6 surface"}
-        </span>
-        <span className="rounded-full border border-synthetic/50 bg-synthetic-soft/90 px-2 py-0.5 text-synthetic-foreground">
-          <FlaskConical className="mr-1 inline h-2.5 w-2.5" aria-hidden />
-          {liveShape?.source === "freesurfer" ? "Own surface" : "Synthetic shape"}
-        </span>
+        {placeholder && (
+          <span className="rounded-full border border-synthetic/60 bg-synthetic-soft/90 px-2 py-0.5 text-synthetic-foreground">
+            Placeholder mesh
+          </span>
+        )}
         {caption && <span className="rounded-full border border-white/20 bg-black/60 px-2 py-0.5 text-white">{caption}</span>}
       </div>
+      )}
 
+      {!bare && (
       <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5">
-        {(!compact || syncId) && (
-          <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1" role="group" aria-label="Preset views">
+        {presets && (!compact || syncId) && (
+          <div className="flex gap-1 rounded-full border border-foreground/15 bg-background/85 p-1 backdrop-blur-sm" role="group" aria-label="Preset views">
             {PRESETS.map((p) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => v.setPreset(p.id)}
-                className="rounded-full px-2 py-0.5 text-[10px] font-bold text-cyan-100 hover:bg-cyan-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                className="eyebrow rounded-full px-2.5 py-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
               >
                 {p.label}
               </button>
@@ -255,7 +328,7 @@ export default function BrainViewer(props: BrainViewerProps) {
         )}
         {!compact && (
           <>
-            <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1" role="group" aria-label="Hemispheres">
+            <div className="flex gap-1 rounded-full border border-foreground/15 bg-background/85 p-1 backdrop-blur-sm" role="group" aria-label="Hemispheres">
               {HEMIS.map((h) => (
                 <button
                   key={h.id}
@@ -263,15 +336,15 @@ export default function BrainViewer(props: BrainViewerProps) {
                   aria-pressed={v.hemi === h.id}
                   onClick={() => v.setHemi(h.id)}
                   className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300",
-                    v.hemi === h.id ? "bg-cyan-300 text-cyan-950" : "text-cyan-100 hover:bg-cyan-400/20",
+                    "eyebrow rounded-full px-2.5 py-1 focus-visible:outline-2 focus-visible:outline-ring",
+                    v.hemi === h.id ? "bg-foreground text-background" : "text-muted-foreground hover:bg-foreground/5",
                   )}
                 >
                   {h.label}
                 </button>
               ))}
             </div>
-            <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1">
+            <div className="flex gap-1 rounded-full border border-foreground/15 bg-background/85 p-1 backdrop-blur-sm">
               <StageToggle
                 on={v.hologram}
                 label={v.hologram ? "Hologram on" : "Hologram off"}
@@ -306,12 +379,14 @@ export default function BrainViewer(props: BrainViewerProps) {
           </>
         )}
       </div>
+      )}
 
-      <div className="pointer-events-none absolute bottom-3 left-3 max-w-[60%] text-[11px] text-cyan-50">
+      {!bare && (
+      <div className="pointer-events-none absolute bottom-3 left-3 max-w-[60%] text-[11px] text-foreground">
         {readout !== null && readout !== undefined ? (
-          <div className="rounded-lg border border-cyan-300/30 bg-black/70 px-2.5 py-1.5">
+          <div className="rounded-lg border border-foreground/15 bg-background/90 px-2.5 py-1.5 backdrop-blur-sm">
             <p className="font-bold capitalize">{regionLabel(mesh.data, twin.data, readout).plain}</p>
-            <p className="font-mono text-[10px] text-cyan-200">
+            <p className="font-mono text-[10px] text-muted-foreground">
               <span
                 className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
                 style={{ background: rampColor(def.stops, values.pos[readout]) }}
@@ -321,13 +396,10 @@ export default function BrainViewer(props: BrainViewerProps) {
             </p>
           </div>
         ) : (
-          <p className="rounded-lg bg-black/50 px-2 py-1 text-cyan-200/80">Drag to rotate. Click a region to pin it.</p>
+          <p className="eyebrow text-muted-foreground">Drag to rotate, click a region to pin it</p>
         )}
       </div>
-
-      <p className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 text-[10px] text-cyan-200/80">
-        <Info className="h-3 w-3" aria-hidden /> Model output, not a scan
-      </p>
+      )}
 
       {shape.error && (
         <p className="pointer-events-none absolute bottom-10 right-3 text-[10px] text-synthetic">
@@ -347,8 +419,8 @@ function StageToggle({ on, label, icon, onClick }: { on: boolean; label: string;
       title={label}
       aria-label={label}
       className={cn(
-        "flex h-6 w-6 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300",
-        on ? "bg-cyan-300 text-cyan-950" : "text-cyan-100/70 hover:bg-cyan-400/20",
+        "flex h-6 w-6 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring",
+        on ? "bg-foreground text-background" : "text-muted-foreground hover:bg-foreground/5",
       )}
     >
       {icon}

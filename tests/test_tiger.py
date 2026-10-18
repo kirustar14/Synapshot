@@ -18,13 +18,14 @@ def test_telemetry_buffers_then_writes(client, seeded):
     """One batch, the right columns, and nothing lost."""
     pid = str(seeded[0]["id"])
     token = _session(client, pid)
+    pending_before = telemetry.pending()
     before = db.count("select count(*) as c from metric_samples")
     telemetry.add(token, pid, "fps", 29.5)
     telemetry.add(token, pid, "face", 1.0)
-    assert telemetry.pending() >= 2
+    assert telemetry.pending() >= pending_before + 2
     wrote = telemetry.flush(token)
     assert wrote >= 2
-    assert telemetry.pending() == 0
+    assert telemetry.pending() == pending_before
     after = db.count("select count(*) as c from metric_samples")
     assert after >= before + wrote
     row = db.one("select metric, value from metric_samples where session_token=? order by time desc",

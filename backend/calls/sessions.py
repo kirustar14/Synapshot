@@ -126,10 +126,10 @@ def chunks(token: str, kind: str | None = None) -> list[dict]:
     """Every stored chunk for a session, oldest first."""
     setup()
     if kind:
-        rows = db.rows("select * from call_frames where token=? and kind=? order by time, rowid",
+        rows = db.rows("select * from call_frames where token=? and kind=? order by time, id",
                        (token, kind))
     else:
-        rows = db.rows("select * from call_frames where token=? order by time, rowid", (token,))
+        rows = db.rows("select * from call_frames where token=? order by time, id", (token,))
     return [{"task": r["task"], "kind": r["kind"], "payload": db.dec(r["payload"], [])} for r in rows]
 
 

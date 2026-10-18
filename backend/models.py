@@ -46,7 +46,12 @@ class Alert(BaseModel):
 
 
 class Injury(BaseModel):
-    """How the head was hit."""
+    """How the head was hit.
+
+    The first six fields drive the strain model. The rest are read off the documents and
+    shown in the Data tab: they are what the chart said, not what the model used, and the
+    provenance endpoint says which file each one came from.
+    """
 
     mechanism: str
     helmet: str
@@ -54,21 +59,45 @@ class Injury(BaseModel):
     location: str
     date: str
     loc: bool
+    loc_seconds: float | None = None
+    gcs: int | None = None
+    days_ago: int | None = None
+    contusion: str | None = None
+    ct_finding: str | None = None
+    mri_finding: str | None = None
+    swi_foci: int | None = None
 
 
 class Alleles(BaseModel):
-    """The three genotype calls kept from the VCF."""
+    """The three genotype calls kept from the VCF.
+
+    `apoe` and `bdnf` are the genotype as the report wrote it, so the Data tab can show
+    "e3/e4" rather than "1". DNA changes the recovery rate and nothing else: it never
+    changes brain shape.
+    """
 
     apoe_e4: Literal[0, 1, 2]
     bdnf_met: bool
+    apoe: str | None = None
+    bdnf: str | None = None
     comt: Literal["Val/Val", "Val/Met", "Met/Met"]
 
 
 class Biomarkers(BaseModel):
-    """Blood marker z scores."""
+    """Blood marker z scores, and the measured values behind them where there are any.
+
+    The z is what the twin consumes. The pg/mL is what the lab reported, carried through
+    so the Data tab shows the number the clinician recognises next to the one the model
+    used, and so the conversion between them can be checked rather than trusted. NfL has
+    no z: there is no reference to standardise it against here, so it is shown and not
+    modelled.
+    """
 
     gfap_z: float
     uchl1_z: float
+    gfap_pg_ml: float | None = None
+    uchl1_pg_ml: float | None = None
+    nfl_pg_ml: float | None = None
 
 
 class Contraction(BaseModel):
@@ -158,6 +187,22 @@ class Checkin(BaseModel):
     unusable: bool
 
 
+class ChartMed(BaseModel):
+    """One medication as the chart wrote it. The dose is never interpreted."""
+
+    name: str
+    dose: str = ""
+    status: str = "unknown"
+
+
+class Chart(BaseModel):
+    """Clinical facts read off the documents that the model does not consume."""
+
+    occupation: str | None = None
+    medications: list[ChartMed] = Field(default_factory=list)
+    reported_symptoms: list[str] = Field(default_factory=list)
+
+
 class Patient(BaseModel):
     """Everything the frontend shows about one patient."""
 
@@ -167,11 +212,13 @@ class Patient(BaseModel):
     sex: Literal["F", "M"]
     week: int
     injury: Injury
+    chart: Chart = Field(default_factory=lambda: Chart())
     inputs: list[InputFile]
     alleles: Alleles
     biomarkers: Biomarkers
     fc_fit: float | None
     coverage: float
+    drift_z: float = 0.0
     contraction: Contraction
     params: Params
     alerts: list[Alert]
@@ -264,6 +311,34 @@ class Twin(BaseModel):
     top_tracts: list[TopTract]
 
 
+class ChangedRegion(BaseModel):
+    """One region the last check-in moved, with the full name and its network."""
+
+    id: int
+    name: str
+    network: str
+    before: float
+    after: float
+
+
+class CallUpdate(BaseModel):
+    """What one check-in changed. Pushed on the stream and served by latest-update."""
+
+    call_id: str | None = None
+    week: int
+    date: str
+    changed_regions: list[ChangedRegion] = Field(default_factory=list)
+    changed_count: int = 0
+    k: float | None = None
+    p: float | None = None
+    drift_z: float = 0.0
+    alerts: list[str] = Field(default_factory=list)
+    flags_added: list[str] = Field(default_factory=list)
+    quality_ok: bool = True
+    # One plain sentence, through the same banned phrase filter as every spoken line.
+    summary: str = ""
+
+
 class Mesh(BaseModel):
     """The cortical surface the viewer renders. Flat arrays, millimetres, origin centred."""
 
@@ -336,11 +411,63 @@ class Intervention(BaseModel):
     note: str
 
 
-class InterventionBody(BaseModel):
-    """Body of POST /api/patients/{id}/intervention."""
+class DrugPick(BaseModel):
+    """One drug selected in the viewer. The dose is never sent, because it is never used."""
 
-    target: str
-    gain: float = 0.0
+    name: str
+    gain: float | None = None
+
+
+class InterventionBody(BaseModel):
+    """Body of POST /api/patients/{id}/intervention.
+
+    Two shapes through one route. `target` is the single receptor slider: one map, one
+    gain. `drugs` is the formulary viewer: each drug's targets are combined into one
+    weight per region first. When both are given, `drugs` wins, because it is the one a
+    clinician chose by name.
+    """
+
+    target: str = ""
+    gain: float = 0.2
+    drugs: list[DrugPick] = Field(default_factory=list)
+
+
+class DrugTarget(BaseModel):
+    """One receptor a drug acts at, and in which direction."""
+
+    receptor: str
+    affinity: float
+    direction: int
+    proxy: bool = False
+    why: str = ""
+
+
+class DrugEntry(BaseModel):
+    """One drug in the formulary, modelled or not."""
+
+    name: str
+    cls: str = Field(default="", alias="class")
+    typical_dose: str = ""
+    modeled: bool
+    targets: list[DrugTarget] = Field(default_factory=list)
+    note: str = ""
+    why_not: str = ""
+    proxy_targets: list[str] = Field(default_factory=list)
+    stand_in_targets: list[str] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
+class Formulary(BaseModel):
+    """GET /api/formulary. The drug list and what the maps behind it actually are."""
+
+    drugs: list[DrugEntry]
+    receptors: list[str]
+    tracers: dict[str, str] = Field(default_factory=dict)
+    stand_in: list[str] = Field(default_factory=list)
+    synthetic_template: bool = False
+    banner: str
+    note: str
 
 
 class Loadings(BaseModel):
@@ -387,14 +514,6 @@ class Message(BaseModel):
     kind: str | None = None
 
 
-class Check(BaseModel):
-    """One preflight check."""
-
-    name: str
-    ok: bool
-    detail: str
-
-
 class Effect(BaseModel):
     """One population level effect, truth against estimate."""
 
@@ -417,10 +536,16 @@ class Cohort(BaseModel):
 
 
 class TractScore(BaseModel):
-    """One tract and its attribution score."""
+    """One tract and its attribution score.
+
+    `a` and `b` are the region indices the tract joins, so the Analysis tab can click a
+    tract and move the brain to one of its ends.
+    """
 
     name: str
     score: float
+    a: int | None = None
+    b: int | None = None
 
 
 class Attribution(BaseModel):
@@ -452,19 +577,6 @@ class Point(BaseModel):
 
     x: float
     y: float
-
-
-class RigEvent(BaseModel):
-    """One frame of the live rig stream."""
-
-    type: Literal["frame"] = "frame"
-    gaze: Point
-    target: Point
-    quality: Quality
-    pursuit_gain: float | None
-    step: str
-    line: RigLine | None
-    frame: str | None = None
 
 
 class NewPatient(BaseModel):
@@ -518,27 +630,6 @@ class ConsentText(BaseModel):
     text: list[str]
 
 
-class Gait(BaseModel):
-    """Gait numbers from the texted web page."""
-
-    cadence: float
-    variability: float
-    steps: int
-
-
-class Hearing(BaseModel):
-    """Hearing thresholds from the texted web page."""
-
-    thresholds: dict[str, float]
-
-
-class StretchBody(BaseModel):
-    """Body of POST /api/stretch/{token}."""
-
-    gait: Gait | None = None
-    hearing: Hearing | None = None
-
-
 class DemoBody(BaseModel):
     """Body of the demo endpoints."""
 
@@ -585,13 +676,24 @@ class CallBody(BaseModel):
 
 
 class CallStart(BaseModel):
-    """Response of POST /api/calls. The url is what the patient opens."""
+    """Response of POST /api/calls. The url is what the patient opens.
+
+    Everything after `channel` is about what happened to the text, and it is all here
+    because the modal has to be able to explain itself. `status` is sent, delivered,
+    failed or mock; `message_id` is what the delivery poll asks about; `why` and `error`
+    are the real reason; `tried` is each transport that was attempted and how it failed.
+    """
 
     token: str
     url: str
     expires: str
     sent: bool = False
     channel: str | None = None
+    status: str | None = None
+    message_id: str | None = None
+    why: str | None = None
+    error: str | None = None
+    tried: list[dict] = Field(default_factory=list)
 
 
 class CallSend(BaseModel):
@@ -613,7 +715,13 @@ class ScriptStep(BaseModel):
 
     id: str
     say: str
+    # Exactly one spoken line per step: one `say`, one `audio`. Never a list. The page
+    # plays one at a time and a step that offered several would be the overlap bug again.
     audio: str | None = None
+    # How long that mp3 runs, from the voice manifest. None when there is no file or no
+    # measured length, in which case the page falls back to the browser voice.
+    duration_ms: int | None = None
+    fallback: Literal["speech"] | None = None
     task: str
     minutes: float
     tier: Literal["A", "B", "safety", "gate", "none"]
@@ -633,7 +741,9 @@ class CallScript(BaseModel):
     passage: str
     picture: Literal["kitchen"]
     fluency_seconds: int
-    clinic_number: str = ""
+    full: bool = False
+    minutes: float = 0.0
+    skipped: list[str] = Field(default_factory=list)
 
 
 class RedflagBody(BaseModel):

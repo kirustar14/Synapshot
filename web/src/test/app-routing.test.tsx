@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { routes } from "@/App";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@/components/scene/Environment", () => ({ default: () => null }));
 
@@ -12,12 +13,55 @@ function renderAt(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <RouterProvider router={router} />
+      <TooltipProvider>
+        <RouterProvider router={router} />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
 
 describe("app routing", () => {
+  it("renders the clinic list against the mock layer", async () => {
+    renderAt("/clinic");
+    // "Clinic" is the mono eyebrow above the headline now; the heading is the sentence.
+    expect(await screen.findByRole("heading", { name: /Everyone you are following/i })).toBeInTheDocument();
+    expect(screen.getAllByText("Clinic").length).toBeGreaterThan(0);
+    expect(await screen.findByText(/patients,.*open flag/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Add patient/ })).toBeInTheDocument();
+    // The per-row Synthetic badge and the Data column it sat in are gone. A label on
+    // every row of every screen is one nobody reads by the second screen.
+    expect(screen.queryByText("Synthetic")).toBeNull();
+    expect(screen.queryByText("Research prototype")).toBeNull();
+  });
+
+  it("renders the add patient page with its build log", async () => {
+    renderAt("/patients/new");
+    expect(await screen.findByRole("heading", { name: "Add a patient" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Use sample patient files/ })).toBeInTheDocument();
+    // The five steps are listed before anything runs, so the screen says what it will do.
+    for (const step of [
+      "Reading the files",
+      "Pulling out the facts",
+      "Checking them against the schema",
+      "Building the twin",
+      "Fitting the first forecast",
+    ]) {
+      expect(screen.getByText(step)).toBeInTheDocument();
+    }
+  });
+
+  it("renders the workspace as one screen with four tabs", async () => {
+    renderAt("/patients/p3");
+    expect(await screen.findByRole("heading", { name: "Priya Nandakumar" })).toBeInTheDocument();
+    for (const tab of ["Data", "Analysis", "Treatment", "Timeline"]) {
+      expect(await screen.findByRole("tab", { name: tab })).toBeInTheDocument();
+    }
+    // The mechanism is on the screen, which is the point of the top bar.
+    expect((await screen.findAllByText(/Ski collision/)).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Call patient/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Evidence/ })).toBeInTheDocument();
+  });
+
   it("opens the public landing with its login link", () => {
     renderAt("/");
     expect(
@@ -53,7 +97,7 @@ describe("app routing", () => {
   it("renders the patient worklist with display names, not identifiers", async () => {
     renderAt("/app/patients");
 
-    const list = await screen.findByRole("region", { name: "Patients" });
+    const list = await screen.findByRole("region", { name: "Patients" }, { timeout: 5000 });
     expect(await within(list).findByText("Priya Nandakumar")).toBeInTheDocument();
     expect(within(list).getAllByRole("row")).toHaveLength(7); // header plus six records
     expect(within(list).queryByText(/^PT-\d+/)).not.toBeInTheDocument();

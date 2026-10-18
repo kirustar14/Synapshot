@@ -1,108 +1,106 @@
-// The voice. A pre-generated mp3 when the script named one, the browser's own voice when it
-// did not or when the file is missing, and the line on screen as a caption either way.
+// The voice, as the call page uses it. A pre-generated mp3 when the script named one,
+// the browser's own voice when it did not, and the line on screen as a caption either way.
 //
-// Nothing here ever blocks a task. Every play resolves: on end, on error, or on a timeout
-// sized to the length of the line, whichever comes first.
+// This is a thin adapter over ./player, which owns the single audio element for the
+// whole page. Nothing here keeps state of its own except the base url and the mute
+// switch, because two Voice objects used to mean two elements playing at once.
+//
+// Nothing here ever blocks a task. Every play resolves: on end, on error, on being cut
+// off by the next line, or on a timeout sized to the length of the line.
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import { API } from "@/api/client";
-import { wait } from "./clock";
+import * as player from "./player";
 
-const CAP_MS = 45000;
+/** Tokens already spoken, so a remount does not say the same line twice.
+ *
+ * React runs an effect twice in StrictMode and a route change can leave two call pages
+ * briefly alive. Either way the second run must not start the line again. Module scope
+ * because a ref would be per component, and the duplicate is a second component.
+ */
+const said = new Set<string>();
+
+/** Forgets what has been spoken. Called when a call starts, so a retry speaks again. */
+export function resetSpoken(): void {
+  said.clear();
+}
 
 export class Voice {
   muted = false;
-  private el: HTMLAudioElement | null = null;
 
   constructor(private base: string) {}
 
   /** Unlocks audio on iOS, which needs a user gesture before the first play. */
   prime(): void {
-    try {
-      const el = new Audio();
-      el.muted = true;
-      void el.play().catch(() => {});
-      window.speechSynthesis?.resume?.();
-    } catch {
-      // Nothing to unlock. The caption still carries the line.
-    }
+    player.prime();
   }
 
   /** Speaks one line and resolves when it is done or could not be spoken.
    *
+   * Resolves true only when this line was still the current one when it finished. A
+   * loop reading several lines in a row must check it and stop when it is false, or two
+   * taps on Read this to me leave two loops running and reading over each other.
+   *
    * The caption is not this module's job: every screen already shows the line it is
    * speaking, so a muted call reads exactly the same as a spoken one.
    */
-  async say(text: string, file?: string): Promise<void> {
-    if (this.muted) return;
-    if (file) {
-      const played = await this.mp3(this.url(file));
-      if (played) return;
-    }
-    await this.speak(text);
+  async say(text: string, file?: string, durationMs?: number): Promise<boolean> {
+    if (this.muted) return false;
+    return player.say(text, file ? this.url(file) : undefined, durationMs);
   }
 
   stop(): void {
-    if (this.el) {
-      this.el.pause();
-      this.el = null;
-    }
-    try {
-      window.speechSynthesis?.cancel();
-    } catch {
-      // Some browsers throw when cancelling an empty queue.
-    }
+    player.stop();
   }
 
-  private url(file: string): string {
+  url(file: string): string {
     const base = this.base || "/voice/";
     const path = base.endsWith("/") ? `${base}${file}` : `${base}/${file}`;
     return path.startsWith("/") ? `${API}${path}` : path;
   }
+}
 
-  private mp3(url: string): Promise<boolean> {
-    return new Promise((done) => {
-      let settled = false;
-      const el = new Audio(url);
-      this.el = el;
-      const finish = (ok: boolean) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(guard);
-        done(ok);
-      };
-      const guard = setTimeout(() => finish(true), CAP_MS);
-      el.onended = () => finish(true);
-      el.onerror = () => finish(false);
-      el.play().catch(() => finish(false));
-    });
-  }
+/**
+ * Says one line once, when its token becomes current, and gives you a Replay.
+ *
+ * `token` is what identifies the line: a step id, or a step id and question index. It
+ * changing is what makes a new line play, and a play that resolves after it changed is
+ * discarded by the player. Nothing here speaks during a render.
+ */
+export function useSpokenLine(
+  voice: Voice,
+  token: string,
+  text: string,
+  file?: string,
+  durationMs?: number,
+): { replay: () => void; speaking: boolean } {
+  const [speaking, setSpeaking] = useState(false);
+  const live = useRef(true);
 
-  private async speak(text: string): Promise<void> {
-    const synth = typeof window === "undefined" ? null : window.speechSynthesis;
-    if (!synth || typeof SpeechSynthesisUtterance === "undefined") {
-      await wait(Math.min(CAP_MS, 1200 + text.length * 45));
-      return;
-    }
-    await new Promise<void>((done) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(guard);
-        done();
-      };
-      const guard = setTimeout(finish, Math.min(CAP_MS, 1800 + text.length * 80));
-      const line = new SpeechSynthesisUtterance(text);
-      line.rate = 0.95;
-      line.pitch = 1;
-      line.onend = finish;
-      line.onerror = finish;
-      try {
-        synth.cancel();
-        synth.speak(line);
-      } catch {
-        finish();
-      }
-    });
-  }
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+
+  const play = useCallback(
+    (again: boolean) => {
+      if (!token || (!again && said.has(token))) return;
+      said.add(token);
+      setSpeaking(true);
+      void voice.say(text, file, durationMs).then(() => {
+        if (live.current) setSpeaking(false);
+      });
+    },
+    [durationMs, file, text, token, voice],
+  );
+
+  useEffect(() => {
+    play(false);
+    // Leaving the line playing on unmount would talk over the next screen.
+    return () => voice.stop();
+  }, [play, voice]);
+
+  return { replay: () => play(true), speaking };
 }

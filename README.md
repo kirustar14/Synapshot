@@ -1,14 +1,34 @@
 # Synapshot
 
+**A snapshot of your brain, every week.**
+
 A personal brain twin for traumatic brain injury.
 
-Every week a patient gets a text with a link. They open it on their own phone, and the page
-runs a fourteen minute check-in: it draws the stimuli, records, and measures eye movements,
-speech, memory and facial movement on the device. A whole-brain model forecasts twelve
-weeks of recovery with uncertainty bands, an ensemble Kalman filter updates that model
-after every call, and a drift alert goes to a clinician when reality leaves the band.
+Every week a patient gets a text with a link. They open it on their own phone, and the
+page runs a check-in: it draws the stimuli, records, and measures eye movements, speech,
+memory and facial movement on the device. The video never leaves the phone; only the
+numbers are sent. A whole-brain model forecasts twelve weeks of recovery with uncertainty
+bands, an ensemble Kalman filter updates that model after every call, and a flag lands in
+the clinician's workspace when reality leaves the band.
 
-Every patient in this repository is synthetic.
+The clinician dashboard and patient workflow share one backend:
+
+```
+  /                 the Paper landing page
+  /login            clinician sign-in
+  /app              clinician dashboard, assessments, research, reports and settings
+  /app/patients/:id  patient record, assessment history, notes and reports
+  /clinic           one table of everybody
+  /patients/new     drop their documents, watch five steps build the record
+  /patients/:id     the workspace: the brain, the flags, and four tabs beside it
+  /call/:token      what the patient opens on their phone
+```
+
+Nothing in this app places a phone call. There is exactly one outbound path: a text with
+a link in it.
+
+Every patient in this repository is synthetic, including the flagship one with ten
+documents. No real person's records are anywhere in it.
 
 The live-service path, from a new Tiger Cloud service to a trained Veri deployment, is
 [TIGER_VERI_SETUP.md](TIGER_VERI_SETUP.md).
@@ -56,6 +76,25 @@ Designed in Paper first (the *Clinic app · polish* page of the team Paper file)
 
 ---
 
+## CREAO agents
+
+Three CREAO agents do the core work of the care workflow: triage rates the week, then briefing
+and outreach work from that rating, and the app acts on the result (an escalation raises an
+alert). Our backend runs them through the CREAO API Trigger. Code: `backend/agent/creao.py`.
+
+| Agent | Agent ID |
+| --- | --- |
+| Synapshot Triage | `7154334e-be76-4458-8cbf-270db807ce14` |
+| Synapshot Care Team Briefing | `7149943a-6786-45d5-a793-cebf18179fcc` |
+| Synapshot Outreach | `efd71222-dd0a-4c62-9631-0acdba5b4d45` |
+
+**Share link to an agent run:** <<([https://agent.creao.ai/share/18e9058f7eb5bbe578d89e630fbf5abc](https://agent.creao.ai/share/ef82f4fef30621b188ab11fea6f615d8))>>
+
+## Sentry
+
+- **Sentry (optional).** Set `SENTRY_DSN` for backend errors and traces, and `VITE_SENTRY_DSN` in `web/.env.local`
+  for the browser. Call tokens are masked before anything is sent.
+
 ## Quick start
 
 Nothing below needs an API key. With an empty `.env` the whole system runs in mock mode.
@@ -66,21 +105,24 @@ python3.11 -m venv .venv
 cp .env.example .env            # optional, an empty file behaves the same
 
 make mesh                       # the cortical surface, fetched once        (~30 s)
-make seed                       # cohort, population fit, six demo patients (~50 s)
+make sample                     # the flagship patient's ten documents      (~2 s)
+make seed                       # cohort, population fit, six demo patients (~15 s)
 make models                     # the face landmarker the phone runs        (3.8 MB)
-make web                        # build the clinician app and the call page
+make web                        # build the app and the call page
 make dev                        # everything on :8000
-make test                       # 135 tests                                (~40 s)
+make test                       # backend tests
 ```
 
-`make all` runs mesh, seed, voices, models and web in the right order.
+`make all` runs mesh, sample, seed, voices, models and web in the right order.
 
 Then:
 
-- <http://localhost:8000/> is the clinician app
+- <http://localhost:8000/> is the landing page
+- <http://localhost:8000/clinic> is the patient list
 - <http://localhost:8000/api/health> should say `{"ok": true, "mode": "mock"}`
 - <http://localhost:8000/docs> is the generated API reference
-- `make check` prints what is real and what fell back
+- `make check` prints whether everything works
+- `make what` prints what is real, what is standing in, and what v2 removed
 
 To see a whole call with no phone at all:
 
@@ -92,6 +134,22 @@ curl -s -XPOST localhost:8000/api/demo/trigger-call \
 In mock mode that generates everything a phone would post and runs it through the real
 validation, the real nine point calibration fit, the real feature pipeline and the real
 filter update. The only thing it skips is the phone.
+
+Or open **Add patient** and press **Use sample patient files**. That reads the ten
+document pack `make sample` wrote, extracts the record from it with Gemini (or with the
+built-in extractor when there is no key), builds the twin and fits the first forecast,
+and shows you each step as it happens, including the file it could not read.
+
+## What it rests on
+
+`docs/RESEARCH.md` lists every claim the model makes, its source, and whether anybody
+checked it. The Evidence drawer in the workspace shows the same thing with the live
+numbers beside it, weak results first. Two errors in this project's own numbers were
+found by writing that file: the ALERT-TBI GFAP cutoff is 22 pg/mL, not the 100 that had
+been written from memory, and the receptor atlas keys named a neuromaps source that does
+not exist, so every map had been silently falling back to noise.
+
+`DECISIONS.md` is every call made without asking, newest at the bottom.
 
 ## Run this first
 
@@ -133,7 +191,7 @@ Until this passes, timing measures are not measurements.
 
 | Step | Command | What it does |
 |---|---|---|
-| 1 | `make mesh` | fsaverage5 pial and inflated, 20484 vertices, with a Schaefer-100 label on every one. Cached, so nothing else refetches it. |
+| 1 | `make mesh` | fsaverage6 pial and inflated, 81924 vertices, with a Schaefer-100 label on every one. Cached, so nothing else refetches it. |
 | 2 | `make seed` | 50 synthetic cohort patients, 12 weeks of EnKF each, the NumPyro population fit, then the six demo patients. Prints coverage and the parameter recovery table. |
 | 3 | `make voices` | Every spoken line as an mp3 through ElevenLabs. Lines whose text has not changed are left alone. Without a key the page uses the browser's own speech synthesis. |
 | 4 | `make models` | The MediaPipe face landmarker the phone runs, into `web/public/models/`. |
@@ -175,7 +233,7 @@ blendshapes per frame. Audio is the one raw medium that is uploaded, because the
 measures need the sound itself, and it is deleted as soon as the features are out of it
 unless `KEEP_AUDIO=1`.
 
-`CALL_MODE=facetime` runs the old Mac rig path unchanged. `CALL_MODE=web` is the default.
+Patient check-ins use the web call page. The retired FaceTime rig is no longer served.
 
 ## .env keys
 
@@ -184,17 +242,14 @@ full mock mode. Set `MOCK_X=0` to force a real path. See `.env.example` for all 
 
 | Key | Default | What it does |
 |---|---|---|
-| `CALL_MODE` | `web` | `web` is a link to the patient's phone. `facetime` is the old rig. |
+| `CALL_MODE` | `web` | Check-ins use a link to the patient's phone. |
 | `PUBLIC_URL` | empty | The https URL the texted link points at. Required for a real phone. |
 | `DEMO_PHONES` | empty | The only numbers that can ever be texted. Nothing goes outside it. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | empty | The spoken lines. Without them the browser speaks. |
-| `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | empty | The clinic call through the conversational agent. |
 | `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET` | empty | iMessage. Also needs `make imessage`. |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `CLINIC_NUMBER` | empty | The SMS fallback and the clinic call. |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | empty / `gemini-2.5-flash` | Natural phrasing and the summaries. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | empty | The SMS fallback for when iMessage cannot deliver. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | empty / `gemini-2.5-flash` | Reading the documents, the phrasing and the summaries. `GOOGLE_API_KEY` works too. |
 | `KEEP_AUDIO` | `0` | Keep the uploaded recordings after measuring them. For debugging only. |
-| `ASR` | `whisper` | `elevenlabs` sends the audio to the API instead of transcribing locally. |
-| `LIVE_AGENT` | `0` | An optional question and answer agent after the script. Never on the safety path. |
 | `REGIONAL_LOADINGS` | `0` | Give each signal its own damage level from the regions that drive it. |
 | `OFFLINE` | `0` | `1` skips every loader that could touch the network and runs on the modelled template. |
 | `REACH` | `1` | Reach features on. |
@@ -204,7 +259,8 @@ full mock mode. Set `MOCK_X=0` to force a real path. See `.env.example` for all 
 | `VERI_API_KEY`, `VERI_DEPLOYMENT_ID` | empty | The deployed decision model. Empty runs the heuristic. |
 | `ADAPTIVE_MODE` | `heuristic` | `veri` calls the model, a miss falls back to script. |
 
-A Twilio trial account can only call or text numbers it has verified first.
+A Twilio trial account can only text numbers it has verified first. Nothing in this
+app places a phone call: there is one outbound path and it is a text with a link in it.
 
 ## Demo script
 
@@ -216,7 +272,7 @@ Twelve minutes, no keys, nothing to install beyond `make mesh && make seed && ma
 2. **A stable patient.** Six signals, each with an 80 percent band and the weekly
    observations inside it. `coverage` is the share of one-step-ahead observations that
    landed inside the band, computed before each update.
-3. **The brain.** The twin viewer: a real fsaverage5 cortex that glows where the model says
+3. **The brain.** The twin viewer: a real fsaverage6 cortex that glows where the model says
    the damage is, a week scrubber from 0 to 12, the five most affected regions as callouts
    in plain language, and the impact marker where the head was hit. Drag the
    personalization slider and watch the template morph into this patient.
@@ -295,7 +351,7 @@ Read this before showing anyone a number.
 - **The model fits real FC at r = 0.205.** The brain template is real: Schaefer-100
   centroids and labels from nilearn, HCP diffusion and resting state connectivity from the
   ENIGMA toolbox, an E:I map from Allen Human Brain Atlas gene expression, and the
-  fsaverage5 surface with the parcellation's own CBIG vertex labels. The model's predicted
+  fsaverage6 surface with the parcellation's own CBIG vertex labels. The model's predicted
   functional connectivity correlates with real HCP functional connectivity at r = 0.205
   with nothing tuned beyond the global coupling. Published whole brain fits reach 0.3 to 0.5
   with per subject tuning, so this is in the right direction and not yet competitive.
@@ -318,9 +374,13 @@ Read this before showing anyone a number.
 
 ```
 backend/
-  app.py          every contract route, both websockets, serves web/dist at /
+  app.py          every contract route, serves web/dist at /
+  live.py         server-sent events, one stream per patient
   calls/          the web call: sessions, script, audio, the finish pipeline
-  rig_hub.py      the legacy FaceTime path, behind CALL_MODE=facetime
+  ingest/         reading a patient out of their documents: read, extract, apply, run
+  synth/          the flagship patient's document pack, from one facts file
+  timeline.py     the calendar and the population percentile
+  evidence.py     docs/RESEARCH.md parsed, with the live validation numbers
   db.py           sqlite, plain SQL          models.py   the contract as pydantic
   demo.py         reset, advance week, inject drift      alerts.py   the alert rules
   seed.py         cohort, population fit, demo patients
@@ -330,12 +390,15 @@ backend/
   features/       quality, face, gaze, pursuit, flash, saccade, antisaccade, fixation,
                   blink, speech, memory, fluency, sem, pipeline, synth,
                   webframes, websynth
-  agent/          script, dialog, safety, llm, summary, voices
-  comms/          notify, photon, sms, clinic_call, node/ (the iMessage sidecar)
-web/              the clinician app and the patient call page
+  agent/          safety, llm, summary, voices
+  comms/          notify, photon, sms, node/ (the iMessage sidecar)
+  data/           ... plus vessels.py and formulary.json
+web/              the app and the patient call page
+  src/pages/      Home, Clinic, PatientNew, Workspace, PatientCall
+  src/components/workspace/  the three zones and the four tabs
   src/call/       the call state machine, the tasks, the on-device measurement
   src/components/brain/   the holographic viewer
-rig/              the legacy rig: preflight, call, audio, capture, SETUP.md
+  e2e/            the browser checks: picking, vessels, layout at 390 and 1440
 prompts/          the four specs this was built from, and the frozen contract
 tests/            135 tests
 DECISIONS.md      every assumption, and the measurement that forced it
@@ -409,9 +472,8 @@ returns `available: false` with the reason, never a made up number.
 
 Accounts are local: scrypt hashes, random session tokens stored hashed, an HttpOnly cookie
 with `SameSite=Lax`, and a 12 hour expiry. `make seed` creates two clinics, four staff and
-one primary assignment per demo patient. The middleware is off by default because the web
-build has no login screen yet: turn on `AUTH_ENABLED=1` and sign in through the API, or
-add the screen later. With it off the app runs as the synthetic admin.
+one primary assignment per demo patient. Set `AUTH_ENABLED=1` to require sign-in at
+`/login` for both clinician workflows. With it off the app runs as the synthetic admin.
 
 ```
 POST /api/auth/login      POST /api/auth/demo      POST /api/auth/logout
@@ -420,8 +482,8 @@ GET  /api/clinics         POST /api/assignments    DELETE /api/assignments/{id}
 ```
 
 The middleware has an explicit public allow list: health, the auth routes, every patient
-token namespace (`/api/call/`, `/api/consent/`, `/api/stretch/`), the public reference data
-and the inbound webhook. Everything else needs a session, so a new route is protected by
+token namespace (`/api/call/`), the public reference data, the inbound webhook and the
+token-verified CREAO callback. Everything else needs a session, so a new route is protected by
 default. Patient scoping is a second check inside the route: a clinician sees assigned
 patients, an admin also sees their clinic, and anything else is a 404 rather than a 403 so
 ids cannot be probed. `AUTH_ENABLED=0` is the synthetic admin the tests and a fresh

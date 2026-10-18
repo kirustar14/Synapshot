@@ -248,7 +248,7 @@ def test_malformed_frames_are_rejected_by_the_route(client, seeded):
 # ---------------------------------------------------------------- the safety stop
 
 def test_a_red_flag_stops_the_call_and_accepts_nothing_after(client, seeded):
-    """Any yes stops the session, raises the alert, texts and rings the clinic."""
+    """Any yes stops the session, raises the alert and texts. Nothing is dialled."""
     pid = [p for p in seeded if p["name"]][0]["id"]
     tok = client.post("/api/calls", json={"patient_id": pid, "send": False}).json()["token"]
     client.post(f"/api/call/{tok}/consent",
@@ -256,8 +256,6 @@ def test_a_red_flag_stops_the_call_and_accepts_nothing_after(client, seeded):
 
     alerts_before = len([a for a in db.alerts(pid) if a["type"] == "red_flag"])
     msgs_before = len(db.messages(pid))
-    calls_before = len(db.rows(
-        "select * from events where patient_id=? and kind='clinic_call'", (pid,)))
 
     answers = {q: False for q in
                ["worsening_headache", "repeated_vomiting", "seizure", "increasing_confusion",
@@ -271,8 +269,8 @@ def test_a_red_flag_stops_the_call_and_accepts_nothing_after(client, seeded):
 
     assert len([a for a in db.alerts(pid) if a["type"] == "red_flag"]) == alerts_before + 1
     assert len(db.messages(pid)) > msgs_before, "no emergency text went out"
-    assert len(db.rows("select * from events where patient_id=? and kind='clinic_call'",
-                       (pid,))) > calls_before, "the clinic was not called"
+    assert db.rows("select * from events where patient_id=? and kind='clinic_call'",
+                   (pid,)) == [], "nothing may dial out from the safety path"
 
     # The session is stopped, so nothing else is accepted.
     assert sessions.get(tok)["state"] == "stopped"
@@ -465,47 +463,55 @@ def test_the_post_call_text_keeps_the_clinician_sentence(seeded):
     assert twice.count(SAFETY_CLOSE) == 1, "the sentence was added twice"
 
 
-def test_no_phone_call_is_placed_without_being_asked_for():
-    """Credentials in .env are not permission to ring somebody's phone.
+def test_nothing_in_the_app_can_place_a_phone_call():
+    """There is no outbound voice path left, in any module, under any switch.
 
     This guard exists because the opposite happened: ELEVENLABS_AGENT_ID,
     ELEVENLABS_PHONE_NUMBER_ID and CLINIC_NUMBER were all set, MOCK_ELEVEN was not, and
     every red flag and drift alert placed a real outbound call to a real person, over and
-    over, as the seed and the tests fired alerts.
+    over, as the seed and the tests fired alerts. The fix is not a safer switch. The
+    switch is gone and so is the code behind it: the demo is a text with a link in it and
+    an alert that lands in the clinician's workspace. This fails if anybody adds one back.
     """
-    from backend.comms import clinic_call
+    import importlib
+    import re
+    from pathlib import Path as _Path
 
-    assert not cfg.live_clinic_call, "LIVE_CLINIC_CALL must default to off"
-    assert not clinic_call.available(), "a call must not be placeable by default"
-    assert clinic_call.why_mock(), "the reason it was not placed has to be reportable"
+    root = _Path(__file__).resolve().parent.parent / "backend"
+    dialers = re.compile(
+        r"Calls\.json|\.calls\.create|<Response>|twiml|outbound_call"
+        r"|convai/[a-z_]*phone|phone_number_id",
+        re.I,
+    )
+    hits = []
+    for path in sorted(root.rglob("*.py")):
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            if dialers.search(line):
+                hits.append(f"{path.relative_to(root)}:{n}: {line.strip()[:80]}")
+    assert hits == [], "something can dial a phone:\n" + "\n".join(hits)
+
+    for gone in ("backend.comms.clinic_call", "backend.rig_hub", "backend.agent.dialog"):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(gone)
 
 
-def test_a_call_is_refused_to_a_number_off_the_allow_list(monkeypatch):
-    """Even with LIVE_CLINIC_CALL on, only a number on DEMO_PHONES can be dialled.
-
-    The texts always respected this list. The calls did not, which was the second half
-    of the same mistake.
-    """
-    from backend.comms import clinic_call
-
-    monkeypatch.setattr(cfg, "live_clinic_call", True)
-    assert not clinic_call.allowed("+15550001111")
-    assert not clinic_call.available("+15550001111")
-    assert "DEMO_PHONES" in clinic_call.why_mock("+15550001111")
-
-
-def test_an_alert_that_rings_the_clinic_still_only_logs(seeded):
-    """A red flag alert records the clinic call without placing one."""
-    pid = seeded[3]["id"]
-    before = len(db.rows("select * from events where patient_id=? and kind='clinic_call'", (pid,)))
+def test_an_alert_lands_in_the_workspace_instead_of_ringing(seeded):
+    """A red flag alert pushes onto the patient's event stream and dials nothing."""
     from backend import alerts as alertmod
+    from backend import live
 
-    alertmod.red_flag(pid, {"seizure": True}, notify=True)
-    rows = db.rows("select * from events where patient_id=? and kind='clinic_call'", (pid,))
-    assert len(rows) == before + 1, "the call should still be recorded"
-    got = db.dec(rows[-1]["payload"], {}) or {}
-    assert got["live"] is False, "it must not have been dialled"
-    assert got["why_mock"], "and it must say why"
+    pid = seeded[3]["id"]
+    live.RECENT.pop(pid, None)
+    got = alertmod.red_flag(pid, {"seizure": True}, notify=False)
+
+    assert db.rows("select * from events where patient_id=? and kind='clinic_call'",
+                   (pid,)) == []
+    pushed = [e for e in live.RECENT.get(pid, []) if e["kind"] == "alert"]
+    assert pushed, "the alert never reached the clinician's screen"
+    assert pushed[-1]["id"] == got["id"] and pushed[-1]["type"] == "red_flag"
+    # And the flag can say which rule fired and what the threshold was.
+    why = alertmod.explain(got["id"])
+    assert why["ok"] and why["rule"] and why["threshold"]
 
 
 def test_nothing_is_sent_outside_the_allow_list():
@@ -540,7 +546,7 @@ def test_no_secret_appears_in_any_response(client, seeded):
         f"/api/patients/{pid}/forecast", f"/api/patients/{pid}/twin",
         f"/api/patients/{pid}/shape", f"/api/patients/{pid}/messages",
         f"/api/patients/{pid}/twin-inputs", "/api/receptors", "/api/alerts",
-        "/api/cohort", "/api/rig/preflight", "/api/voices", "/api/photon/status",
+        "/api/cohort", "/api/voices", "/api/photon/status",
         f"/api/call/{start['token']}/status", f"/api/call/{start['token']}/script",
     ]
     blobs = []
@@ -623,21 +629,63 @@ def test_masking_leaves_other_paths_alone():
         assert logs.mask(path) == path
 
 
-# ---------------------------------------------------------------- call mode
+# ---------------------------------------------------------------- the one call path
 
-def test_web_is_the_default_call_mode():
-    """The patient opens a page unless CALL_MODE says facetime."""
-    assert cfg.call_mode == "web"
-    assert cfg.web_call()
+def test_a_call_only_ever_happens_on_the_patients_own_phone(client, seeded):
+    """There is one way a call starts: a session, a link, and the patient opening it."""
+    pid = seeded[0]["id"]
+    got = client.post("/api/demo/trigger-call", json={"patient_id": pid}).json()
+    assert got["ok"] and got["mode"] == "web"
+    assert got["url"].endswith(got["token"])
+    assert "/call/" in got["url"], "the patient gets a link to a page, not a phone call"
+    # The link is the whole demo, so a browser with no session has to be able to open it.
+    assert client.get(f"/call/{got['token']}").status_code == 200
 
 
-def test_the_facetime_path_is_still_there():
-    """The rig code stays importable behind CALL_MODE=facetime."""
-    from backend import rig_hub
+def test_the_brief_script_is_what_the_call_page_serves_by_default(client, seeded):
+    """GET /script is the four minute version unless ?full=1 asks for the protocol."""
+    pid = seeded[0]["id"]
+    tok = client.post("/api/calls", json={"patient_id": pid, "send": False}).json()["token"]
 
-    assert hasattr(rig_hub, "MockHub")
-    assert hasattr(rig_hub, "LiveHub")
-    assert hasattr(rig_hub, "run_call")
+    brief = client.get(f"/api/call/{tok}/script").json()
+    assert [s["id"] for s in brief["steps"]] == callscript.BRIEF_IDS
+    assert 3.5 <= sum(s["minutes"] for s in brief["steps"]) <= 4.5
+
+    full = client.get(f"/api/call/{tok}/script", params={"full": 1}).json()
+    assert len(full["steps"]) > len(brief["steps"])
+    assert 12.0 <= sum(s["minutes"] for s in full["steps"]) <= 16.0
+
+    # Both lengths get the same consent text and the same word list, because those are
+    # not part of what the brief version trades away.
+    assert brief["consent"] == full["consent"]
+    assert brief["words"] == full["words"]
+
+
+def test_the_brief_script_still_measures_a_usable_week():
+    """A call that ran only the brief task set produces real observables, not zeros.
+
+    The brief version drops eight tasks, so this is the test that says what survives:
+    the features it can measure are measured, the ones it cannot are absent rather than
+    filled in, and the pipeline does not fall over on the gaps.
+    """
+    got = websynth.session(VALS, seed=7)
+    keep = {s["task"] for s in callscript.steps(full=False)}
+    chunks = [c for c in got["chunks"] if c["task"] in keep or c["task"] == "quality"]
+    assert chunks, "the brief script posts nothing at all"
+
+    sess = webframes.assemble(
+        chunks,
+        answers={"symptoms": got["answers"]["symptoms"]},
+        audio_tasks={},
+        words=[w for w in got["words"] if w.get("task") in keep],
+    )
+    res = pipeline.run(sess, age=22, sex="female")
+    vals = pipeline.observables(res["values"])
+    assert vals, "the brief script measured nothing"
+    assert "symptom_total" in vals
+    # The tasks it skipped are simply not reported. Nothing invents a number for them.
+    for absent in ("fluency_animals", "npc_cm"):
+        assert absent not in vals, f"{absent} cannot be measured by the brief script"
 
 
 def test_the_websynth_generator_matches_the_contract():

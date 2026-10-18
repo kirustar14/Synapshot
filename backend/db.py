@@ -176,8 +176,9 @@ def _bootstrap() -> None:
         with _pool().connection() as conn, conn.cursor() as cur:
             for statement in _statements(DDL_PG):
                 cur.execute(statement)
-            # The only ALTER needed on an existing Postgres database.
-            cur.execute("alter table patients add column if not exists clinic_id text")
+            # Apply the same additive migrations as SQLite to existing Postgres databases.
+            for table, col, decl in SQLITE_ADDED:
+                cur.execute(f"alter table {table} add column if not exists {col} {decl}")
         _SCHEMA_READY = True
         return
     conn = _sqlite()
@@ -218,6 +219,21 @@ def now() -> str:
     already accepts an ISO timestamp and the UI parses it without help.
     """
     return time.strftime("%Y-%m-%dT%H:%M:%S") + f".{int(time.time() * 1e6) % 1_000_000:06d}"
+
+
+def weeks_ago(weeks: float, hour: int = 10) -> str:
+    """A timestamp that many weeks back, at a plausible hour of the day.
+
+    Seeded history has to be spread out. A patient on week seven whose seven check-ins all
+    carry today's date has no timeline, no "last call" that means anything, and a month
+    calendar with one dot on it. Live calls still use `now`; this is only for building a
+    past that is supposed to have happened.
+    """
+    import datetime as _dt
+
+    when = _dt.datetime.now() - _dt.timedelta(weeks=float(weeks))
+    return when.replace(hour=hour, minute=12, second=0, microsecond=0).isoformat(
+        timespec="seconds")
 
 
 def new_id(prefix: str) -> str:
@@ -445,17 +461,30 @@ def event(pid: str, kind: str, payload: dict | None = None) -> str:
     return eid
 
 
-def message(pid: str, direction: str, body: str, channel: str = "mock", kind: str = "") -> str:
-    """Append a message in either direction, recording which transport carried it.
+def message(pid: str, direction: str, body: str, channel: str = "mock", kind: str = "",
+            status: str = "sent", provider_id: str = "", space_id: str = "",
+            detail: str = "") -> str:
+    """Append a message in either direction, recording what really happened to it.
 
     `channel` is one of imessage, sms or mock. It is never guessed: an SMS is labelled
     sms even when the patient reads it in the Messages app, because the whole point of
     the iMessage transport is that it really is iMessage.
+
+    `status` is the honest one. A provider accepting a message is not the same as a phone
+    receiving it, so a fresh send is `sent` and only becomes `delivered` when the provider
+    says so. `failed` carries the reason in `detail`.
     """
     mid = new_id("msg")
     put("messages", {"id": mid, "patient_id": pid, "dir": direction, "body": body,
-                     "time": now(), "channel": channel, "kind": kind})
+                     "time": now(), "channel": channel, "kind": kind,
+                     "status": status, "provider_id": provider_id,
+                     "space_id": space_id, "detail": detail})
     return mid
+
+
+def message_status(mid: str, status: str, detail: str = "") -> None:
+    """Move one message to a new delivery state."""
+    patch("messages", mid, {"status": status, **({"detail": detail} if detail else {})})
 
 
 def latest_forecast(pid: str):

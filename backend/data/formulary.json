@@ -1,0 +1,329 @@
+{
+  "_note": "What each medicine does and where its known targets sit in the brain. Not a recommendation engine. Nothing here predicts how a medicine would work for a patient, and there is no dose guidance anywhere in this file on purpose.",
+  "_atlas": "Target density maps come from the Hansen et al. 2022 receptor and transporter atlas, parcellated to Schaefer-100. Only the twelve targets that atlas actually covers carry an atlas_key. Every other target says no map available rather than being drawn from something else.",
+  "_evidence_tags": "verified means the claim was checked against a source that was read. check this means it is written from general pharmacological knowledge and still needs a source read end to end before anybody leans on it.",
+  "_sources": {
+    "gtopdb": "IUPHAR/BPS Guide to Pharmacology, https://www.guidetopharmacology.org",
+    "drugbank": "DrugBank, https://go.drugbank.com",
+    "pdsp": "NIMH Psychoactive Drug Screening Program Ki database, https://pdsp.unc.edu/databases/kidb.php",
+    "hansen2022": "Hansen et al. 2022, Mapping neurotransmitter systems to the structural and functional organization of the human neocortex, Nature Neuroscience 25:1569-1581"
+  },
+  "drugs": [
+    {
+      "name": "sertraline",
+      "class": "SSRI antidepressant",
+      "what_it_does": "Blocks the serotonin transporter, which is the pump that clears serotonin back out of the synapse. Serotonin stays active for longer between neurons as a result. It is usually prescribed for depression and anxiety, and the effect builds over weeks rather than hours.",
+      "mechanism": "Selective serotonin reuptake inhibition at SERT.",
+      "targets": [
+        {
+          "target": "5-HTT",
+          "full_name": "serotonin transporter, also called SERT",
+          "plain": "The pump that clears serotonin out of the synapse. Dense in raphe projection territory, the insula and the anterior cingulate.",
+          "atlas_key": "5-HTT",
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": ["serotonin"],
+      "usual_uses": ["low mood or anxiety", "some chronic headache"],
+      "in_tbi": "Used after concussion for mood symptoms rather than for the injury itself. Evidence in mild TBI specifically is thin.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, sertraline", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "amitriptyline",
+      "class": "tricyclic antidepressant",
+      "what_it_does": "Blocks both the serotonin and the noradrenaline transporters, so both transmitters linger in the synapse. It also blocks histamine and muscarinic receptors, which is where the drowsiness and the dry mouth come from. At low doses it is used for headache and for sleep rather than for mood.",
+      "mechanism": "Serotonin and noradrenaline reuptake inhibition, with antihistamine and antimuscarinic activity.",
+      "targets": [
+        {
+          "target": "5-HTT",
+          "full_name": "serotonin transporter",
+          "plain": "The serotonin pump. Dense in raphe projection territory, insula and anterior cingulate.",
+          "atlas_key": "5-HTT",
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        },
+        {
+          "target": "NET",
+          "full_name": "noradrenaline transporter",
+          "plain": "The noradrenaline pump. Densest where locus coeruleus fibres land, which is most of the cortex and the thalamus.",
+          "atlas_key": "NET",
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        },
+        {
+          "target": "H1",
+          "full_name": "histamine H1 receptor",
+          "plain": "Blocking it is what makes this drug sedating. The receptor atlas here does not cover it, so there is no map available.",
+          "atlas_key": null,
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": ["serotonin", "norepinephrine", "histamine"],
+      "usual_uses": ["headache", "sleep disturbance", "low mood"],
+      "in_tbi": "Commonly used for post-traumatic headache and for sleep. Trial evidence specific to mild TBI is limited.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, amitriptyline", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "nortriptyline",
+      "class": "tricyclic antidepressant",
+      "what_it_does": "A close relative of amitriptyline, and in fact what the body turns amitriptyline into. It blocks the noradrenaline transporter more strongly than the serotonin one, and it blocks fewer histamine and muscarinic receptors, so it tends to be less sedating.",
+      "mechanism": "Noradrenaline reuptake inhibition, with weaker serotonin reuptake inhibition.",
+      "targets": [
+        {
+          "target": "NET",
+          "full_name": "noradrenaline transporter",
+          "plain": "The noradrenaline pump, across most of the cortex and the thalamus.",
+          "atlas_key": "NET",
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        },
+        {
+          "target": "5-HTT",
+          "full_name": "serotonin transporter",
+          "plain": "The serotonin pump. Blocked here, but less strongly than noradrenaline.",
+          "atlas_key": "5-HTT",
+          "action": "blocks weakly",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": ["norepinephrine", "serotonin"],
+      "usual_uses": ["headache", "low mood"],
+      "in_tbi": "Used for post-traumatic headache, often where amitriptyline was too sedating.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, nortriptyline", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "methylphenidate",
+      "class": "stimulant",
+      "what_it_does": "Blocks the dopamine and noradrenaline transporters, so both transmitters stay in the synapse longer. The effect is quick, within an hour, and wears off the same day. It is usually used for attention problems.",
+      "mechanism": "Dopamine and noradrenaline reuptake inhibition at DAT and NET.",
+      "targets": [
+        {
+          "target": "DAT",
+          "full_name": "dopamine transporter",
+          "plain": "The dopamine pump. By far densest in the striatum, much sparser in cortex.",
+          "atlas_key": "DAT",
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        },
+        {
+          "target": "NET",
+          "full_name": "noradrenaline transporter",
+          "plain": "The noradrenaline pump, across most of the cortex and the thalamus.",
+          "atlas_key": "NET",
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": ["dopamine", "norepinephrine"],
+      "usual_uses": ["attention or concentration trouble", "fatigue"],
+      "in_tbi": "Studied for attention and processing speed after TBI, with mixed results and mostly in moderate to severe injury rather than concussion.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, methylphenidate", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "amantadine",
+      "class": "NMDA receptor antagonist and dopaminergic agent",
+      "what_it_does": "Blocks the NMDA glutamate receptor channel, and separately increases dopamine signalling. It was originally an antiviral, and the brain effects were found afterwards. It acts within days rather than weeks.",
+      "mechanism": "Non-competitive NMDA receptor antagonism, plus indirect dopaminergic activity.",
+      "targets": [
+        {
+          "target": "NMDA",
+          "full_name": "NMDA glutamate receptor",
+          "plain": "The main excitatory glutamate receptor, spread widely across the cortex rather than following one tract.",
+          "atlas_key": "NMDA",
+          "action": "blocks the open channel",
+          "source": "gtopdb",
+          "evidence_tag": "verified"
+        },
+        {
+          "target": "D2",
+          "full_name": "dopamine D2 receptor",
+          "plain": "A dopamine receptor, densest in the striatum. Amantadine acts on dopamine indirectly rather than binding here strongly.",
+          "atlas_key": "D2",
+          "action": "increases dopamine signalling indirectly",
+          "source": "drugbank",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": ["dopamine"],
+      "usual_uses": ["fatigue", "attention or concentration trouble"],
+      "in_tbi": "The trial people cite is Giacino et al. 2012 in the New England Journal of Medicine. It enrolled 184 patients in a vegetative or minimally conscious state four to sixteen weeks after SEVERE traumatic brain injury, in inpatient rehabilitation. Amantadine sped up functional recovery during the four weeks of treatment, and the advantage did not persist after it was stopped. That is a different population from concussion, and the trial does not say anything about mild TBI.",
+      "in_tbi_evidence_tag": "verified",
+      "refs": [
+        {"text": "Giacino JT et al. Placebo-Controlled Trial of Amantadine for Severe Traumatic Brain Injury. N Engl J Med 2012;366(9):819-826. Severe TBI with disorders of consciousness, not mild TBI.", "source": "nejm", "evidence_tag": "verified"},
+        {"text": "Amantadine inhibits NMDA receptors by accelerating channel closure during channel block. J Neurosci 2005;25(13):3312.", "source": "jneurosci", "evidence_tag": "verified"}
+      ]
+    },
+    {
+      "name": "propranolol",
+      "class": "beta blocker",
+      "what_it_does": "Blocks beta adrenergic receptors, which are what adrenaline and noradrenaline act on outside the synapse as well as inside it. It slows the heart and softens the physical side of anxiety. It is also used to prevent migraine.",
+      "mechanism": "Non-selective beta adrenoceptor antagonism.",
+      "targets": [
+        {
+          "target": "beta-adrenoceptor",
+          "full_name": "beta 1 and beta 2 adrenergic receptors",
+          "plain": "Where adrenaline and noradrenaline act. The receptor atlas here does not cover them, so there is no map available.",
+          "atlas_key": null,
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": ["norepinephrine"],
+      "usual_uses": ["headache", "low mood or anxiety"],
+      "in_tbi": "Used for migraine-type post-traumatic headache. Evidence specific to concussion is limited.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, propranolol", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "levetiracetam",
+      "class": "antiseizure medicine",
+      "what_it_does": "Binds SV2A, a protein on the vesicles that hold transmitter inside the nerve terminal, and damps down how much is released. It is used to prevent seizures. It does not work on any of the classical receptors the other drugs here target.",
+      "mechanism": "Binds synaptic vesicle glycoprotein 2A and modulates transmitter release.",
+      "targets": [
+        {
+          "target": "SV2A",
+          "full_name": "synaptic vesicle glycoprotein 2A",
+          "plain": "A protein on transmitter vesicles, spread fairly evenly across the cortex. It is a marker of synapse density rather than of one transmitter system, so there is no single tract to draw.",
+          "atlas_key": "SV2A",
+          "action": "binds",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": [],
+      "usual_uses": ["seizure prevention"],
+      "in_tbi": "Used for seizure prophylaxis after moderate to severe TBI. Not a concussion symptom treatment.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, levetiracetam", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "ondansetron",
+      "class": "antiemetic",
+      "what_it_does": "Blocks the 5-HT3 serotonin receptor, which is the one that triggers nausea and vomiting. It works both in the gut and in the brainstem area that drives vomiting. It is used for nausea and has no effect on mood.",
+      "mechanism": "5-HT3 receptor antagonism.",
+      "targets": [
+        {
+          "target": "5-HT3",
+          "full_name": "serotonin 5-HT3 receptor",
+          "plain": "The serotonin receptor behind nausea, concentrated in the brainstem vomiting centre and the gut. The receptor atlas here does not cover it, so there is no map available.",
+          "atlas_key": null,
+          "action": "blocks",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": ["serotonin"],
+      "usual_uses": ["nausea"],
+      "in_tbi": "Used for nausea after a head injury the same way it is used for nausea from any cause.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, ondansetron", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "gabapentin",
+      "class": "anticonvulsant and neuropathic pain medicine",
+      "what_it_does": "Binds the alpha-2-delta subunit of voltage gated calcium channels on nerve terminals, which reduces how much transmitter is released when the nerve fires. Despite the name it does not act on GABA receptors. It is used for nerve pain and sometimes for sleep.",
+      "mechanism": "Binds the alpha-2-delta auxiliary subunit of voltage gated calcium channels.",
+      "targets": [
+        {
+          "target": "alpha-2-delta",
+          "full_name": "alpha-2-delta subunit of the voltage gated calcium channel",
+          "plain": "A subunit on calcium channels at nerve terminals. The receptor atlas here does not cover it, so there is no map available. It is not a GABA receptor, despite the drug's name.",
+          "atlas_key": null,
+          "action": "binds",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": [],
+      "usual_uses": ["headache", "sleep disturbance"],
+      "in_tbi": "Used for post-traumatic headache and for nerve pain. Evidence in concussion specifically is limited.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, gabapentin", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "melatonin",
+      "class": "hormone, sleep timing",
+      "what_it_does": "A hormone the pineal gland makes at night. Taken as a tablet it acts on the MT1 and MT2 receptors and shifts the body clock, so it changes when sleep happens more than how deep it is. It is used for sleep timing problems.",
+      "mechanism": "MT1 and MT2 melatonin receptor agonism.",
+      "targets": [
+        {
+          "target": "MT1 and MT2",
+          "full_name": "melatonin receptors MT1 and MT2",
+          "plain": "Body clock receptors, concentrated in the suprachiasmatic nucleus of the hypothalamus rather than spread across the cortex. The receptor atlas here does not cover them, so there is no map available and there is no single tract to draw.",
+          "atlas_key": null,
+          "action": "activates",
+          "source": "gtopdb",
+          "evidence_tag": "check this"
+        }
+      ],
+      "pathways": [],
+      "usual_uses": ["sleep disturbance"],
+      "in_tbi": "Commonly tried for sleep problems after concussion, and generally well tolerated.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "IUPHAR/BPS Guide to Pharmacology, melatonin", "source": "gtopdb", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "acetaminophen",
+      "class": "simple analgesic",
+      "what_it_does": "Relieves pain and brings down a temperature. How it does that is still argued over, and it does not act on any of the transmitter systems the other medicines here target. It is one of the first things tried for headache.",
+      "mechanism": "Not settled. Central cyclooxygenase inhibition and cannabinoid-related metabolites have both been proposed.",
+      "targets": [],
+      "no_mapped_target": "No mapped brain target. Its action is not at a receptor or transporter this atlas covers, so nothing is drawn on the brain for it.",
+      "pathways": [],
+      "usual_uses": ["headache"],
+      "in_tbi": "A first line option for headache after concussion. Frequent use over weeks can itself cause medication overuse headache.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "DrugBank, acetaminophen", "source": "drugbank", "evidence_tag": "check this"}
+      ]
+    },
+    {
+      "name": "ibuprofen",
+      "class": "non-steroidal anti-inflammatory",
+      "what_it_does": "Blocks the COX enzymes, which makes less of the prostaglandins that drive pain and inflammation. It works on the tissue rather than on a brain transmitter system. It is used for headache and for pain generally.",
+      "mechanism": "Non-selective cyclooxygenase inhibition.",
+      "targets": [],
+      "no_mapped_target": "No mapped brain target. It acts on an enzyme rather than at a receptor or transporter this atlas covers, so nothing is drawn on the brain for it.",
+      "pathways": [],
+      "usual_uses": ["headache"],
+      "in_tbi": "A first line option for headache after concussion. As with acetaminophen, frequent use over weeks can cause medication overuse headache.",
+      "in_tbi_evidence_tag": "check this",
+      "refs": [
+        {"text": "DrugBank, ibuprofen", "source": "drugbank", "evidence_tag": "check this"}
+      ]
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 """The red flag screen, the banned phrase filter and the alert it raises."""
 
 from backend import alerts, db, demo
-from backend.agent import llm, safety, script, summary
+from backend.agent import llm, safety, summary
+from backend.calls import script
 
 BANNED = ["diagnos", "cleared to", "return to play", "medication dose"]
 
@@ -41,7 +42,7 @@ def test_red_flag_creates_an_alert(seeded):
 
 def test_no_patient_facing_string_contains_a_banned_phrase():
     """Every line of the full script, the short script and both summaries is clean."""
-    lines = script.all_lines(short=False) + script.all_lines(short=True)
+    lines = script.lines() + [s["say"] for s in script.steps(full=False)]
     lines += [safety.EMERGENCY, safety.SAFE_REDIRECT, safety.clean("you are cleared to drive")]
     lines += [summary.patient_text("Avery Stone", 4), summary.SAFETY_CLOSE]
     lines += [summary.patient_text("Avery Stone", 2, {"quality": {"ok": False}})]
@@ -72,15 +73,42 @@ def test_short_version_rule():
     assert safety.short_version({"headache": 2, "fatigue": 9})
     assert safety.short_version({"headache": 2}, jump=11.0)
     assert not safety.short_version({"headache": 7, "fatigue": 7}, jump=4.0)
-    dropped = {s["id"] for s in script.plan(short=True)}
-    assert not dropped & set(script.SHORT_DROP)
+    for full in (True, False):
+        kept = {s["id"] for s in script.steps(short=True, full=full)}
+        assert not kept & set(script.SHORT_DROP)
 
 
-def test_the_script_is_fourteen_minutes():
-    """The full script adds up to the stated length."""
-    assert abs(script.minutes() - 14.0) < 0.01
-    assert len(script.steps()) == 12
-    assert [s["id"] for s in script.steps()][0] == "consent", "consent must come first"
+def test_the_brief_script_is_the_four_minute_one():
+    """The default length is about four minutes and the full protocol is about fourteen.
+
+    Both are checked against the minutes the script itself claims, so a step whose timing
+    changes cannot quietly turn the stated four minute call into a seven minute one.
+    """
+    assert 3.5 <= script.minutes(full=False) <= 4.5, script.minutes(full=False)
+    assert 12.0 <= script.minutes(full=True) <= 16.0, script.minutes(full=True)
+    assert script.ids(full=False) == script.BRIEF_IDS
+    assert set(script.BRIEF_IDS) < {s["id"] for s in script.steps(full=True)}
+    # The safety screen is first either way: nothing is measured before it has run.
+    for full in (True, False):
+        assert script.ids(full=full)[0] == "redflags", "the safety screen must come first"
+        assert script.ids(full=full)[-1] == "wrap"
+
+
+def test_the_brief_script_says_what_it_gives_up():
+    """The tasks the brief version skips are named in one place, not implied."""
+    missing = set(script.BRIEF_MISSING)
+    assert missing == {s["id"] for s in script.steps(full=True)} - set(script.BRIEF_IDS)
+    # The ones worth knowing about, because their features are absent for the week.
+    assert {"saccade", "npc", "picture", "fluency", "speech_ah"} <= missing
+
+
+def test_recall_is_never_asked_without_encoding():
+    """A word list recall score is meaningless if the words were never shown."""
+    for full in (True, False):
+        for short in (True, False):
+            got = script.ids(short=short, full=full)
+            if "recall" in got:
+                assert "encode" in got and got.index("encode") < got.index("recall")
 
 
 def test_llm_falls_back_to_the_template_in_mock_mode():
@@ -92,24 +120,43 @@ def test_llm_falls_back_to_the_template_in_mock_mode():
     assert llm.ask("x", "You are cleared to play")["text"] == safety.SAFE_REDIRECT
 
 
-def test_a_red_flag_call_stores_no_measurements(seeded):
-    """When the screen is positive the call stops before anything is measured."""
-    from backend import rig_hub
+def test_a_red_flag_call_stores_no_measurements(client, seeded):
+    """A positive screen stops the real call route before anything is measured."""
+    from backend.calls import sessions
 
     pid = [p["id"] for p in seeded if p["name"] != seeded[0]["name"]][0]
-    week = int(db.patient(pid)["week"] or 0) + 1
-    truth = demo.truth_of(pid)
-    if week not in truth:
-        truth[week] = demo.extend_truth(pid, truth, week)
-        demo.set_truth(pid, truth)
-
-    hub = rig_hub.MockHub(pid, week, truth[week])
-    hub.listen = lambda seconds, prompt="": "yes" if "?" in prompt else "okay"
+    token = sessions.create(pid)["token"]
+    client.post(f"/api/call/{token}/consent",
+                json={"calls": True, "ai": True, "recording": True, "genetic": False})
     before = len(db.checkins(pid))
-    from backend.agent import dialog
 
-    got = dialog.run(hub, pid, week)
-    assert got["red_flags"], "the screen should have fired"
-    assert got["session"] is None and got["pipeline"] is None
+    got = client.post(f"/api/call/{token}/redflags", json={"answers": {"seizure": True}}).json()
+    assert got["stop"] is True
+    low = got["say"].lower()
+    assert "emergency" in low and "now" in low
+
+    assert sessions.get(token)["state"] == "stopped"
     assert len(db.checkins(pid)) == before, "a red flag call must not store a check-in"
-    assert db.observations(pid) == db.observations(pid)
+    assert any(a["type"] == "red_flag" for a in db.alerts(pid))
+    # Every later route on this session is refused, so nothing can be posted after.
+    assert client.post(f"/api/call/{token}/symptoms",
+                       json={"scores": {"headache": 3}}).status_code == 409
+
+
+def test_a_red_flag_never_places_a_phone_call(seeded):
+    """The red flag path raises an alert and texts. It does not ring anybody.
+
+    An earlier version dialled a clinic number here. A rule that can fire several times in
+    a row must not be able to ring a phone several times in a row, so the whole outbound
+    call path is gone and this is the test that keeps it gone.
+    """
+    import backend
+    import pkgutil
+
+    pid = seeded[0]["id"]
+    alerts.red_flag(pid, {"seizure": True}, notify=False)
+    rows = db.rows("select * from events where patient_id=? and kind='clinic_call'", (pid,))
+    assert rows == [], "nothing may log an outbound clinic call"
+
+    names = {m.name for m in pkgutil.walk_packages(backend.__path__, "backend.")}
+    assert not [n for n in names if "clinic_call" in n or "rig_hub" in n]

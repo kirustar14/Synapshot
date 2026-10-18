@@ -116,7 +116,7 @@ def write_vcf(path: str | Path, apoe_e4: int, bdnf_met: bool, comt: str, sample:
     ]
     head = [
         "##fileformat=VCFv4.2",
-        "##source=UNNAMED_synthetic",
+        "##source=Synapshot_synthetic",
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + sample,
     ]

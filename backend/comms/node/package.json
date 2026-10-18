@@ -7,7 +7,10 @@
     "probe": "node send.mjs --probe"
   },
   "optionalDependencies": {
-    "spectrum-ts": "^12.11.0",
-    "@photon-ai/imessage-kit": "^3.0.0"
+    "@photon-ai/imessage-kit": "^3.0.0",
+    "spectrum-ts": "^12.11.0"
+  },
+  "dependencies": {
+    "@spectrum-ts/imessage-local": "^12.11.0"
   }
 }

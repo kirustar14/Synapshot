@@ -52,6 +52,40 @@ def first(*names: str) -> str:
     return ""
 
 
+# Ids worth suggesting when the configured one is not a Gemini model at all. This is a
+# handful of examples for an error message, deliberately not an allow list: Google shipped
+# six new Gemini ids while this backend was being written, and a list in here would reject
+# a model that exists for the sin of being newer than the list. `make check` pings the API
+# for the real answer, which is the only answer that is ever current.
+EXAMPLE_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-flash-latest"]
+DEFAULT_MODEL = "gemini-2.5-flash"
+MODEL_NOTE = ""
+
+
+def pick_model() -> str:
+    """The model id to call, replacing it only when it is not a Gemini id at all.
+
+    A name check cannot tell a model that does not exist from one released last week, so
+    it does not try. The one thing it can tell is that `claude-sonnet-5` is never going to
+    answer a Gemini request, and a CLAUDE_MODEL left in .env from before this backend
+    moved to Gemini is the likely way to get here. That one is replaced, because the
+    failure mode otherwise is silent: `llm.ask` falls back to its template on any error,
+    so the key looks live, every call 404s, and nothing is ever phrased by the model.
+
+    The reason lands in MODEL_NOTE so `make check` can say so out loud.
+    """
+    global MODEL_NOTE
+    want = (os.environ.get("GEMINI_MODEL") or "").strip()
+    if not want:
+        return DEFAULT_MODEL
+    if want.startswith("gemini-"):
+        return want
+    MODEL_NOTE = (f"GEMINI_MODEL is {want}, which is not a Gemini model, so "
+                  f"{DEFAULT_MODEL} is being used instead. Try one of: "
+                  + ", ".join(EXAMPLE_MODELS) + ".")
+    return DEFAULT_MODEL
+
+
 def e164(entry: str) -> str:
     """Just the number out of an allow list entry, in E.164.
 
@@ -89,8 +123,15 @@ def phones(name: str = "DEMO_PHONES") -> list[str]:
 class Cfg:
     """Resolved configuration for the whole backend."""
 
-    mock_rig: bool = field(default_factory=lambda: flag("MOCK_RIG", ["RIG_FACETIME_NUMBER"]))
-    mock_llm: bool = field(default_factory=lambda: flag("MOCK_LLM", ["GEMINI_API_KEY"]) and flag("MOCK_LLM", ["GOOGLE_API_KEY"]))
+    # Demo mode. With MOCK_RIG=1 a call can be driven from generated frames instead of a
+    # phone, which is how the whole flow runs on a laptop. On by default.
+    mock_rig: bool = field(default_factory=lambda: on("MOCK_RIG", "1"))
+    # Either key name works. GEMINI_API_KEY is what the Gemini docs tell you to set;
+    # GOOGLE_API_KEY is what a Google Cloud console download calls the same thing.
+    mock_llm: bool = field(
+        default_factory=lambda: flag("MOCK_LLM", ["GEMINI_API_KEY"])
+        and flag("MOCK_LLM", ["GOOGLE_API_KEY"])
+    )
     # Photon credentials are PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET now. The old
     # PHOTON_API_KEY still counts so an existing .env keeps working.
     mock_photon: bool = field(
@@ -104,7 +145,7 @@ class Cfg:
     mock_twilio: bool = field(
         default_factory=lambda: flag(
             "MOCK_TWILIO",
-            ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "CLINIC_NUMBER"],
+            ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM"],
         )
     )
     reach: bool = field(default_factory=lambda: os.environ.get("REACH", "1") not in ("0", ""))
@@ -115,9 +156,13 @@ class Cfg:
     offline: bool = field(default_factory=lambda: os.environ.get("OFFLINE", "0") not in ("0", ""))
     use_sbi: bool = field(default_factory=lambda: os.environ.get("USE_SBI", "0") not in ("0", ""))
 
-    # Gemini is called over plain REST with httpx, so it needs no extra package.
+    # Gemini is called over plain REST with httpx, so it needs no extra package. That is
+    # also why there is no SDK to be missing: the only way the LLM is unavailable is a
+    # blank key or MOCK_LLM. See DECISIONS.md.
+    gemini_model: str = field(default_factory=lambda: pick_model())
     gemini_key: str = field(default_factory=lambda: first("GEMINI_API_KEY", "GOOGLE_API_KEY"))
-    gemini_model: str = field(default_factory=lambda: os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash")
+    # CREAO, the three agent care pipeline. The key never leaves the server: see
+    # docs/CREAO.md and the test that asserts it is in no response body.
     creao_key: str = field(default_factory=lambda: os.environ.get("CREAO_API_KEY", ""))
     creao_agent: str = field(default_factory=lambda: os.environ.get("CREAO_AGENT_ID", ""))
     # The pipeline has three roles. A role with no agent id of its own runs as a template, so the
@@ -135,36 +180,19 @@ class Cfg:
     twilio_token: str = field(default_factory=lambda: os.environ.get("TWILIO_AUTH_TOKEN", ""))
     # Spec file 2 names it TWILIO_PHONE_NUMBER. TWILIO_FROM was the old name and still works.
     twilio_from: str = field(default_factory=lambda: first("TWILIO_PHONE_NUMBER", "TWILIO_FROM"))
-    clinic_number: str = field(default_factory=lambda: os.environ.get("CLINIC_NUMBER", ""))
 
-    # ElevenLabs. Voice lines, the optional speech to text backend and the clinic call.
+    # ElevenLabs, for the pre-generated voice lines only. Nothing here places a call:
+    # the outbound clinic call is gone, so an alert lands in the workspace instead.
     eleven_key: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", ""))
     eleven_voice: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_VOICE_ID", ""))
-    eleven_agent: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_AGENT_ID", ""))
-    eleven_phone: str = field(default_factory=lambda: os.environ.get("ELEVENLABS_PHONE_NUMBER_ID", ""))
     eleven_tts_model: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_TTS_MODEL") or "eleven_multilingual_v2"
     )
-    eleven_stt_model: str = field(
-        default_factory=lambda: os.environ.get("ELEVENLABS_STT_MODEL") or "scribe_v1"
-    )
 
-    # The web call. CALL_MODE=facetime keeps the old rig path alive.
-    call_mode: str = field(default_factory=lambda: (os.environ.get("CALL_MODE") or "web").lower())
     public_url: str = field(default_factory=lambda: (os.environ.get("PUBLIC_URL") or "").rstrip("/"))
     demo_phones: list[str] = field(default_factory=phones)
     keep_audio: bool = field(default_factory=lambda: on("KEEP_AUDIO"))
-    # Placing a real phone call needs saying so out loud. Credentials sitting in .env
-    # are not permission to ring somebody, and an alert rule can fire a lot of them.
-    live_clinic_call: bool = field(default_factory=lambda: on("LIVE_CLINIC_CALL"))
-    asr: str = field(default_factory=lambda: (os.environ.get("ASR") or "whisper").lower())
-    live_agent: bool = field(default_factory=lambda: on("LIVE_AGENT"))
     regional_loadings: bool = field(default_factory=lambda: on("REGIONAL_LOADINGS"))
-
-    facetime_number: str = field(default_factory=lambda: os.environ.get("RIG_FACETIME_NUMBER", ""))
-    mic_device: str = field(default_factory=lambda: os.environ.get("MIC_DEVICE", "BlackHole 2ch"))
-    spk_device: str = field(default_factory=lambda: os.environ.get("SPK_DEVICE", "BlackHole 16ch"))
-    capture_fps: float = field(default_factory=lambda: num("CAPTURE_FPS", 30))
 
     # Phone screen geometry. Used to convert normalized gaze to degrees of visual angle.
     screen_w_mm: float = field(default_factory=lambda: num("SCREEN_W_MM", 71.5))
@@ -174,7 +202,7 @@ class Cfg:
     api_base: str = field(default_factory=lambda: os.environ.get("API_BASE", "http://localhost:8000"))
     data_dir: Path = field(default_factory=lambda: ROOT / (os.environ.get("DATA_DIR") or "data"))
     db_path: Path = field(
-        default_factory=lambda: ROOT / (os.environ.get("DB_PATH") or "data/unnamed.db")
+        default_factory=lambda: ROOT / (os.environ.get("DB_PATH") or "data/synapshot.db")
     )
 
     # Tiger Data. DATABASE_URL is the Tiger Cloud service URI, sslmode=require. With it
@@ -184,10 +212,8 @@ class Cfg:
         default_factory=lambda: first("DATABASE_URL", "TIGER_DATABASE_URL", "TIMESCALE_URL")
     )
 
-    # Clinician accounts. Off by default until the /login screen exists: the current web
-    # build has no way to obtain a cookie, so turning this on would serve a 401 to the
-    # clinician app. Set AUTH_ENABLED=1 to enforce it. The capability is complete and the
-    # tests exercise it with the switch on.
+    # Clinician accounts. Set AUTH_ENABLED=1 to require sign-in at /login for both
+    # clinician shells. With it off the local demo runs as the synthetic admin.
     auth_enabled: bool = field(default_factory=lambda: on("AUTH_ENABLED", "0"))
     demo_login: bool = field(default_factory=lambda: on("DEMO_LOGIN", "1"))
     demo_email: str = field(
@@ -219,10 +245,6 @@ class Cfg:
         mocked = (self.mock_rig or self.mock_llm or self.mock_photon or self.mock_twilio
                   or self.mock_eleven)
         return "mock" if mocked else "live"
-
-    def web_call(self) -> bool:
-        """True when the patient opens a web page instead of answering a FaceTime call."""
-        return self.call_mode != "facetime"
 
     def base_url(self) -> str:
         """The URL a texted link must use. PUBLIC_URL in live mode, else the local base.

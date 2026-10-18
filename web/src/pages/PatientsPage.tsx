@@ -3,6 +3,8 @@
 
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { useWorklist } from "@/dashboard/data";
 import { reviewOf } from "@/dashboard/derive";
 import { Worklist } from "@/dashboard/Worklist";
@@ -54,7 +56,10 @@ export default function PatientsPage() {
               : "No record is currently flagged for review."}
           </p>
         </div>
-        <AddPatient />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" asChild><Link to="/patients/new">Import documents</Link></Button>
+          <AddPatient />
+        </div>
       </header>
 
       <div className="dash-card flex flex-wrap items-center gap-2 p-2">

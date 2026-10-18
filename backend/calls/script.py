@@ -1,17 +1,19 @@
-"""The web call script. The page renders whatever this returns, in order.
+"""The call script. The page renders whatever this returns, in order.
 
-The FaceTime script in agent/script.py bundled several tasks into one step because one
-agent spoke them all down a phone line. The page needs one task per screen, so this
-expands the same fourteen minutes into the step list the contract names, keeping the
-order, the tiers and the short version rule identical.
+One task per screen. The short version is the default on stage: consent, red flags,
+calibration, symptoms, pursuit, antisaccades, fixation, reading, recall and a wrap, which
+runs in about four minutes. The full script adds the rest and is reached with ?full=1.
 
 Every `say` line goes through the banned phrase filter before it leaves here, so no
 route can serve a line that was not filtered.
 """
 
 from ..agent import safety
-from ..agent import script as legacy
 from ..features import memory
+
+# The eight symptom items the patient rates 0 to 10, in the order they are asked.
+SYMPTOMS = ["headache", "pressure", "neck_pain", "nausea", "dizziness",
+            "blurred_vision", "light_sensitivity", "fatigue"]
 
 PICTURE = "kitchen"
 FLUENCY_S = 60
@@ -92,13 +94,46 @@ STEPS = [
      "wrap", 0.75, "none", None),
 ]
 
-# Steps the short version drops, matching the FaceTime rule: eye block B and fluency.
+# Steps dropped when symptoms are high or jump mid-call: eye block B and fluency. A
+# patient who is already struggling is not asked to do the hardest tasks.
 SHORT_DROP = ["antisaccade", "fixation", "npc", "fluency"]
+
+# The brief script is the default. It is the eleven screens that still give a usable week
+# of measurements in about four minutes: the safety screen, both gates, symptoms, word
+# encoding and recall, one pursuit axis, antisaccades, fixation and one read passage.
+#
+# This is a real tradeoff, not a free saving. Ten antisaccade trials estimate the error
+# rate with a standard error around 15 percentage points where twenty halve that, and
+# dropping pursuit_v, saccade, npc, the two oral motor tasks, the picture description and
+# fluency means those features are simply absent for the week rather than measured
+# poorly. Nothing is invented to fill them in: the filter assimilates what arrived and the
+# band widens where it did not. The full fourteen minute protocol is one query away.
+#
+# Entries are (step id, minutes in the brief version, parameter overrides).
+BRIEF = [
+    ("redflags", 0.5, {}),
+    ("quality", 0.5, {"seconds": 6}),
+    ("calib", 0.4, {"hold_ms": 900}),
+    ("symptoms", 0.5, {}),
+    ("encode", 0.5, {}),
+    ("pursuit_h", 0.25, {"seconds": 10}),
+    ("antisaccade", 0.4, {"trials": 10}),
+    ("fixation", 0.2, {}),
+    ("speech_passage", 0.35, {"seconds": 25}),
+    ("recall", 0.3, {"seconds": 25}),
+    ("wrap", 0.2, {}),
+]
+BRIEF_IDS = [sid for sid, _, _ in BRIEF]
+BRIEF_MINUTES = {sid: mins for sid, mins, _ in BRIEF}
+BRIEF_PARAMS = {sid: over for sid, _, over in BRIEF}
+
+# Tasks the brief script does not run, so the one place that has to know is this one.
+BRIEF_MISSING = [sid for sid, *_ in STEPS if sid not in set(BRIEF_IDS)]
 
 PARAMS = {
     "quality": {"flashes": 10, "seconds": 8},
     "calib": {"dots": 9, "hold_ms": 1000, "settle_ms": 350},
-    "symptoms": {"items": legacy.SYMPTOMS, "max": 10},
+    "symptoms": {"items": SYMPTOMS, "max": 10},
     "symptoms_rerate": {"items": ["headache", "dizziness", "blurred_vision"], "max": 10},
     "encode": {"word_ms": 2000},
     "pursuit_h": {"amp": 0.35, "freq": 0.4, "seconds": 20},
@@ -117,19 +152,31 @@ PARAMS = {
 }
 
 
-def steps(short: bool = False) -> list[dict]:
-    """The step list, already filtered for banned phrases."""
+def steps(short: bool = False, full: bool = True) -> list[dict]:
+    """The step list, already filtered for banned phrases.
+
+    `full` is the whole fourteen minute protocol. `full=False` is the four minute brief
+    version the call page serves by default. `short` is the separate symptom triggered
+    rule: it drops the hardest eye tasks for a patient who is already struggling, and it
+    applies to either length.
+    """
+    brief = set(BRIEF_IDS)
     out = []
     for sid, say, task, minutes, tier, block in STEPS:
+        if not full and sid not in brief:
+            continue
         if short and sid in SHORT_DROP:
             continue
+        params = dict(PARAMS.get(sid, {}))
+        if not full:
+            params.update(BRIEF_PARAMS.get(sid, {}))
         row = {
             "id": sid,
             "say": safety.clean(say),
             "task": task,
-            "minutes": float(minutes),
+            "minutes": float(minutes if full else BRIEF_MINUTES.get(sid, minutes)),
             "tier": tier,
-            "params": dict(PARAMS.get(sid, {})),
+            "params": params,
         }
         if block:
             row["block"] = block
@@ -145,14 +192,14 @@ def step_of(sid: str) -> dict:
     raise KeyError(sid)
 
 
-def ids(short: bool = False) -> list[str]:
+def ids(short: bool = False, full: bool = True) -> list[str]:
     """Step ids in order."""
-    return [s["id"] for s in steps(short=short)]
+    return [s["id"] for s in steps(short=short, full=full)]
 
 
-def minutes(short: bool = False) -> float:
+def minutes(short: bool = False, full: bool = True) -> float:
     """Total minutes of the script."""
-    return round(sum(s["minutes"] for s in steps(short=short)), 2)
+    return round(sum(s["minutes"] for s in steps(short=short, full=full)), 2)
 
 
 def lines() -> list[str]:
@@ -164,7 +211,7 @@ def lines() -> list[str]:
     """
     out = [s["say"] for s in steps()]
     out += consent_text()
-    out += [symptom_line(k) for k in legacy.SYMPTOMS]
+    out += [symptom_line(k) for k in SYMPTOMS]
     out += [q["ask"] for q in safety.questions()]
     out += [safety.EMERGENCY, safety.SAFE_REDIRECT]
     return [safety.clean(t) for t in out]
@@ -177,7 +224,7 @@ def voice_lines() -> list[dict]:
         out.append({"id": f"consent_{i + 1}", "text": safety.clean(text)})
     for q in safety.questions():
         out.append({"id": f"redflag_{q['key']}", "text": safety.clean(q["ask"])})
-    for key in legacy.SYMPTOMS:
+    for key in SYMPTOMS:
         out.append({"id": f"symptom_{key}", "text": safety.clean(symptom_line(key))})
     out.append({"id": "emergency", "text": safety.clean(safety.EMERGENCY)})
     out.append({"id": "redirect", "text": safety.clean(safety.SAFE_REDIRECT)})
@@ -194,9 +241,9 @@ def symptom_line(key: str) -> str:
 def consent_text() -> list[str]:
     """What the consent screen says, in plain language.
 
-    The first line of the FaceTime consent text said FaceTime. These say the check-in
-    happens in the phone's browser, and that the video never leaves the phone, which is
-    the one thing that genuinely changed about the privacy story.
+    The check-in happens in the phone's own browser and the video never leaves the phone:
+    the phone works out the measurements and posts only the numbers. That is the whole
+    privacy story and it is said out loud here rather than buried.
     """
     return [
         "This is a research check-in, not medical care. The assistant running it is "
@@ -220,29 +267,45 @@ def consent_text() -> list[str]:
     ]
 
 
-def payload(short: bool = False, audio: dict | None = None, voice_base: str = "/voice/") -> dict:
-    """The CallScript contract object the page is driven by."""
-    from ..config import cfg
+def payload(short: bool = False, full: bool = False, audio: dict | None = None,
+            voice_base: str = "/voice/") -> dict:
+    """The CallScript contract object the page is driven by.
 
+    The brief four minute script by default; `full` is the whole protocol, which the page
+    asks for with ?full=1.
+    """
     audio = audio or {}
     out = []
-    for step in steps(short=short):
+    for step in steps(short=short, full=full):
         row = dict(step)
         got = audio.get(step["id"])
-        if got:
+        # One line, one file. `audio` maps a step id to either a file name or a
+        # {file, duration_ms} record, and either way a step gets exactly one of each. A
+        # step with no mp3 carries audio None and the page speaks the same `say` text
+        # with the browser voice, so the line is never said twice and never said twice
+        # over itself.
+        if isinstance(got, dict):
+            row["audio"] = got.get("file") or None
+            row["duration_ms"] = got.get("duration_ms")
+        elif got:
             row["audio"] = got
+        if not row.get("audio"):
+            row["audio"] = None
+            row["fallback"] = "speech"
         out.append(row)
     return {
         "consent": consent_text(),
         "steps": out,
         "voice_base": voice_base,
-        "symptom_items": list(legacy.SYMPTOMS),
+        "symptom_items": list(SYMPTOMS),
         "redflag_items": [q["ask"] for q in safety.questions()],
         "words": list(memory.WORDS),
         "passage": PASSAGE,
         "picture": PICTURE,
         "fluency_seconds": FLUENCY_S,
-        # So "Stop and contact my clinic" can give a number rather than saying to reply
-        # to a text. Empty when CLINIC_NUMBER is unset, and the page falls back to that.
-        "clinic_number": cfg.clinic_number,
+        "full": bool(full),
+        "minutes": minutes(short=short, full=full),
+        # Said out loud rather than left to be noticed: these tasks did not run, so their
+        # features are absent for the week instead of measured badly.
+        "skipped": [] if full else list(BRIEF_MISSING),
     }

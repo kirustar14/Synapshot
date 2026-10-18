@@ -1,12 +1,12 @@
 # .venv/bin on macOS and Linux, .venv/Scripts on Windows. One Makefile, both.
 PY := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; elif [ -x .venv/Scripts/python.exe ]; then echo .venv/Scripts/python.exe; else echo python3; fi)
 
-.PHONY: dev seed test rig preflight check install clean mesh voices web models tunnel imessage all tiger tiger-check tiger-load decision-data veri-train veri-eval
+.PHONY: dev seed sample test check what phone send-test install clean mesh voices web models tunnel imessage all tiger tiger-check tiger-load decision-data veri-train veri-eval
 
 install:
 	$(PY) -m pip install -r requirements.txt
 
-dev:
+dev: models
 	$(PY) -m uvicorn backend.app:app --reload --reload-dir backend --port 8000
 
 seed:
@@ -15,11 +15,10 @@ seed:
 test:
 	$(PY) -m pytest -q tests
 
-rig:
-	$(PY) rig/run_call.py
-
-preflight:
-	$(PY) rig/preflight.py
+# The flagship patient: ten real documents on disk plus the field-by-field answer key
+# the ingest is scored against. Seeded, so the same files come out every time.
+sample:
+	$(PY) -m backend.synth.make_sample
 
 check:
 	$(PY) -m backend.checklist
@@ -55,8 +54,13 @@ veri-train:
 veri-eval:
 	$(PY) scripts/veri_eval.py
 
-# Just the phone chain: can a text reach you, can your phone open the call page,
-# and will the clinic call ring. Every unfinished line says what to do about it.
+# What is real, what is standing in, what v2 removed and what it merged. `make check`
+# answers "does this work"; this answers "what am I looking at".
+what:
+	$(PY) -m backend.finalcheck
+
+# Just the phone chain: can a text reach you and can your phone open the call page.
+# Every unfinished line says what to do about it.
 phone:
 	$(PY) -m backend.phoneready
 
@@ -78,10 +82,13 @@ models:
 		echo "  already there: web/public/models/face_landmarker.task"; \
 	else \
 		echo "  downloading the face landmarker..."; \
-		curl -fSL -o web/public/models/face_landmarker.task \
+		curl -fSL -o web/public/models/face_landmarker.task.part \
 		  https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task \
+		  && mv web/public/models/face_landmarker.task.part web/public/models/face_landmarker.task \
 		  && echo "  saved to web/public/models/face_landmarker.task"; \
 	fi
+	@test -s web/public/models/face_landmarker.task || \
+	  (echo "  the face landmarker did not download. The call page will say the camera check could not start."; exit 1)
 
 # The clinician app and the patient call page. The backend serves web/dist at /.
 web:
@@ -90,21 +97,24 @@ web:
 	@cp -f exports/mesh.json web/public/mesh.json 2>/dev/null && echo "  copied exports/mesh.json into web/public/" || true
 
 # Everything a fresh checkout needs, in the order it needs it.
-all: mesh seed voices models web
+all: mesh sample seed voices models web
 	@echo ""
 	@echo "  Ready. Run make dev, then make tunnel for a phone."
 	@echo ""
 
-# Enables the real iMessage transports. Optional: without them everything falls back to
-# Twilio SMS and then to mock.
+# Enables the real iMessage transports. Without them every message is written to the
+# patient's thread and nothing is sent.
 imessage:
 	cd backend/comms/node && npm install
-	@$(PY) -c "from backend.comms import photon; import json; print(json.dumps(photon.docs(), indent=2))"
 
-# Creates the ElevenLabs conversational agent that reads the clinician update, and
-# prints the id to put in .env. Idempotent by name. It needs credits before it speaks.
-agent:
-	$(PY) -m backend.comms.make_agent
+# Can an iMessage actually reach a phone? Probes the hosted relay and the local Messages
+# app separately and prints pass or fail per path with the exact thing to fix.
+# The leading dash: a path that cannot send is a real answer, not a broken tool, and
+# make printing "*** Error 1" over it reads like the probe crashed. The script still
+# exits non-zero for anything that wants to branch on it.
+send-test:
+	-@set -a; [ -f .env ] && . ./.env; set +a; node scripts/photon_probe.mjs $(TO)
+	@$(PY) -c "from backend.comms import photon; import json; print(json.dumps(photon.docs(), indent=2))"
 
 tunnel:
 	@echo ""
@@ -140,5 +150,5 @@ tunnel:
 	@echo ""
 
 clean:
-	rm -rf data/unnamed.db data/cache data/cohort.json data/synthetic data/calls
+	rm -rf data/synapshot.db data/cache data/cohort.json data/synthetic data/calls
 	rm -rf data/mesh.json exports/mesh.json

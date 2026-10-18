@@ -89,7 +89,7 @@ def pseudonym(pid: str) -> str:
 def facts(pid: str, week: int) -> dict:
     """The de-identified inputs for one week. No name, no phone, no free text."""
     row = db.patient(pid)
-    chk = db.one("select * from checkins where patient_id=? and week=? order by date desc, rowid desc limit 1",
+    chk = db.one("select * from checkins where patient_id=? and week=? order by date desc limit 1",
                  (pid, week))
     got = None
     if chk is not None:
@@ -148,7 +148,7 @@ def mock_output(role: str, pid: str, week: int, inputs: dict) -> dict:
         level = "escalate" if ("red_flag" in flags or z >= 2) else "watch" if (z >= 1 or moved) else "routine"
         return {"level": level, "reasons": reasons or ["Nothing moved beyond its expected range."]}
     if role == "briefing":
-        chk = db.one("select * from checkins where patient_id=? and week=? order by date desc, rowid desc limit 1",
+        chk = db.one("select * from checkins where patient_id=? and week=? order by date desc limit 1",
                      (pid, week))
         got = None
         if chk is not None:
@@ -202,6 +202,19 @@ def _text_of(body: dict) -> str:
     if isinstance(res, str):
         return res
     return str(res.get("text") or res.get("chatText") or "").strip()
+
+
+def _texts_of(body: dict) -> list[str]:
+    """Every text the run produced, the agent's own chat reply first.
+
+    CREAO returns two: `chatText`, which is what the agent actually said, and `text`, a summary
+    built from the agent's saved output form that can echo the input back. The answer the agent
+    was told to give is in the first one, so it is tried first.
+    """
+    res = body.get("result") or {}
+    if isinstance(res, str):
+        return [res]
+    return [str(t).strip() for t in (res.get("chatText"), res.get("text")) if t and str(t).strip()]
 
 
 def _json_in(text: str, key: str) -> dict | None:
@@ -323,8 +336,9 @@ def _refresh(row) -> None:
     fields = {"status": status, "updated": db.now(), "error": None, "thread_id": body.get("threadId")}
     if status in DONE:
         key = KEYS[role]
-        text = _text_of(body)
-        got = _json_in(text, key) or _from_artifacts(body, key)
+        texts = _texts_of(body)
+        text = texts[0] if texts else ""
+        got = next((g for g in (_json_in(t, key) for t in texts) if g), None) or _from_artifacts(body, key)
         if got is None and role == "briefing":
             md = _markdown_artifact(body)
             if md:
@@ -332,7 +346,7 @@ def _refresh(row) -> None:
         if got is None:
             if role == "triage":
                 got = {"level": "watch", "reasons": ["The triage agent did not return a rating, so this was held at watch."]}
-            elif text.lstrip().startswith(("{", "[", "```")):
+            elif any(t.lstrip().startswith(("{", "[", "```")) for t in texts):
                 got = {}
                 fields["error"] = WRONG_FORMAT
             else:
@@ -341,6 +355,42 @@ def _refresh(row) -> None:
     elif status in FAILED:
         fields["error"] = f"The CREAO run {status}."
     db.patch("agent_runs", rid, fields)
+
+
+def scrub(text: str) -> str:
+    """Clinician facing text with only the offending sentences removed.
+
+    `safety.clean` is written for patients and replaces a whole line with the redirect, which
+    is right there and wrong here: an agent writing "this briefing does not address diagnosis"
+    would lose its entire briefing over one disclaimer. So a sentence that makes a banned claim
+    is dropped and the rest is kept. An empty result means nothing safe was left.
+    """
+    import re
+
+    parts = re.split(r"(?<=[.!?])\s+", str(text).strip())
+    return " ".join(p for p in parts if p and not safety.violations(p)).strip()
+
+
+def as_list(value) -> list[str]:
+    """A list of short strings out of whatever the agent put in the field.
+
+    The output form on CREAO can turn a list into a string, sometimes a string that holds a JSON
+    list, and iterating a string gives single characters. So a string is parsed first, and a plain
+    string becomes a one item list.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                got = json.loads(text)
+                if isinstance(got, list):
+                    return [str(x) for x in got if str(x).strip()]
+            except ValueError:
+                pass
+        return [text] if text else []
+    if isinstance(value, (list, tuple)):
+        return [str(x) for x in value if str(x).strip()]
+    return []
 
 
 def _readable(out: dict, key: str) -> dict:
@@ -354,7 +404,7 @@ def _readable(out: dict, key: str) -> dict:
 
 def _rows(pipeline: str) -> dict:
     """The stage rows of one pipeline, by role."""
-    return {r["kind"]: r for r in db.rows("select * from agent_runs where pipeline=? order by created, rowid", (pipeline,))}
+    return {r["kind"]: r for r in db.rows("select * from agent_runs where pipeline=? order by created", (pipeline,))}
 
 
 def _out(row) -> dict:
@@ -426,7 +476,7 @@ def _view(pipeline: str) -> dict | None:
     level = tri_out.get("level") if tri["status"] in DONE else None
     raised = db.one("select 1 from events where patient_id=? and kind='alert' and payload like ? and time>=? limit 1",
                     (tri["patient_id"], '%agent_review%', tri["created"]))
-    clean = lambda items: [safety.clean(str(x)) for x in (items or [])][:5]  # noqa: E731
+    clean = lambda items: [t for t in (scrub(x) for x in as_list(items)) if t][:5]  # noqa: E731
     brief = _readable(brief, "briefing")
     draft = outreach.get("patient_message") or brief.get("patient_draft")
     return {
@@ -434,7 +484,7 @@ def _view(pipeline: str) -> dict | None:
         "reasons": clean(tri_out.get("reasons")) if level else [],
         "escalated": bool(raised) and level == "escalate",
         "stages": stages,
-        "briefing": safety.clean(str(brief["briefing"])) if brief.get("briefing") else None,
+        "briefing": (scrub(str(brief["briefing"])) or None) if brief.get("briefing") else None,
         "follow_ups": clean(brief.get("follow_ups")),
         "patient_message": safety.clean(str(draft)) if draft else None,
         "next_steps": clean(outreach.get("next_steps")),
@@ -446,7 +496,7 @@ def start(pid: str, week: int) -> dict:
     """Start the pipeline by running the triage agent. Returns at once, never waits for it."""
     recent = db.one(
         "select pipeline from agent_runs where patient_id=? and week=? and kind='triage' "
-        "order by created desc, rowid desc limit 1", (pid, week))
+        "order by created desc limit 1", (pid, week))
     if recent is not None and recent["pipeline"]:
         view = _view(recent["pipeline"])
         if view and view["status"] == "running" and time.time() - _epoch(view["created"]) < DEDUPE_S:
@@ -459,7 +509,7 @@ def start(pid: str, week: int) -> dict:
 def latest(pid: str) -> dict | None:
     """The newest pipeline for a patient, advanced first if it is still going."""
     row = db.one("select pipeline from agent_runs where patient_id=? and kind='triage' "
-                 "order by created desc, rowid desc limit 1", (pid,))
+                 "order by created desc limit 1", (pid,))
     if row is None or not row["pipeline"]:
         return None
     advance(row["pipeline"])

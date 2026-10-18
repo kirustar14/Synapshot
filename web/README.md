@@ -3,10 +3,9 @@
 The Synapshot frontend. Vite, React 19, TypeScript, Tailwind v4, React Router v7, TanStack Query,
 Zustand, Recharts, three with react-three-fiber.
 
-This directory currently holds the foundation: the theme, the app shell and routing, the full API
-client, the frozen contract types, and a seeded mock layer that answers every contract route.
-Every route renders a placeholder page that names what goes there. The screens are built on top
-of this.
+The Paper landing page and account-backed clinician dashboard share the API client with the
+document intake flow and consolidated patient workspace. Both workflows use the same patient
+records, check-ins, brain viewer and Sentry instrumentation.
 
 ## Run it
 
@@ -36,7 +35,7 @@ npm test           # vitest run
 the frontend is hosted somewhere other than the backend.
 
 Because the router uses real paths, any host serving `dist` must rewrite unknown paths to
-`index.html`, otherwise a reload on `/patients/p1/twin` returns 404.
+`index.html`, otherwise a reload on `/patients/p1` or `/app/patients/p1` returns 404.
 
 ## Environment variables
 
@@ -46,10 +45,12 @@ through `import.meta.env`.
 | Variable | Meaning |
 | --- | --- |
 | `VITE_API_URL` | Base URL for the API. Empty means same origin, which is the normal case. Setting it also disables the mock fallback, so backend errors surface instead of being hidden. |
-| `VITE_AUTH0_DOMAIN` | Auth0 tenant domain. Optional. |
-| `VITE_AUTH0_CLIENT_ID` | Auth0 single page application client id. Optional. Login is only wired up when both Auth0 values are set. |
+| `VITE_SENTRY_DSN` | Optional browser error tracking, tracing and masked session replay. |
+| `VITE_SENTRY_ORG` | Sentry organization for links from the Settings demo. |
 
-Never commit a real `.env`.
+Clinician login uses the backend's HttpOnly session cookie. Set `AUTH_ENABLED=1` in the
+backend environment to require sign-in at `/login`; without a backend, mock mode opens
+the synthetic workspace directly. Never commit a real `.env`.
 
 ## Files the backend or a script provides
 
@@ -77,7 +78,7 @@ web/
     api/
       types.ts          the frozen contract, copied verbatim
       client.ts         one function per route, query and mutation hooks, mock fallback
-      ws.ts             /ws/rig, with a seeded 30 fps generator in mock mode
+      stream.ts         the per patient event stream, with a generator in mock mode
     mock/
       rng.ts            mulberry32, FNV-1a, rounding helpers
       atlas.ts          100 regions with networks, area tags and centroids
@@ -100,30 +101,28 @@ web/
 
 | Path | Screen |
 | --- | --- |
-| `/` | C1 patient workspace |
-| `/patients/:id` | C2 overview |
-| `/patients/:id/upload` | C0 model inputs and twin build |
-| `/patients/:id/twin` | C3 brain twin viewer |
-| `/patients/:id/compare` | C4 scenario compare |
-| `/patients/:id/calls` | C5 check-in log |
-| `/alerts` | C6 alerts |
-| `/cohort` | cohort insights |
-| `/rig` | R1 live call console |
-| `/rig/preflight` | R2 preflight |
-| `/demo` | D1 demo console, hidden in the sidebar until visited once |
-| `/consent/:token` | P1 consent, patient facing |
-| `/phone/:id` | P2 phone mock, patient facing |
-| `/stretch/:token` | P4 gait and hearing, patient facing |
-| `/call/:token` | the patient call page, patient facing |
+| `/` | Paper landing page |
+| `/login` | Clinician sign-in |
+| `/app` | Overview |
+| `/app/patients` | Dashboard patient worklist |
+| `/app/assessments` | Assessments |
+| `/app/research` | Cohort research |
+| `/app/reports` | Reports |
+| `/app/settings` | Profile, tools and the Sentry demo |
+| `/app/patients/:id` | Patient record with assessment, note and report tabs |
+| `/clinic` | Patient list for the consolidated workspaces |
+| `/patients/new` | Document intake with a streamed build log |
+| `/patients/:id` | Brain workspace with Data, Analysis, Treatment and Timeline tabs |
+| `/call/:token` | Public patient check-in page |
 
-The five patient routes share a nested layout that loads the patient once. The four patient facing
-routes sit outside the clinic shell: mobile first, single column, no sidebar, readable at 360px.
+Both clinician route groups use the same session gate. Existing record links to recovery,
+upload and comparison open the consolidated workspace. Retired rig and demo bookmarks
+redirect to `/clinic`. The patient call page stays outside both clinician shells.
 
 ## Rules that apply to every screen built here
 
 - No em dashes in any code, comment or user-facing copy.
 - Never show a diagnosis, a clearance, or advice about any medicine.
-- Amber synthetic badge on every synthetic patient, file and chart.
-- Every number that comes out of the model carries a "Model output, not a scan" label.
+- Keep provenance and model limits visible in the workspace evidence drawer and reports.
 - Colour is never the only signal. Every chip pairs its colour with an icon or a word.
 - Keyboard reachable, real aria labels, empty, loading and error states on every screen.

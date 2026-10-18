@@ -6,7 +6,7 @@ the duration of one request and then put it back, so the shared TestClient is re
 
 import pytest
 
-from backend import auth, db
+from backend import auth, db, demo
 from backend.config import cfg
 
 
@@ -98,6 +98,65 @@ def test_two_clinics_see_two_worklists_and_cannot_read_each_other(client, locked
     ids = {row["id"] for row in other.json()}
     assert str(ucla["id"]) in ids
     assert str(cedar["id"]) not in ids
+
+
+@pytest.mark.parametrize("suffix", [
+    "provenance", "baseline", "latest-update", "timeline", "percentile",
+    "suggested-drugs", "drugs/amitriptyline/overlap", "stream", "pipeline",
+])
+def test_workspace_reads_respect_clinic_access(client, locked, suffix):
+    """New patient-workspace routes obey the dashboard's existing record boundary."""
+    _reset(client)
+    other = db.one("select id from patients where clinic_id='clinic_cedar'")
+    assert other is not None
+    assert client.post("/api/auth/login", json={
+        "email": cfg.demo_email, "password": cfg.demo_password,
+    }).status_code == 200
+    assert client.get(f"/api/patients/{other['id']}/{suffix}").status_code == 404
+    _reset(client)
+
+
+def test_document_intake_assigns_the_patient_to_its_creator(client, locked, monkeypatch):
+    """An ingested patient can immediately be opened by the clinician who uploaded it."""
+    from backend.app import ingestrun
+
+    _reset(client)
+    signed_in = client.post("/api/auth/login", json={
+        "email": cfg.demo_email, "password": cfg.demo_password,
+    }).json()
+    created = []
+
+    def ingest(_files):
+        pid = demo.new_patient("Document intake test", 30, "F")
+        created.append(pid)
+        yield {"kind": "done", "patient_id": pid}
+
+    monkeypatch.setattr(ingestrun, "stream", ingest)
+    response = client.post("/api/patients/ingest", files={
+        "files": ("chart.txt", b"Patient chart", "text/plain"),
+    })
+    assert response.status_code == 200, response.text
+    assert len(created) == 1
+    pid = created[0]
+    assert db.patient(pid)["clinic_id"] == signed_in["clinic_id"]
+    assignment = db.one("select * from assignments where patient_id=? and clinician_id=?",
+                        (pid, signed_in["id"]))
+    assert assignment is not None and assignment["role"] == "primary"
+    assert client.get(f"/api/patients/{pid}").status_code == 200
+    _reset(client)
+
+
+def test_creao_callback_uses_its_token_without_a_clinician_cookie(client, locked, monkeypatch):
+    """The agent callback keeps working when clinician login is enforced."""
+    from backend.agent import creao
+
+    _reset(client)
+    monkeypatch.setattr(creao, "token", lambda: "callback-token-test")
+    monkeypatch.setattr(creao, "on_callback", lambda _body: True)
+    assert client.post("/api/creao/callback?token=bad", json={}).status_code == 403
+    response = client.post("/api/creao/callback?token=callback-token-test", json={})
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
 
 
 def test_logout_drops_the_session(client, locked):

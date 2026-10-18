@@ -21,6 +21,8 @@ os.environ["MOCK_TWILIO"] = "1"
 os.environ["MOCK_ELEVEN"] = "1"
 # Same reason for CREAO: a test run must never spend credits or reach the real agent.
 os.environ["MOCK_CREAO"] = "1"
+# And Sentry: a test run must not report its deliberate errors to the real project.
+os.environ["SENTRY_DSN"] = ""
 os.environ["AUTO_AGENT_PIPELINE"] = "0"
 os.environ["LIVE_CLINIC_CALL"] = "0"
 os.environ["DEMO_PHONES"] = ""
@@ -33,7 +35,7 @@ os.environ["AUTH_ENABLED"] = "0"
 # A separate database so a test run never touches the demo one. The cache directory is
 # shared on purpose: the template bundle and the surrogate table are expensive and the
 # same for everybody.
-os.environ["DB_PATH"] = "data/test_unnamed.db"
+os.environ["DB_PATH"] = "data/test_synapshot.db"
 # A .env that points at Tiger Cloud must never turn the suite into a remote run. The demo
 # reset truncates tables, so clearing these before backend.config is imported is the
 # difference between a fast test and deleting the live demo data.

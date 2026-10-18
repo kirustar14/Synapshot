@@ -7,12 +7,29 @@ true of both, which is the point: the viewer must work either way.
 """
 
 import numpy as np
+import json
 
 from backend import db
 from backend.data import mesh as meshmod
 from backend.twin import build, intervention, loadings, shape
 
 REG = 100
+
+
+def test_legacy_receptor_cache_is_upgraded(tmp_path, monkeypatch):
+    """A cache from the five-target viewer cannot hide the expanded pathway atlas."""
+    (tmp_path / "receptors.json").write_text(json.dumps({
+        "names": ["NMDA"], "maps": {"NMDA": [0.0] * REG},
+        "synthetic_template": True,
+    }))
+    monkeypatch.setattr(intervention, "_CACHE", None)
+    monkeypatch.setattr(intervention.cfg, "cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(intervention, "_from_neuromaps", lambda: None)
+
+    got = intervention.receptors()
+    assert set(got["maps"]) == set(intervention.TARGETS)
+    assert set(got["stand_in"]) == set(intervention.TARGETS)
+    assert got["tracers"] == {}
 
 
 def test_mesh_labels_every_region_is_present():
@@ -154,51 +171,51 @@ def test_activity_is_healthy_at_zero_and_recovers(seeded):
     assert abs(act[:, -1].mean()) < abs(act[:, 0].mean()), "activity should recover over 12 weeks"
 
 
-def test_receptors_are_five_maps_of_a_hundred():
-    """Five receptor maps, one value per region, labelled if they are a stand-in."""
+def test_every_receptor_map_covers_every_region():
+    """One value per region per target, and a stand-in is labelled as one.
+
+    The set grew from five to twelve for the drug viewer: without the transporters there
+    is no honest way to place an SSRI, a tricyclic or a stimulant.
+    """
     got = intervention.receptors()
-    assert set(got["names"]) == {"GABA-A", "NMDA", "D2", "5-HT2A", "mu-opioid"}
+    assert set(got["names"]) == set(intervention.TARGETS)
+    assert {"GABA-A", "NMDA", "D2", "5-HT2A", "mu-opioid"} <= set(got["names"]), (
+        "the original five have to survive, the slider still offers them"
+    )
+    assert {"5-HTT", "NET", "DAT", "SV2A"} <= set(got["names"]), (
+        "the transporters are what make the formulary modellable"
+    )
     for name in got["names"]:
         arr = np.asarray(got["maps"][name])
         assert arr.shape == (REG,)
         assert np.isfinite(arr).all()
+        # The payload rounds to four decimals, so the mean of the rounded values is not
+        # exactly zero. The tolerance is the rounding, not the z score.
+        assert abs(float(arr.mean())) < 1e-3, f"{name} is not z scored"
+        assert abs(float(arr.std()) - 1.0) < 0.02, f"{name} is not unit variance"
     assert isinstance(got["synthetic_template"], bool)
+    # Which maps are real and which are stand-ins is reported, never implied.
+    assert set(got["stand_in"]) <= set(got["names"])
+    assert set(got["tracers"]) == set(got["names"]) - set(got["stand_in"])
 
 
-def test_intervention_is_finite_for_every_target(seeded):
-    """All five targets return a finite per region effect and the disclaimer."""
-    pid = seeded[0]["id"]
-    for target in intervention.receptors()["names"]:
-        got = intervention.run(pid, target, 0.3)
-        eff = np.asarray(got["region_effect"])
-        assert eff.shape == (REG,)
-        assert np.isfinite(eff).all()
-        for key in ("fc_strength", "rate", "metastability"):
-            assert np.isfinite(got["summary_delta"][key])
-        assert got["note"] == intervention.NOTE
-        assert "not a treatment recommendation" in got["note"].lower()
+def test_a_stand_in_map_is_never_passed_off_as_real():
+    """A target with no real study is named in stand_in and absent from tracers."""
+    got = intervention.receptors()
+    for name in got["stand_in"]:
+        assert name not in got["tracers"], f"{name} is a stand-in but claims a tracer"
+    if not got["tracers"]:
+        assert got["synthetic_template"] is True
+    # Every real map says which study and which space it came from.
+    for line in got["sources"]:
+        assert ":" in line and ("surface" in line or "volume" in line), line
 
 
-def test_intervention_gain_is_clamped(seeded):
-    """A wild gain is clamped rather than run."""
-    pid = seeded[0]["id"]
-    assert intervention.run(pid, "NMDA", 99.0)["gain"] == intervention.GAIN_HI
-    assert intervention.run(pid, "NMDA", -99.0)["gain"] == intervention.GAIN_LO
-
-
-def test_intervention_never_touches_the_forecast(seeded):
-    """Running a what-if leaves the stored forecast, the filter and the alerts alone."""
-    pid = seeded[0]["id"]
-    before = db.dec(db.latest_forecast(pid)["payload"], {})
-    state_before = str(db.patient(pid)["state"])
-    alerts_before = len(db.alerts(pid))
-
-    intervention.run(pid, "GABA-A", 0.5)
-
-    after = db.dec(db.latest_forecast(pid)["payload"], {})
-    assert after == before, "the what-if changed the forecast"
-    assert str(db.patient(pid)["state"]) == state_before, "the what-if moved the filter"
-    assert len(db.alerts(pid)) == alerts_before, "the what-if raised an alert"
+# The intervention what-if is gone, and so are the three tests that drove it: one that
+# every target returned a finite per region effect, one that a wild gain was clamped, and
+# one that running it left the forecast and the filter alone. There is nothing left to
+# clamp or to leave alone. What replaced it only reads the receptor atlas, which the
+# tests above still cover, and never runs the model at all. See DECISIONS.md.
 
 
 def test_no_summary_mentions_an_intervention(seeded):
@@ -206,7 +223,6 @@ def test_no_summary_mentions_an_intervention(seeded):
     from backend.agent import summary
 
     pid = seeded[0]["id"]
-    intervention.run(pid, "D2", 0.4)
     row = db.patient(pid)
     both = summary.for_checkin(pid, int(row["week"] or 0))
     banned = ["gaba", "nmda", "receptor", "dopamine", "serotonin", "opioid", "d2",

@@ -302,8 +302,17 @@ def test_alerts(client, pid):
 
     aid = rows[0]["id"]
     assert client.post(f"/api/alerts/{aid}/ack").json()["acked"] is True
-    assert client.post(f"/api/alerts/{aid}/call").json()["called"] is True
     assert client.post("/api/alerts/al_nope/ack").status_code == 404
+
+    # A flag has to be able to say why it fired, with the threshold and where this
+    # patient sits against it, so the left rail is never a coloured dot and a claim.
+    why = client.get(f"/api/alerts/{aid}/explain").json()
+    assert why["ok"] is True and why["type"] == rows[0]["type"]
+    assert why["rule"] and why["detail"]
+    assert "threshold" in why and "week" in why["state"]
+    assert client.get("/api/alerts/al_nope/explain").status_code == 404
+    # Nothing in the alert path dials anybody. The route that did is gone.
+    assert client.post(f"/api/alerts/{aid}/call").status_code == 405
     del pid
 
 
@@ -318,40 +327,6 @@ def test_cohort(client):
     for row in got["effects"]:
         has(row, EFFECT, "Cohort.effects[]")
         assert row["lo"] <= row["hi"]
-
-
-def test_rig_preflight(client):
-    """GET /api/rig/preflight returns Check objects."""
-    rows = client.get("/api/rig/preflight").json()
-    assert rows
-    for row in rows:
-        has(row, CHECK, "Check")
-        assert isinstance(row["ok"], bool)
-        assert row["detail"], "a check with no detail is useless"
-
-
-def test_consent_and_stretch(client, pid):
-    """The consent page, the four answers, and the stretch results."""
-    from backend import db
-
-    token = db.consent_for(pid)["token"]
-    got = client.get(f"/api/consent/{token}").json()
-    has(got, CONSENT_TEXT, "ConsentText")
-    assert len(got["text"]) >= 5
-    assert any("not a clinician" in t or "not medical care" in t for t in got["text"])
-
-    posted = client.post(f"/api/consent/{token}",
-                         json={"calls": True, "ai": True, "recording": True, "genetic": False})
-    assert posted.json()["ok"] is True
-    assert client.get("/api/consent/nope").status_code == 404
-
-    stretch = client.post(f"/api/stretch/{token}",
-                          json={"gait": {"cadence": 104.0, "variability": 5.5, "steps": 220},
-                                "hearing": {"thresholds": {"1k": 10, "4k": 25}}})
-    assert stretch.status_code == 200
-    assert set(stretch.json()["stored"]) == {"gait", "hearing"}
-    for feat in stretch.json()["features"]:
-        has(feat, FEATURE, "stretch Feature")
 
 
 def test_demo_controls(client):
@@ -369,28 +344,73 @@ def test_demo_controls(client):
     assert client.post("/api/demo/advance-week", json={"patient_id": "pat_nope"}).status_code == 404
 
 
-def test_websockets_carry_the_contract_shapes(client):
-    """The stimulus socket syncs the clock, and the rig socket sends RigEvents."""
-    from backend import rig_hub
+def test_the_event_stream_carries_frames_and_alerts(pid):
+    """The SSE hub delivers per patient events and keeps a short catch-up history."""
+    import asyncio
 
-    with client.websocket_connect("/ws/stimulus") as ws:
-        first = ws.receive_json()
-        assert first["type"] == "clock" and first["mono_ns"] > 0
-        ws.send_json({"type": "shown", "kind": "pursuit_h", "t_ns": 123})
-    assert any(m["type"] == "shown" for m in rig_hub.STIM_IN)
+    from backend import live
 
-    with client.websocket_connect("/ws/rig") as ws:
-        assert ws.receive_json()["type"] == "hello"
-        rig_hub.frame_event("pursuit_h", (0.52, 0.49), (0.55, 0.5),
-                            {"face": True, "dist": True, "light": True, "fps": 30.0},
-                            0.78, {"who": "agent", "text": "follow the dot"})
-        got = ws.receive_json()
-        has(got, RIG_EVENT, "RigEvent")
-        assert got["type"] == "frame"
-        has(got["gaze"], {"x", "y"}, "RigEvent.gaze")
-        has(got["target"], {"x", "y"}, "RigEvent.target")
-        has(got["quality"], QUALITY, "RigEvent.quality")
-        has(got["line"], {"who", "text"}, "RigEvent.line")
+    # The hub keeps a short history so a browser joining mid-call catches up, and the
+    # seed has already pushed alerts for this patient. Start from a clean slate.
+    live.RECENT.pop(pid, None)
+
+    async def drive():
+        queue = live.subscribe(pid)
+        other = live.subscribe("pat_someone_else")
+        live.frame(pid, "pursuit_h", {"x": 0.52, "y": 0.49}, {"x": 0.55, "y": 0.5},
+                   {"face": True, "dist": True, "light": True, "fps": 30.0},
+                   0.78, {"who": "agent", "text": "follow the dot"})
+        got = await asyncio.wait_for(queue.get(), timeout=2)
+        assert other.empty(), "one patient's frames must not reach another patient's stream"
+        return got
+
+    got = asyncio.run(drive())
+    assert got["kind"] == "frame" and got["step"] == "pursuit_h"
+    has(got["gaze"], {"x", "y"}, "frame.gaze")
+    has(got["target"], {"x", "y"}, "frame.target")
+    has(got["quality"], QUALITY, "frame.quality")
+    assert got["pursuit_gain"] == 0.78
+    # The wire format is real SSE, named by kind, so EventSource can route on it.
+    wire = live.sse(got)
+    assert wire.startswith("event: frame\ndata: {") and wire.endswith("\n\n")
+
+
+def test_the_event_stream_route_is_text_event_stream(client, pid):
+    """GET /api/patients/{pid}/stream is an SSE endpoint, and 404s for a stranger.
+
+    The response body never ends, so the route is called directly and the generator is
+    read with a timeout rather than being consumed through the test client, which would
+    sit there waiting for a stream that is designed to stay open.
+    """
+    import asyncio
+
+    from backend import app as appmod
+    from backend import live
+
+    from starlette.requests import Request
+
+    request = Request({"type": "http", "headers": []})
+    resp = asyncio.run(appmod.get_stream(pid, request))
+    assert resp.media_type == "text/event-stream"
+    assert "no-cache" in resp.headers.get("cache-control", "")
+    assert resp.headers.get("x-accel-buffering") == "no"
+
+    live.RECENT.pop(pid, None)
+
+    async def first_two():
+        live.publish(pid, "frame_test", {"n": 1})
+        gen = live.stream(pid)
+        try:
+            return [await asyncio.wait_for(gen.__anext__(), timeout=2) for _ in range(2)]
+        finally:
+            await gen.aclose()
+
+    got = asyncio.run(first_two())
+    assert got[0].startswith("event: hello")
+    # The catch-up history means a browser that connects mid-call is not left blank.
+    assert got[1].startswith("event: frame_test")
+
+    assert client.get("/api/patients/pat_nope/stream").status_code == 404
 
 
 def test_every_contract_route_exists(client):
@@ -409,13 +429,32 @@ def test_every_contract_route_exists(client):
         ("/api/checkins/{cid}/unusable", "POST"), ("/api/patients/{pid}/uploads", "POST"),
         ("/api/patients/{pid}/twin-inputs", "GET"), ("/api/patients/{pid}/build-twin", "POST"),
         ("/api/patients/{pid}/messages", "GET"), ("/api/patients/{pid}/note", "POST"),
-        ("/api/alerts", "GET"), ("/api/alerts/{aid}/ack", "POST"), ("/api/alerts/{aid}/call", "POST"),
-        ("/api/cohort", "GET"), ("/api/rig/preflight", "GET"), ("/api/demo/reset", "POST"),
+        ("/api/alerts", "GET"), ("/api/alerts/{aid}/ack", "POST"),
+        ("/api/alerts/{aid}/explain", "GET"),
+        ("/api/cohort", "GET"), ("/api/demo/reset", "POST"),
         ("/api/demo/advance-week", "POST"), ("/api/demo/inject-drift", "POST"),
-        ("/api/demo/trigger-call", "POST"), ("/api/consent/{token}", "GET"),
-        ("/api/consent/{token}", "POST"), ("/api/stretch/{token}", "POST"),
+        ("/api/demo/trigger-call", "POST"), ("/api/patients/{pid}/stream", "GET"),
     ]
     for path, method in want:
         assert path in flat, f"{path} is not registered"
         assert any(p == path and method in m for p, m in paths), f"{path} has no {method}"
-    assert "/ws/rig" in flat and "/ws/stimulus" in flat
+
+
+def test_the_removed_surfaces_are_really_gone(client):
+    """Every route behind a surface the brief removed answers 404, not 500.
+
+    These are listed by hand rather than derived, because the point is that somebody
+    deleting a page cannot leave its backend half wired and still see green.
+    """
+    from backend.app import app
+
+    flat = {r.path for r in app.routes}
+    for path in ("/ws/rig", "/ws/stimulus", "/api/rig/preflight", "/api/consent/{token}",
+                 "/api/stretch/{token}", "/api/alerts/{aid}/call",
+                 "/api/call/{token}/agent", "/api/call/{token}/agent/transcript"):
+        assert path not in flat, f"{path} should have been removed"
+    # The /ui harness and the /stimulus pages are not mounted either.
+    for mounted in ("/ui", "/stimulus"):
+        assert not any(r.path.startswith(mounted) for r in app.routes), mounted
+    # And the single page app does not quietly serve them as client side routes.
+    assert client.get("/api/rig/preflight").status_code == 404

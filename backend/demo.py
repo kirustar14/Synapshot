@@ -65,12 +65,20 @@ def transcript_of(name: str, week: int, values: dict) -> list[dict]:
     ]
 
 
-def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = False) -> str:
-    """Store a check-in record from what the pipeline measured."""
+def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = False,
+                when: str | None = None) -> str:
+    """Store a check-in record from what the pipeline measured.
+
+    `when` dates it, and the seeder passes one so a built history lands on the calendar
+    where it is supposed to have happened. It cannot be worked out from the patient row
+    here: during seeding the row's week is still the previous one, so every check-in would
+    date itself to today and the timeline would be a single dot.
+    """
     row = db.patient(pid)
     cid = db.new_id("chk")
+    stamp = when or db.now()
     db.put("checkins", {
-        "id": cid, "patient_id": pid, "week": int(week), "date": db.now(),
+        "id": cid, "patient_id": pid, "week": int(week), "date": stamp,
         "duration_s": float(sess.get("seconds", 840.0)), "steps": db.enc(got["steps"]),
         "channel": db.enc(got["channel"]), "features": db.enc(got["features"]),
         "gaze": db.enc(got["gaze"]), "traces": db.enc(got["traces"]),
@@ -79,7 +87,7 @@ def add_checkin(pid: str, week: int, got: dict, sess: dict, unusable: bool = Fal
     })
     for key, val in pipeline.observables(got["values"]).items():
         db.add_observation(pid, week, key, float(val), semmod.sem(key))
-    db.patch("patients", pid, {"last_call": db.now(), "week": int(week)})
+    db.patch("patients", pid, {"last_call": stamp, "week": int(week)})
     return cid
 
 
@@ -102,6 +110,11 @@ def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
     db.put("parameters", {"id": db.new_id("par"), "patient_id": pid, "week": int(week),
                           "payload": db.enc({"params": params, "post": post, "diag": out}), "time": db.now()})
     build.rebuild_forecast(pid)
+    # The regions as well as the forecast. Without this the charts move after a call and
+    # the brain does not, because the twin is what the 3D view draws and it was written
+    # once at build time. See build.refresh_twin.
+    was = (db.dec(db.twin_inputs(pid)["payload"], {}) or {}).get("twin") if db.twin_inputs(pid) else None
+    moved = build.region_diff(was, build.refresh_twin(pid), int(week))
     fired = alerts.check(pid, int(week), channel, state)
     if cfg.auto_agents:
         # Opt in only (AUTO_AGENT_PIPELINE=1): every pipeline spends CREAO credits.
@@ -111,15 +124,18 @@ def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
             creao.start(pid, int(week))
         except Exception as exc:  # a failed agent run must never break scoring a check-in
             db.event(pid, "creao_error", {"error": str(exc)[:200]})
-    return {"diag": out, "post": post, "alerts": fired}
+    return {"diag": out, "post": post, "alerts": fired, "changed_regions": moved}
 
 
-def run_week(pid: str, week: int, poor: bool = False) -> dict:
+def run_week(pid: str, week: int, poor: bool = False, upto: int | None = None) -> dict:
     """One mock call at a given week, measured through the real feature pipeline.
 
     The session is built to carry this week's true values, then the pipeline has to
     measure them back out of frames, a stimulus log and spoken answers. What the filter
     assimilates is what the pipeline measured, not the truth it was built from.
+
+    `upto` is the last week being built, which is what makes a seeded history land on
+    real dates: week w of a patient who ends on week `upto` happened `upto - w` weeks ago.
     """
     row = db.patient(pid)
     truth = truth_of(pid)
@@ -129,7 +145,8 @@ def run_week(pid: str, week: int, poor: bool = False) -> dict:
     prev = next((h["values"] for h in reversed(hist) if int(h["week"]) < week), None)
     base = next((h["values"] for h in hist if int(h["week"]) == 0), None)
     got = pipeline.run(sess, prev=prev, age=int(row["age"] or 30), sex=str(row["sex"]), baseline=base)
-    add_checkin(pid, week, got, sess)
+    when = db.weeks_ago(max(0, int(upto) - int(week))) if upto is not None else None
+    add_checkin(pid, week, got, sess, when=when)
     return assimilate(pid, week, pipeline.observables(got["values"]), got["channel"])
 
 
@@ -178,18 +195,32 @@ def inject_drift(pid: str, size: float = 1.0) -> dict:
     return {"week": week, "values": bumped}
 
 
+def shift_values(values: dict, size: float) -> dict:
+    """One week's truth, moved by size SEM-scaled steps in the worsening direction.
+
+    The same arithmetic as `inject_drift`, applied to a week's values in memory rather
+    than written back to the patient. `mock_call` uses it so a generated call can be made
+    deliberately worse or better without the truth table changing underneath the demo.
+
+    Positive is worse, negative is better, zero changes nothing and is the default. A
+    call that produces no measurable change is a real outcome and stays available.
+    """
+    if not size:
+        return dict(values)
+    out = dict(values)
+    for o in fcast.OBS:
+        key = o["key"]
+        if key in out:
+            step = 3.0 * semmod.sem(key) * float(size) * (1.0 if o["load"] > 0 else -1.0)
+            out[key] = float(out[key] + step)
+    return out
+
+
 def profile_of(pid: str) -> str:
     """Which demo profile a patient was created from, or an empty string."""
     for ev in db.rows("select * from events where patient_id=? and kind='demo_profile'", (pid,)):
         return str((db.dec(ev["payload"], {}) or {}).get("key", ""))
     return ""
-
-
-def trigger_call(pid: str) -> dict:
-    """Run a call now. The real rig when it is available, otherwise the mock session."""
-    from .rig_hub import run_call
-
-    return run_call(pid)
 
 
 def reset(quiet: bool = False) -> dict:
@@ -216,7 +247,7 @@ def reset(quiet: bool = False) -> dict:
 
         poor = prof["key"] == "low_quality"
         for wk in range(0, prof["week"] + 1):
-            run_week(pid, wk, poor)
+            run_week(pid, wk, poor, upto=prof["week"])
 
         if prof["key"] == "red_flag":
             alerts.red_flag(pid, {"worsening_headache": True, "repeated_vomiting": False,

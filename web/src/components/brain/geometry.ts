@@ -2,8 +2,23 @@
 // lives here, so disposal is one call and the component tree stays readable.
 
 import * as THREE from "three";
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import type { Mesh as MeshPayload, Shape } from "@/api/types";
 import { REGIONS, type TractInfo } from "./regionData";
+
+// three's default Mesh.raycast walks every triangle in the geometry on every pointer
+// move. The cortex is 40,960 triangles, so hovering it ran about two and a half million
+// ray-triangle tests a second in JavaScript, which is most of a frame's budget spent
+// finding out which parcel the mouse is over.
+//
+// three-mesh-bvh replaces that with a bounding volume hierarchy built once per geometry.
+// The build costs a few milliseconds and the raycast drops to log time. These three
+// assignments are how the library is installed: `computeBoundsTree` builds it, the
+// patched `raycast` uses it when it is there and falls back to the default when it is
+// not, so nothing breaks for a geometry that never got one.
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 export const TRACT_SLOTS = 256;
 
@@ -92,6 +107,15 @@ export function buildCortex(mesh: MeshPayload, shape: Shape | undefined): Cortex
   const diff = new Float32Array(verts);
   if (shape?.template_diff && shape.template_diff.length === verts) diff.set(shape.template_diff);
   geometry.setAttribute("aTemplateDiff", new THREE.BufferAttribute(diff, 1));
+
+  // Build the acceleration structure once, here, rather than lazily on the first hover,
+  // where the few milliseconds would land as a stutter the moment somebody reaches for
+  // a region. The tree is over the pial positions, which is what the ray actually hits:
+  // inflation happens in the vertex shader and the picking ray never sees it, so a
+  // region picked on an inflated surface is the region under the pointer on the pial
+  // one. That is a real limitation of doing the deformation on the GPU and it is why
+  // the inflate slider is a display control rather than a measurement one.
+  geometry.computeBoundsTree({ maxLeafTris: 8 });
 
   geometry.computeBoundingSphere();
   const radius = geometry.boundingSphere?.radius ?? 120;

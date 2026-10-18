@@ -87,8 +87,8 @@ export default function Settings() {
           <ul className="divide-y divide-[#f1ece4]">
             {[
               { to: "/app/alerts", label: "Alerts", detail: "Every open and acknowledged monitoring flag" },
-              { to: "/app/rig", label: "Live check-in rig", detail: "The browser capture pipeline and preflight checks" },
-              { to: "/app/demo", label: "Demo console", detail: "Advance a week, inject drift, trigger a call" },
+              { to: "/clinic", label: "Patient workspaces", detail: "Brain models, check-ins, treatment pathways and live updates" },
+              { to: "/patients/new", label: "Document intake", detail: "Build a patient record and twin from uploaded documents" },
               { to: "/app/research", label: "Research", detail: "Cohort calibration and parameter recovery" },
               { to: "/app/settings#sentry", label: "Sentry demo", detail: "Send a trace, an error and a replay, and open them in Sentry" },
             ].map((t) => (
