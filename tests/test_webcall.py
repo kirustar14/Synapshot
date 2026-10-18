@@ -465,6 +465,49 @@ def test_the_post_call_text_keeps_the_clinician_sentence(seeded):
     assert twice.count(SAFETY_CLOSE) == 1, "the sentence was added twice"
 
 
+def test_no_phone_call_is_placed_without_being_asked_for():
+    """Credentials in .env are not permission to ring somebody's phone.
+
+    This guard exists because the opposite happened: ELEVENLABS_AGENT_ID,
+    ELEVENLABS_PHONE_NUMBER_ID and CLINIC_NUMBER were all set, MOCK_ELEVEN was not, and
+    every red flag and drift alert placed a real outbound call to a real person, over and
+    over, as the seed and the tests fired alerts.
+    """
+    from backend.comms import clinic_call
+
+    assert not cfg.live_clinic_call, "LIVE_CLINIC_CALL must default to off"
+    assert not clinic_call.available(), "a call must not be placeable by default"
+    assert clinic_call.why_mock(), "the reason it was not placed has to be reportable"
+
+
+def test_a_call_is_refused_to_a_number_off_the_allow_list(monkeypatch):
+    """Even with LIVE_CLINIC_CALL on, only a number on DEMO_PHONES can be dialled.
+
+    The texts always respected this list. The calls did not, which was the second half
+    of the same mistake.
+    """
+    from backend.comms import clinic_call
+
+    monkeypatch.setattr(cfg, "live_clinic_call", True)
+    assert not clinic_call.allowed("+15550001111")
+    assert not clinic_call.available("+15550001111")
+    assert "DEMO_PHONES" in clinic_call.why_mock("+15550001111")
+
+
+def test_an_alert_that_rings_the_clinic_still_only_logs(seeded):
+    """A red flag alert records the clinic call without placing one."""
+    pid = seeded[3]["id"]
+    before = len(db.rows("select * from events where patient_id=? and kind='clinic_call'", (pid,)))
+    from backend import alerts as alertmod
+
+    alertmod.red_flag(pid, {"seizure": True}, notify=True)
+    rows = db.rows("select * from events where patient_id=? and kind='clinic_call'", (pid,))
+    assert len(rows) == before + 1, "the call should still be recorded"
+    got = db.dec(rows[-1]["payload"], {}) or {}
+    assert got["live"] is False, "it must not have been dialled"
+    assert got["why_mock"], "and it must say why"
+
+
 def test_nothing_is_sent_outside_the_allow_list():
     """A number not on DEMO_PHONES is refused by both transports."""
     assert not cfg.may_text("+15550000000")

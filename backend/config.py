@@ -150,6 +150,9 @@ class Cfg:
     public_url: str = field(default_factory=lambda: (os.environ.get("PUBLIC_URL") or "").rstrip("/"))
     demo_phones: list[str] = field(default_factory=phones)
     keep_audio: bool = field(default_factory=lambda: on("KEEP_AUDIO"))
+    # Placing a real phone call needs saying so out loud. Credentials sitting in .env
+    # are not permission to ring somebody, and an alert rule can fire a lot of them.
+    live_clinic_call: bool = field(default_factory=lambda: on("LIVE_CLINIC_CALL"))
     asr: str = field(default_factory=lambda: (os.environ.get("ASR") or "whisper").lower())
     live_agent: bool = field(default_factory=lambda: on("LIVE_AGENT"))
     regional_loadings: bool = field(default_factory=lambda: on("REGIONAL_LOADINGS"))

@@ -22,21 +22,47 @@ ELEVEN_CALL = "https://api.elevenlabs.io/v1/convai/twilio/outbound-call"
 TIMEOUT_S = 30
 
 
-def available() -> bool:
-    """True when any real transport can place the call."""
+def allowed(number: str) -> bool:
+    """Whether a real call may be placed to this number at all.
+
+    Two gates, and both have to pass. LIVE_CLINIC_CALL must be set on purpose: having
+    an API key lying in .env is not permission to ring somebody's phone, and that is
+    exactly the mistake this guard exists to stop. The number must also be on
+    DEMO_PHONES, which is the same allow list the texts have always respected.
+    """
+    return cfg.live_clinic_call and cfg.may_text(number)
+
+
+def available(number: str = "") -> bool:
+    """True when any real transport can place the call to this number."""
+    number = number or cfg.clinic_number
+    if not allowed(number):
+        return False
     return eleven_ready() or twilio_ready()
 
 
 def eleven_ready() -> bool:
-    """True when the conversational agent can dial."""
+    """True when the conversational agent is configured. Not on its own permission."""
     return bool(not cfg.mock_eleven and cfg.eleven_key and cfg.eleven_agent
                 and cfg.eleven_phone and cfg.clinic_number)
 
 
 def twilio_ready() -> bool:
-    """True when Twilio can dial."""
+    """True when Twilio is configured. Not on its own permission."""
     return bool(not cfg.mock_twilio and cfg.twilio_sid and cfg.twilio_token
                 and cfg.twilio_from and cfg.clinic_number)
+
+
+def why_mock(number: str = "") -> str:
+    """Why a call was logged instead of placed, for make check and the event row."""
+    number = number or cfg.clinic_number
+    if not cfg.live_clinic_call:
+        return "LIVE_CLINIC_CALL is not set, so the call was logged and not dialled"
+    if not cfg.may_text(number):
+        return "that number is not on DEMO_PHONES, so nothing was dialled"
+    if not (eleven_ready() or twilio_ready()):
+        return "no call transport is configured"
+    return ""
 
 
 def twiml(text: str) -> str:
@@ -103,13 +129,16 @@ def via_twilio(number: str, text: str) -> dict:
 
 
 def call(pid: str, text: str, to: str | None = None) -> dict:
-    """Place the call, or log it in mock mode. Always records an event."""
+    """Place the call, or log it. Always records an event either way."""
     number = to or cfg.clinic_number
     text = safety.clean(text)
-    db.event(pid, "clinic_call", {"to": number, "text": text, "live": available()})
+    live = available(number)
+    db.event(pid, "clinic_call", {"to": number, "text": text, "live": live,
+                                  "why_mock": why_mock(number)})
 
-    if not available():
-        return {"ok": True, "how": "mock", "to": number, "script": text}
+    if not live:
+        return {"ok": True, "how": "mock", "to": number, "script": text,
+                "why": why_mock(number)}
 
     tried = []
     if eleven_ready():

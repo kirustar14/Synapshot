@@ -95,8 +95,8 @@ export default function PatientCompare() {
   const forecast = useForecast(patient.id);
   const run = useScenarios();
 
-  const [a, setA] = useState<Scenario>({ helmet: patient.injury.helmet || "A", angle_deg: patient.injury.angle_deg });
-  const [b, setB] = useState<Scenario>({ helmet: "None", angle_deg: Math.min(180, patient.injury.angle_deg + 60) });
+  const [a, setA] = useState<Scenario>({ helmet: patient.injury.helmet || "A", angle_deg: Math.round(patient.injury.angle_deg / 5) * 5 });
+  const [b, setB] = useState<Scenario>({ helmet: "None", angle_deg: Math.min(180, Math.round(patient.injury.angle_deg / 5) * 5 + 60) });
   const [result, setResult] = useState<ScenarioResult | null>(null);
 
   const scales = scaleFromDiff(result);
