@@ -21,6 +21,15 @@ if (action === "link") {
   await p.getByRole("button", { name: /Just make a link/ }).click();
   await p.waitForTimeout(2500);
 }
+if (action === "evidence") {
+  await p.getByRole("button", { name: /^Evidence$/ }).click();
+  await p.waitForTimeout(2000);
+}
+// Anything matching a tab name opens that tab, so one shot per tab needs no new flag.
+if (["Data", "Analysis", "Treatment", "Timeline"].includes(action)) {
+  await p.getByRole("tab", { name: action }).click();
+  await p.waitForTimeout(action === "Treatment" ? 2500 : 1600);
+}
 await p.screenshot({ path: out });
 console.log(errs.size ? "errors: " + [...errs].join(" | ") : "no console errors");
 await b.close();

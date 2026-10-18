@@ -8,46 +8,19 @@
 // arguing with if you can get back to the sentence in the referral letter that it
 // ultimately rests on, and that is two hovers from here.
 
-import { AlertTriangle, ChevronDown, FileText, Sigma } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, FileText, Sigma } from "lucide-react";
 import { useProvenance, type FieldSource } from "@/api/client";
 import type { Patient } from "@/api/types";
+import { Fold } from "@/components/fold";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-/** One accordion section. Open by default for the ones a clinician reads first. */
-function Accordion({
-  title,
-  count,
-  children,
-  start = false,
-}: {
-  title: string;
-  count?: number;
-  children: React.ReactNode;
-  start?: boolean;
-}) {
-  const [open, setOpen] = useState(start);
-  return (
-    <section className="border-b border-border/60 last:border-b-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-ring"
-      >
-        <ChevronDown
-          className={cn("h-3.5 w-3.5 shrink-0 transition-transform", !open && "-rotate-90")}
-          aria-hidden
-        />
-        <span className="flex-1 text-xs font-black uppercase tracking-wide">{title}</span>
-        {count !== undefined && (
-          <span className="text-[10px] text-muted-foreground">{count}</span>
-        )}
-      </button>
-      {open && <div className="pb-3">{children}</div>}
-    </section>
-  );
+/** A few words, cut at a word boundary rather than mid-syllable. */
+function short(text: string, at = 42) {
+  const t = String(text ?? "").trim();
+  if (t.length <= at) return t;
+  const cut = t.slice(0, at);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > 0 ? cut.lastIndexOf(" ") : at)}...`;
 }
 
 /** A value with its provenance behind a hover. */
@@ -135,6 +108,34 @@ export function DataTab({ patient }: { patient: Patient }) {
   const injury = patient.injury;
   const bio = patient.biomarkers;
   const chart = patient.chart ?? { medications: [], reported_symptoms: [] };
+  const meds = chart.medications ?? [];
+  const symptoms = chart.reported_symptoms ?? [];
+
+  // A closed section is a line of text, so the line has to be the thing you would have
+  // opened it for. These are the values somebody reads out loud, not a field count.
+  const injurySummary = short(injury.mechanism || "mechanism not recorded");
+  const imaging = [injury.contusion && `contusion ${injury.contusion}`,
+                   injury.swi_foci ? `${injury.swi_foci} SWI foci` : ""]
+    .filter(Boolean).join(", ");
+  const imagingSummary = imaging || (injury.ct_finding || injury.mri_finding ? "reported" : "");
+  const bloods = [bio.gfap_pg_ml != null && `GFAP ${bio.gfap_pg_ml}`,
+                  bio.uchl1_pg_ml != null && `UCH-L1 ${bio.uchl1_pg_ml}`]
+    .filter(Boolean).join(", ");
+  const bloodSummary = bloods ? `${bloods} pg/mL` : "none read";
+  const genotypeSummary = [patient.alleles.apoe, patient.alleles.bdnf].filter(Boolean).join(", ");
+  const medSummary = meds.map((m) => m.name).join(", ");
+  const symptomSummary = symptoms.slice(0, 3).join(", ")
+    + (symptoms.length > 3 ? ` and ${symptoms.length - 3} more` : "");
+  const inputSummary = `${patient.inputs.filter((f) => f.status !== "missing").length} of `
+    + `${patient.inputs.length} present, ${patient.template_only ? "template twin" : "personal twin"}`;
+
+  // Sections with nothing in them are not shown. A row that only ever says "none named"
+  // is a row somebody reads once and then has to keep skipping past.
+  const hasImaging = Boolean(injury.ct_finding || injury.mri_finding || injury.contusion
+    || injury.swi_foci);
+  const hasBloods = bio.gfap_pg_ml != null || bio.uchl1_pg_ml != null || bio.nfl_pg_ml != null;
+  const hasGenotype = Boolean(patient.alleles.apoe || patient.alleles.bdnf
+    || patient.alleles.apoe_e4 || patient.alleles.bdnf_met);
 
   return (
     <div className="text-sm">
@@ -155,7 +156,7 @@ export function DataTab({ patient }: { patient: Patient }) {
         </p>
       )}
 
-      <Accordion title="Injury" start>
+      <Fold id="data.injury" title="Injury" summary={injurySummary}>
         <Value label="Mechanism" value={injury.mechanism} source={src("injury_mechanism")} threshold={threshold} />
         <Value label="Date" value={injury.date} source={src("injury_date")} threshold={threshold} />
         {injury.days_ago !== null && injury.days_ago !== undefined && (
@@ -168,9 +169,10 @@ export function DataTab({ patient }: { patient: Patient }) {
           <Value label="Loss of consciousness" value={injury.loc_seconds} unit=" s" source={src("loc_seconds")} threshold={threshold} />
         )}
         <Value label="Impact site used" value={injury.location} threshold={threshold} />
-      </Accordion>
+      </Fold>
 
-      <Accordion title="Imaging" start>
+      {hasImaging && (
+      <Fold id="data.imaging" title="Imaging" summary={imagingSummary}>
         {injury.ct_finding && (
           <Value label="CT" value={injury.ct_finding} source={src("ct_finding")} threshold={threshold} />
         )}
@@ -183,12 +185,11 @@ export function DataTab({ patient }: { patient: Patient }) {
         {injury.swi_foci !== null && injury.swi_foci !== undefined && (
           <Value label="SWI foci" value={injury.swi_foci} source={src("swi_foci")} threshold={threshold} />
         )}
-        {!injury.ct_finding && !injury.mri_finding && (
-          <p className="px-1.5 text-xs text-muted-foreground">No imaging report was read.</p>
-        )}
-      </Accordion>
+      </Fold>
+      )}
 
-      <Accordion title="Bloods" start>
+      {hasBloods && (
+      <Fold id="data.bloods" title="Bloods" summary={bloodSummary}>
         {bio.gfap_pg_ml !== null && bio.gfap_pg_ml !== undefined ? (
           <Value label="GFAP" value={bio.gfap_pg_ml} unit=" pg/mL" source={src("gfap_pg_ml")} threshold={threshold} />
         ) : null}
@@ -207,23 +208,24 @@ export function DataTab({ patient }: { patient: Patient }) {
           for ruling out injury on CT, not reference intervals. The z is this model's own axis and
           says nothing about whether a scan is needed. NfL is shown and not modelled.
         </p>
-      </Accordion>
+      </Fold>
+      )}
 
-      <Accordion title="Genotype">
+      {hasGenotype && (
+      <Fold id="data.genotype" title="Genotype" summary={genotypeSummary}>
         <Value label="APOE" value={patient.alleles.apoe ?? `${patient.alleles.apoe_e4} e4 allele(s)`} source={src("apoe")} threshold={threshold} />
         <Value label="BDNF Val66Met" value={patient.alleles.bdnf ?? (patient.alleles.bdnf_met ? "Met carrier" : "Val/Val")} source={src("bdnf")} threshold={threshold} />
         <p className="mt-1.5 px-1.5 text-[10px] leading-snug text-muted-foreground">
           Both are covariates on the recovery rate with wide priors, and both are contested in the
           TBI literature. Neither changes brain shape: DNA never reaches the geometry.
         </p>
-      </Accordion>
+      </Fold>
+      )}
 
-      <Accordion title="Medication" count={chart.medications?.length ?? 0}>
-        {(chart.medications ?? []).length === 0 && (
-          <p className="px-1.5 text-xs text-muted-foreground">No medication was read from the documents.</p>
-        )}
+      {meds.length > 0 && (
+      <Fold id="data.medication" title="Medication" summary={medSummary}>
         <ul className="space-y-1">
-          {(chart.medications ?? []).map((m) => (
+          {meds.map((m) => (
             <li key={m.name} className="flex items-baseline justify-between gap-2 px-1.5 py-0.5">
               <span className="text-xs font-bold capitalize">{m.name}</span>
               <span className="text-xs text-muted-foreground">
@@ -237,29 +239,26 @@ export function DataTab({ patient }: { patient: Patient }) {
             </li>
           ))}
         </ul>
-        {(chart.medications ?? []).length > 0 && (
-          <p className="mt-1.5 px-1.5 text-[10px] text-muted-foreground">
-            Doses are shown exactly as the chart wrote them. Nothing parses them and no dose reaches
-            the model.
-          </p>
-        )}
-      </Accordion>
+        <p className="mt-1.5 px-1.5 text-[10px] text-muted-foreground">
+          Doses are shown exactly as the chart wrote them. Nothing parses them and no dose reaches
+          the model.
+        </p>
+      </Fold>
+      )}
 
-      <Accordion title="Reported symptoms" count={chart.reported_symptoms?.length ?? 0}>
-        {(chart.reported_symptoms ?? []).length === 0 ? (
-          <p className="px-1.5 text-xs text-muted-foreground">None named in the documents.</p>
-        ) : (
-          <div className="flex flex-wrap gap-1 px-1.5">
-            {(chart.reported_symptoms ?? []).map((s) => (
-              <span key={s} className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize">
-                {s}
-              </span>
-            ))}
-          </div>
-        )}
-      </Accordion>
+      {symptoms.length > 0 && (
+      <Fold id="data.symptoms" title="Reported symptoms" summary={symptomSummary}>
+        <div className="flex flex-wrap gap-1 px-1.5">
+          {symptoms.map((s) => (
+            <span key={s} className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize">
+              {s}
+            </span>
+          ))}
+        </div>
+      </Fold>
+      )}
 
-      <Accordion title="Model inputs" count={patient.inputs.length}>
+      <Fold id="data.inputs" title="Model inputs" summary={inputSummary}>
         <ul className="space-y-1">
           {patient.inputs.map((f) => (
             <li key={f.kind} className="flex items-baseline justify-between gap-2 px-1.5 py-0.5">
@@ -277,7 +276,7 @@ export function DataTab({ patient }: { patient: Patient }) {
           <Value label="FC fit" value={patient.fc_fit === null ? "no personal fMRI" : patient.fc_fit.toFixed(3)} threshold={threshold} />
           <Value label="Twin" value={patient.template_only ? "template only" : "personal"} threshold={threshold} />
         </div>
-      </Accordion>
+      </Fold>
     </div>
   );
 }

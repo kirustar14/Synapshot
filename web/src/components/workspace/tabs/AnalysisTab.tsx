@@ -12,39 +12,55 @@
 
 import { AlertTriangle, BookOpenCheck, TrendingUp } from "lucide-react";
 import { useMemo } from "react";
-import { useAttribution, useForecast, usePercentile } from "@/api/client";
-import type { Patient, Signal } from "@/api/types";
+import { useAttribution, useForecast, useMesh, usePercentile, useTwin } from "@/api/client";
+import type { Mesh, Patient, Signal, Twin } from "@/api/types";
+import { regionLabel } from "@/components/brain";
 import { ChartKey, SignalChart } from "@/components/charts/SignalChart";
 import { Loading } from "@/components/common";
+import { Fold } from "@/components/fold";
 import { DriftBar } from "@/components/panels/DriftBar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/pages/Workspace";
 
-function Block({ title, children, onWhy }: { title: string; children: React.ReactNode; onWhy?: () => void }) {
+/**
+ * A tract written the way somebody says it, rather than as two Schaefer codes.
+ *
+ * The mesh has to be passed in. Without it `regionLabel` has no lobe and no centroid and
+ * every region comes back "left cortex", which is how this read before: "led by left
+ * cortex to left cortex". The mesh query is parameterless and cached forever, and the
+ * viewer on this same screen has already fetched it, so asking for it here costs nothing.
+ */
+function tractName(
+  t: { a?: number | null; b?: number | null; name: string },
+  mesh: Mesh | undefined,
+  twin: Twin | undefined,
+) {
+  const ends = [t.a, t.b]
+    .filter((i): i is number => typeof i === "number")
+    .map((i) => regionLabel(mesh, twin, i).plain);
+  if (ends.length !== 2) return ends[0] ?? t.name;
+  // Two different Schaefer parcels can share one plain name, and "left back parietal to
+  // left back parietal" reads as a bug even though it is not one.
+  return ends[0] === ends[1] ? `within ${ends[0]}` : `${ends[0]} to ${ends[1]}`;
+}
+
+/** The Evidence link that used to sit in each section header, now inside the section. */
+function Why({ onClick }: { onClick: () => void }) {
   return (
-    <section className="border-b border-border/60 py-3 last:border-b-0">
-      <div className="mb-2 flex items-center gap-2">
-        <h3 className="flex-1 text-xs font-black uppercase tracking-wide">{title}</h3>
-        {onWhy && (
-          <button
-            type="button"
-            onClick={onWhy}
-            className="inline-flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-foreground"
-          >
-            <BookOpenCheck className="h-3 w-3" aria-hidden /> Evidence
-          </button>
-        )}
-      </div>
-      {children}
-    </section>
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-foreground"
+    >
+      <BookOpenCheck className="h-3 w-3" aria-hidden /> Evidence for this
+    </button>
   );
 }
 
 /** The cohort ribbon with this patient's marker on it. */
-function PercentileRibbon({ patientId }: { patientId: string }) {
-  const pct = usePercentile(patientId);
+function PercentileRibbon({ pct }: { pct: ReturnType<typeof usePercentile> }) {
   const data = pct.data;
 
   const bars = useMemo(() => {
@@ -105,15 +121,34 @@ function PercentileRibbon({ patientId }: { patientId: string }) {
 export function AnalysisTab({ patient }: { patient: Patient }) {
   const forecast = useForecast(patient.id);
   const attribution = useAttribution(patient.id);
+  const pct = usePercentile(patient.id);
+  const mesh = useMesh();
+  const twin = useTwin(patient.id);
   const { openEvidence, setRegion, week } = useWorkspace();
 
   const signals: Signal[] = forecast.data?.signals ?? [];
   const drift = patient.drift_z;
   const drifting = drift > 2.0;
+  const openFlags = patient.alerts.filter((a) => !a.acked).length;
+  const lead = attribution.data?.[0]?.tracts?.[0];
+
+  // Each closed section says the thing it is about, so the tab reads as four answers
+  // before anybody opens a chart.
+  const forecastSummary = signals.length
+    ? `${signals.length} signals, 80% bands`
+    : "no forecast until the first check-in";
+  const driftSummary = `drift z ${drift.toFixed(2)}, ${drifting ? "above the threshold" : "inside the band"}`
+    + `, ${openFlags} flag${openFlags === 1 ? "" : "s"}`;
+  const cohortSummary = pct.data?.ok
+    ? (pct.data.outside ? `${pct.data.outside} the cohort` : `${Math.round(pct.data.percentile ?? 0)}th percentile`)
+    : "no population fit yet";
+  // No "led by" prefix: the section is already called What drives it, and the prefix
+  // read as "led by within left back parietal" for a tract with both ends in one parcel.
+  const driverSummary = lead ? tractName(lead, mesh.data, twin.data) : "nothing scored yet";
 
   return (
     <div className="text-sm">
-      <Block title="Recovery forecast" onWhy={() => openEvidence("Filtering and forecasting")}>
+      <Fold id="analysis.forecast" title="Recovery forecast" summary={forecastSummary}>
         {forecast.isLoading && <Loading label="Loading the forecast" />}
         {forecast.data && signals.length > 0 && (
           <>
@@ -141,9 +176,10 @@ export function AnalysisTab({ patient }: { patient: Patient }) {
             No forecast yet. The first check-in sets the baseline.
           </p>
         )}
-      </Block>
+        <Why onClick={() => openEvidence("Filtering and forecasting")} />
+      </Fold>
 
-      <Block title="Drift and flags">
+      <Fold id="analysis.drift" title="Drift and flags" summary={driftSummary}>
         <div className="flex items-center gap-3">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -172,17 +208,18 @@ export function AnalysisTab({ patient }: { patient: Patient }) {
           </div>
           <div className="rounded-lg bg-muted/50 px-2.5 py-2">
             <p className="text-[10px] font-bold uppercase text-muted-foreground">Open flags</p>
-            <p className="text-sm font-black">{patient.alerts.filter((a) => !a.acked).length}</p>
+            <p className="text-sm font-black">{openFlags}</p>
             <p className="text-[10px] text-muted-foreground">click one in the rail for its rule</p>
           </div>
         </div>
-      </Block>
+      </Fold>
 
-      <Block title="Population context" onWhy={() => openEvidence("Filtering and forecasting")}>
-        <PercentileRibbon patientId={patient.id} />
-      </Block>
+      <Fold id="analysis.cohort" title="Population context" summary={cohortSummary}>
+        <PercentileRibbon pct={pct} />
+        <Why onClick={() => openEvidence("Filtering and forecasting")} />
+      </Fold>
 
-      <Block title="What drives it">
+      <Fold id="analysis.drivers" title="What drives it" summary={driverSummary}>
         {attribution.isLoading && <Loading label="Scoring the tracts" />}
         {attribution.data && attribution.data.length === 0 && (
           <p className="text-xs text-muted-foreground">Nothing scored yet.</p>
@@ -200,7 +237,7 @@ export function AnalysisTab({ patient }: { patient: Patient }) {
                       className="flex w-full items-baseline justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-muted"
                     >
                       <span className="truncate text-[11px] capitalize text-muted-foreground">
-                        {t.name}
+                        {tractName(t, mesh.data, twin.data)}
                       </span>
                       <span className="shrink-0 font-mono text-[10px]">
                         {t.score > 0 ? "+" : ""}
@@ -218,7 +255,7 @@ export function AnalysisTab({ patient }: { patient: Patient }) {
           Each score is how much that signal would move if this tract were healed, in the signal's
           own units. It is the model's own arithmetic, not a measured contribution.
         </p>
-      </Block>
+      </Fold>
     </div>
   );
 }

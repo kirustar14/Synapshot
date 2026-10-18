@@ -13,8 +13,25 @@ import { AlertTriangle, BookOpenCheck, Check, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useEvidence, type EvidenceNumber } from "@/api/client";
 import { Loading } from "@/components/common";
+import { Fold } from "@/components/fold";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+
+/**
+ * The limits come straight out of docs/RESEARCH.md, where each one opens with a bold
+ * headline sentence. Rendered raw that reads as `**Every patient is synthetic.**`, and
+ * this is one of the three places the framing is kept, so it has to read like prose.
+ * Only bold, because only bold is used.
+ */
+function Markdown({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("**").map((part, i) =>
+        i % 2 ? <strong key={i}>{part}</strong> : <span key={i}>{part}</span>,
+      )}
+    </>
+  );
+}
 
 function NumberRow({ row }: { row: EvidenceNumber }) {
   return (
@@ -114,18 +131,23 @@ export function EvidenceDrawer({
                 </p>
               )}
 
-              <h3 className="mb-2 text-[10px] font-black uppercase tracking-wide text-muted-foreground">
-                The numbers, as they are right now
-              </h3>
-              <ul className="space-y-2">
-                {numbers.map((n) => (
-                  <NumberRow key={n.name} row={n} />
-                ))}
-              </ul>
+              <Fold
+                id="evidence.numbers"
+                title="The numbers, as they are right now"
+                summary={`${numbers.length} live, ${evidence.data.weak.length} below target`}
+              >
+                <ul className="space-y-2">
+                  {numbers.map((n) => (
+                    <NumberRow key={n.name} row={n} />
+                  ))}
+                </ul>
+              </Fold>
 
-              <h3 className="mb-2 mt-6 text-[10px] font-black uppercase tracking-wide text-muted-foreground">
-                The claims
-              </h3>
+              <Fold
+                id="evidence.claims"
+                title="The claims"
+                summary={`${evidence.data.claims.length} across ${evidence.data.sections.length} sections`}
+              >
               <div className="mb-3 flex flex-wrap gap-1">
                 {(["all", "verified", "check this"] as const).map((t) => (
                   <button
@@ -198,14 +220,18 @@ export function EvidenceDrawer({
                   <li className="text-xs text-muted-foreground">Nothing matches that filter.</li>
                 )}
               </ul>
+              </Fold>
 
-              <h3 className="mb-2 mt-6 text-[10px] font-black uppercase tracking-wide text-destructive">
+              {/* Not a fold. This is one of the three places the framing is kept, and a
+                  disclosure somebody has to open is a disclosure most people never read.
+                  With the two lists above it closed, it is the first thing in the drawer. */}
+              <h3 className="mb-2 mt-5 text-[10px] font-black uppercase tracking-wide text-destructive">
                 Honest limits
               </h3>
               <ol className="list-decimal space-y-2 pl-4">
                 {evidence.data.limits.map((l) => (
                   <li key={l} className="text-[11px] leading-snug">
-                    {l}
+                    <Markdown text={l} />
                   </li>
                 ))}
               </ol>

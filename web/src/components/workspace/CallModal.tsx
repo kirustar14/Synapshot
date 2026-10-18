@@ -17,7 +17,6 @@
 
 import {
   Check,
-  ChevronDown,
   Copy,
   Laptop,
   Loader2,
@@ -31,6 +30,7 @@ import { api } from "@/api/client";
 import type { StreamState } from "@/api/stream";
 import type { CallStart, Patient } from "@/api/types";
 import { queryClient } from "@/App";
+import { Fold } from "@/components/fold";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -88,37 +88,6 @@ function QR({ text, size = 160 }: { text: string; size?: number }) {
       aria-label="QR code for the check-in link"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
-  );
-}
-
-/** A section that is closed until it has something to say. */
-function Fold({
-  title,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-border/70">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold outline-none"
-      >
-        <ChevronDown
-          className={cn("h-3.5 w-3.5 shrink-0 transition-transform", !open && "-rotate-90")}
-          aria-hidden
-        />
-        {title}
-      </button>
-      {open && <div className="border-t border-border/60 px-3 py-2.5">{children}</div>}
-    </div>
   );
 }
 
@@ -352,7 +321,7 @@ export function CallModal({
             </div>
 
             {detail && (
-              <Fold title="Details" open={showDetails} onToggle={() => setShowDetails(!showDetails)}>
+              <Fold boxed id="call.details" title="Details" open={showDetails} onToggle={() => setShowDetails(!showDetails)}>
                 <p className="break-words text-[11px] leading-snug text-muted-foreground">{detail}</p>
                 {(call.tried ?? []).length > 0 && (
                   <ul className="mt-2 space-y-1">
@@ -366,7 +335,7 @@ export function CallModal({
               </Fold>
             )}
 
-            <Fold title="Live call" open={showLive} onToggle={() => setShowLive(!showLive)}>
+            <Fold boxed id="call.live" title="Live call" open={showLive} onToggle={() => setShowLive(!showLive)}>
               <LiveStrip stream={stream} />
             </Fold>
 

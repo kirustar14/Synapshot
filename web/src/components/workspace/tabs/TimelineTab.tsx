@@ -9,8 +9,9 @@ import { CalendarClock, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useCheckins, useTimeline, type TimelineEvent } from "@/api/client";
 import type { Patient } from "@/api/types";
-import { Loading, fmtDate } from "@/components/common";
 import { LineTrace } from "@/components/charts/LineTrace";
+import { Loading, fmtDate } from "@/components/common";
+import { Fold } from "@/components/fold";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/pages/Workspace";
@@ -221,10 +222,12 @@ export function TimelineTab({ patient }: { patient: Patient }) {
         </div>
       )}
 
-      <div className="mt-4">
-        <p className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-muted-foreground">
-          Measured over time
-        </p>
+      <Fold
+        id="timeline.traces"
+        title="Measured over time"
+        summary={traces.enough ? `${traces.shown.length} of ${traces.names.length} series` : "not enough check-ins yet"}
+        className="mt-4 border-t border-border/60"
+      >
         <div className="mb-2 flex flex-wrap gap-1">
           {traces.names.map((name) => (
             <button
@@ -259,7 +262,7 @@ export function TimelineTab({ patient }: { patient: Patient }) {
             Not enough check-ins yet to draw a line. Two weeks makes a trend.
           </p>
         )}
-      </div>
+      </Fold>
     </div>
   );
 }

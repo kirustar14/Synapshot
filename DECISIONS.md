@@ -1084,5 +1084,83 @@ surface" only when the fit is missing. Both are failure states: they are not tru
 frame, and they change what you should believe about what is in front of you. A permanent
 chip is furniture; an intermittent one is information.
 
-The Data tab's provenance rows still say whether each input is real or synthetic per file,
-because there it is the value of a field somebody is reading, not a banner over it.
+The Data tab's Model inputs section still says, per file, what was provided and what was
+not, because there it is the value of a field somebody is reading, not a banner over it.
+
+## Polish pass, step 2: every section starts closed, and says what is inside it
+
+The right-hand column opened six sections at once. Injury, Imaging, Bloods and the four
+Analysis blocks were all expanded before anybody had asked a question, so the column was
+a wall of labelled numbers and most of what you could see was not what you were looking
+for.
+
+Everything folds now, and everything starts closed. There is one `Fold` in
+`web/src/components/fold.tsx` and the Data tab, the Analysis tab, the Timeline traces,
+the Evidence drawer and the call modal all use it.
+
+### A closed section has to earn its line
+
+A row that only says "IMAGING" is a row you have to open to find out whether opening it
+was worth it. Every fold carries a summary: the values somebody would have opened it for.
+Bloods says "GFAP 412, UCH-L1 318 pg/mL". Drift says "drift z 0.00, inside the band, 0
+flags". Population context says "62nd percentile". Often the summary is the whole answer
+and the section never gets opened, which is the point.
+
+The summary replaces itself with the body when opened, rather than sitting above it
+repeating what is now directly below.
+
+### Empty sections are not shown at all
+
+Medication with nothing on the chart, symptoms with none named, imaging with no report:
+these used to render a header and a line of grey text saying there was nothing there. A
+row that only ever says "none" is a row somebody reads once and then skips forever. They
+are gone when empty, which also means the number of rows is itself information.
+
+### Remembering it, without letting storage break a panel
+
+Which folds are open is one key in localStorage. Reading and writing are both wrapped,
+because localStorage throws rather than returning null in private mode and inside some
+embedded webviews, and a thrown storage error must never be the reason a panel fails to
+render. Anything unreadable, or any value that is not exactly `true`, means closed. That
+is the safe default in both directions: nothing that was open gets hidden, and a fresh
+machine never opens to a wall of text.
+
+Seven tests cover this, because all of it is invisible on a screenshot: a section that
+quietly reopens, a summary that never comes back after closing, and a browser with
+storage switched off taking the panel down with it. None of those throw.
+
+### Two things that did not fold
+
+**Honest limits in the Evidence drawer.** It is one of the three places the framing is
+kept, and a disclosure somebody has to click is a disclosure most people never read. With
+the numbers and the claims above it closed, it is now the first substantial thing in the
+drawer rather than something you reach after scrolling past twenty-four claims.
+
+**The Treatment tab.** It is a workflow, not a set of sections: search, pick, simulate.
+Its results appear because somebody pressed Simulate, so they are already behind a
+deliberate action, and the one genuinely optional part was already a closed disclosure.
+
+### SidePanels.tsx is gone
+
+332 lines holding a second copy of the region card, the tract list and the person
+summary. All four exports have been unreachable since the five screens became one
+workspace. A second copy of a panel nobody can open is a copy that drifts.
+
+### Two things the summaries exposed
+
+Writing a one-line summary forces you to read what a section actually says, and both of
+these had been on screen for weeks without being noticed.
+
+**The limits rendered their own markdown.** Each limit in docs/RESEARCH.md opens with a
+bold headline sentence, and the drawer printed it raw: `**Every patient in this system is
+synthetic.**`. This is one of the three places the framing is kept, so it has to read
+like prose. The drawer renders the bold now. Only bold, because only bold is used.
+
+**Regions in the tabs were "left cortex".** The Analysis and Treatment tabs called
+`regionLabel(undefined, undefined, i)`, and without the mesh that function has no lobe and
+no centroid, so every parcel in the cohort came back the same: "led by left cortex to left
+cortex", and the Treatment tab's most-changed list said it too. Both tabs take the mesh
+now. It costs nothing: the mesh query is parameterless and never goes stale, and the
+viewer on the same screen has already fetched it. Two different Schaefer parcels can still
+share one plain name, so a tract with both ends in one parcel reads "within left back
+parietal" rather than "X to X", which looks like a bug even when it is not.

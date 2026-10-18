@@ -13,7 +13,7 @@
 
 import { AlertTriangle, Ban, Loader2, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useDrugImpact, useFormulary, type DrugEntry } from "@/api/client";
+import { useDrugImpact, useFormulary, useMesh, useTwin, type DrugEntry } from "@/api/client";
 import type { Patient } from "@/api/types";
 import { regionLabel, useViewer } from "@/components/brain";
 import { Loading } from "@/components/common";
@@ -129,6 +129,12 @@ export function TreatmentTab({ patient }: { patient: Patient }) {
   const impact = useDrugImpact(patient.id, selection, gain, run && picked.length > 0);
   const got = impact.data;
 
+  // Without the mesh, regionLabel has no lobe and no centroid and every region comes back
+  // "left cortex". Both queries are already in the cache: the viewer on this same screen
+  // fetched them, and the mesh one is parameterless and never goes stale.
+  const mesh = useMesh();
+  const twin = useTwin(patient.id);
+
   const top = useMemo(() => {
     if (!got?.modeled || !got.region_effect) return [];
     return (got.top_changed ?? []).map((i) => ({
@@ -136,9 +142,9 @@ export function TreatmentTab({ patient }: { patient: Patient }) {
       effect: got.region_effect![i],
       lo: got.lo?.[i] ?? 0,
       hi: got.hi?.[i] ?? 0,
-      label: regionLabel(undefined, undefined, i).plain,
+      label: regionLabel(mesh.data, twin.data, i).plain,
     }));
-  }, [got]);
+  }, [got, mesh.data, twin.data]);
 
   return (
     <div className="text-sm">
