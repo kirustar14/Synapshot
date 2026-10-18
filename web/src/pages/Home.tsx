@@ -3,55 +3,42 @@
 // demo and every extra control on it is a thing somebody has to decide not to click.
 
 import { ArrowRight, Plus } from "lucide-react";
-import { Suspense, lazy } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
-// three, drei and postprocessing are the biggest thing in the bundle. Lazy, so the first
-// paint is text and the canvas arrives behind it.
-const BrainViewer = lazy(() => import("@/components/brain/BrainViewer"));
-
-/** What fills the frame while the viewer chunk loads. Same colours, so nothing jumps. */
-function Placeholder() {
-  return (
-    <div className="h-full w-full rounded-full bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,0.22),rgba(7,14,18,0)_68%)]" />
-  );
-}
-
 export default function Home() {
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#070e12] text-cyan-50">
-      {/* The hologram sits behind the words rather than beside them, so on a narrow
-          screen the layout does not have to choose between them. */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div className="h-[min(88vh,760px)] w-[min(88vw,760px)] opacity-[0.55]">
-          <Suspense fallback={<Placeholder />}>
-            <BrainViewer patientId="" spin bare compact height={760} />
-          </Suspense>
-        </div>
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-background text-foreground">
+      {/* The thin mono strip. It is the one place the framing is said on this screen. */}
+      <div className="status-strip relative z-20 px-4 py-2 text-muted-foreground">
+        SYNAPSHOT &middot; DEMO MODE &middot; SYNTHETIC PATIENT
       </div>
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(7,14,18,0.1),rgba(7,14,18,0.92)_72%)]"
-        aria-hidden
-      />
+
+      {/* The brain used to sit behind the words here. It is gone: the headline is the
+          thing to read on this screen, and a rendered cortex behind it was competing
+          with it for the one thing a landing page has to do. The brain is the whole
+          point of the workspace, which is one click away. */}
 
       <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 text-center">
-        <h1 className="text-5xl font-black tracking-tight sm:text-7xl">
-          Synapshot<span className="text-cyan-400">.</span>
+        <h1 className="display text-6xl sm:text-8xl">
+          A snapshot of your <span className="display-em">brain</span>, every week
         </h1>
-        <p className="mt-4 max-w-xl text-lg text-cyan-100/80 sm:text-xl">A snapshot of your brain, every week.</p>
+        <p className="mt-6 max-w-xl text-base text-foreground/70 sm:text-lg">
+          A personal brain twin for traumatic brain injury, measured from a weekly check-in
+          the patient runs on their own phone.
+        </p>
 
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Button asChild size="lg" className="min-w-52">
             <Link to="/clinic">
-              Open the clinic
+              Open clinic
               <ArrowRight aria-hidden />
             </Link>
           </Button>
-          <Button asChild size="lg" variant="outline" className="min-w-52 border-cyan-300/30 bg-black/30 text-cyan-50 hover:bg-cyan-400/10">
+          <Button asChild size="lg" variant="outline" className="min-w-52">
             <Link to="/patients/new">
               <Plus aria-hidden />
-              Add a patient
+              Add patient
             </Link>
           </Button>
         </div>

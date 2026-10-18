@@ -54,6 +54,16 @@ interface ViewerState {
   setFlag: (patch: Partial<Pick<ViewerState, "hologram" | "reduceMotion" | "tracts" | "borders" | "ghost" | "callouts" | "vessels" | "arteries" | "foci">>) => void;
   setHemi: (h: HemiMode) => void;
 
+  /* ---- the pathway viewer ---- */
+
+  /** Medicines currently lit on the brain, by name. Several at once, each its own colour. */
+  drugs: string[];
+  toggleDrug: (name: string) => void;
+  clearDrugs: () => void;
+  /** A pathway key to flash once, set by clicking its name in a medicine's dropdown. */
+  flashed: string;
+  flashPathway: (key: string) => void;
+
   hovered: number | null;
   selected: number | null;
   setHovered: (id: number | null) => void;
@@ -106,6 +116,20 @@ const prefersReduced =
     : false;
 
 export const useViewer = create<ViewerState>((set) => ({
+  drugs: [],
+  // Toggling is instant because there is nothing to compute: the density map is already
+  // loaded and the pathway is a fixed polyline. The version of this tab that made you
+  // press a button existed because it was running a model first. This one is not.
+  toggleDrug: (name) =>
+    set((prev) => ({
+      drugs: prev.drugs.includes(name)
+        ? prev.drugs.filter((d) => d !== name)
+        : [...prev.drugs, name],
+    })),
+  clearDrugs: () => set({ drugs: [] }),
+  flashed: "",
+  flashPathway: (key) => set({ flashed: key }),
+
   layer: "damage",
   setLayer: (layer) => set({ layer }),
 

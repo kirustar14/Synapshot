@@ -28,7 +28,7 @@ export function RightPanel({ patient }: { patient: Patient }) {
   const { tab, setTab } = useWorkspace();
 
   return (
-    <aside className="order-3 flex flex-col rounded-2xl border border-border/70 bg-card lg:min-h-0 lg:overflow-hidden">
+    <aside className="order-3 flex flex-col lg:min-h-0 lg:overflow-hidden lg:border-l lg:border-border/60 lg:pl-7">
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="m-2 grid shrink-0 grid-cols-4">
           {TABS.map((t) => (

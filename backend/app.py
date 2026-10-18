@@ -338,55 +338,82 @@ def get_receptors() -> dict:
     return interv.receptors()
 
 
-BANNER = ("Hypothetical what-if on a network model. Not a treatment recommendation, not "
-          "a prediction, and no dose is modelled.")
+# The Treatment tab used to simulate a drug: it perturbed the dynamic mean field model
+# with a receptor-weighted gain and showed a baseline, a with-drug and a difference. That
+# is a treatment response prediction, and nothing in this system has the standing to make
+# one. It is gone, along with the /intervention route and the effect size slider, and
+# what replaced it only shows where a medicine's known targets and pathways are. See
+# DECISIONS.md.
 
 
-@app.get("/api/formulary", response_model=models.Formulary)
+@app.get("/api/formulary", response_model=None)
 def get_formulary() -> dict:
-    """The drug list, what each one acts on, and what the maps behind it really are.
+    """Every medicine, what it does, what it acts on, and where that is in the brain.
 
-    Drugs this model cannot represent stay in the list with the reason. Leaving them out
-    would make the formulary look like a complete picture of what somebody is taking.
+    Medicines with no mapped brain target stay in the list with that said plainly.
+    Leaving them out would make the formulary look like a complete picture of what
+    somebody is taking when it is not.
     """
-    from .twin import drugs as drugmod
+    from .data import drugs as drugmod
 
-    rec = drugmod.receptor_payload()
-    return {
-        "drugs": drugmod.drugs(),
-        "receptors": rec["names"],
-        "tracers": rec.get("tracers") or {},
-        "stand_in": rec.get("stand_in") or [],
-        "synthetic_template": bool(rec.get("synthetic_template")),
-        "banner": BANNER,
-        "note": rec.get("note", ""),
-    }
+    return drugmod.listing()
 
 
-@app.post("/api/patients/{pid}/intervention", response_model=None)
-def post_intervention(pid: str, body: models.InterventionBody):
-    """A clinician only what-if: a receptor slider, or a drug from the formulary.
+@app.get("/api/pathways", response_model=None)
+def get_pathways() -> dict:
+    """Schematic transmitter pathways, in the same space as the mesh and the vessels."""
+    from .data import drugs as drugmod
 
-    Both are the same perturbation underneath. The slider scales one receptor map; a drug
-    combines its own targets into one weight first. Neither ever reaches a patient: no
-    text, no summary and no forecast sees any of this, and the API test checks that.
+    return drugmod.pathways()
+
+
+@app.get("/api/drugs/{name}", response_model=None)
+def get_drug(name: str) -> dict:
+    """One medicine's full record."""
+    from .data import drugs as drugmod
+
+    got = drugmod.drug(name)
+    if got is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.clean_record(got)
+
+
+@app.get("/api/drugs/{name}/map", response_model=None)
+def get_drug_map(name: str) -> dict:
+    """Per target z scored density over the 100 regions, and the mean across targets."""
+    from .data import drugs as drugmod
+
+    if drugmod.drug(name) is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.density(name)
+
+
+@app.get("/api/patients/{pid}/drugs/{name}/overlap", response_model=None)
+def get_drug_overlap(pid: str, name: str, week: int = 0) -> dict:
+    """Regions that are both damaged in this patient and dense in this drug's targets.
+
+    An intersection of two maps. It does not say the medicine reaches those regions and
+    it does not say anything would improve if it did.
     """
     need(pid)
-    from .twin import drugs as drugmod
-    from .twin import intervention as interv
+    from .data import drugs as drugmod
 
-    if body.drugs:
-        picked = [{"name": d.name, "gain": d.gain} for d in body.drugs]
-        gain = next((d.gain for d in body.drugs if d.gain is not None), body.gain)
-        got = drugmod.simulate(pid, picked, float(gain))
-        return {"kind": "drugs", "banner": BANNER, **got}
+    if drugmod.drug(name) is None:
+        raise HTTPException(404, f"no medicine called {name}")
+    return drugmod.overlap(pid, name, week=week)
 
-    if not body.target:
-        raise HTTPException(400, "give either a receptor target or a list of drugs")
-    try:
-        return {"kind": "receptor", "banner": BANNER, **interv.run(pid, body.target, body.gain)}
-    except KeyError:
-        raise HTTPException(400, f"unknown receptor target {body.target}") from None
+
+@app.get("/api/patients/{pid}/suggested-drugs", response_model=None)
+def get_suggested_drugs(pid: str) -> dict:
+    """Medicines commonly considered for the symptoms this patient reported.
+
+    Ordered by how many of their elevated symptoms each one is ordinarily used for. Not a
+    ranking of which is better, because nothing here could know that.
+    """
+    need(pid)
+    from .data import suggest
+
+    return suggest.suggested(pid)
 
 
 @app.get("/api/loadings", response_model=models.Loadings)
@@ -735,6 +762,82 @@ def demo_call(body: models.DemoBody, tasks: BackgroundTasks) -> dict:
             "waiting": False, "note": "a generated web session is running through the real pipeline"}
 
 
+@app.get("/api/patients/{pid}/baseline", response_model=None)
+def get_baseline(pid: str) -> dict:
+    """The brain as it was first built, plus every check-in appended since.
+
+    The viewer's Baseline and Latest toggle reads this. Before it existed there was one
+    copy of the brain and a check-in overwrote it, so the state the patient was built
+    from could not be got back and a call looked like it had replaced them.
+    """
+    need(pid)
+    from .twin import build as buildmod
+
+    points = buildmod.timepoints_of(pid)
+    return {
+        "baseline": buildmod.baseline_of(pid),
+        "timepoints": points,
+        "count": len(points),
+        "note": "The baseline is the brain as first built from this patient's documents. "
+                "It is never rewritten. Each check-in is appended on top of it.",
+    }
+
+
+@app.post("/api/dev/reset-demo-patient", response_model=None)
+def post_reset_demo_patient(pid: str = "") -> dict:
+    """Put the flagship demo patient back to pristine, so the demo can be run again.
+
+    Demo mode only. It rebuilds from the sample documents, which is the same path the
+    Add patient screen uses, so what comes back is what a judge would have seen the first
+    time rather than a special case.
+    """
+    if cfg.mode() != "mock":
+        raise HTTPException(403, "only available in demo mode")
+
+    from .twin import build as buildmod
+
+    want = pid
+    if not want:
+        # The flagship one by name, so the demo button needs no id.
+        hit = [p for p in db.patients() if "maya" in str(p["name"]).lower()]
+        if not hit:
+            raise HTTPException(404, "no sample patient to reset. Add one from the sample files.")
+        want = str(hit[-1]["id"])
+    need(want)
+
+    # Everything a call wrote. The documents, the extraction and the patient's own record
+    # are left alone, which is what makes this a reset rather than a delete.
+    db.run("delete from checkins where patient_id=?", (want,))
+    db.run("delete from observations where patient_id=?", (want,))
+    db.run("delete from alerts where patient_id=?", (want,))
+    db.run("delete from call_sessions where patient_id=?", (want,))
+    db.run("delete from events where patient_id=? and kind in "
+           "('call_update','call_session','notify','agent_triage','creao_run_started')", (want,))
+    db.patch("patients", want, {"week": 0, "drift_z": 0.0, "coverage": 0.0, "last_call": None})
+
+    got = buildmod.build_twin(want)
+    return {"ok": True, "patient_id": want, "regions": len(got["twin"]["regions"]),
+            "note": "rebuilt from this patient's own documents and inputs. "
+                    "Nothing uploaded was deleted."}
+
+
+@app.get("/api/patients/{pid}/latest-update", response_model=models.CallUpdate | None)
+def get_latest_update(pid: str) -> dict | None:
+    """What the most recent check-in changed in the brain, or null if there has not been one.
+
+    The same payload the stream pushes on `call_done`. A page that loads after the call
+    landed needs it too, and reading it back from the event row rather than recomputing
+    it means the banner says the same thing either way.
+    """
+    need(pid)
+    rows = db.rows(
+        "select * from events where patient_id=? and kind='call_update' "
+        "order by time desc, rowid desc limit 1", (pid,))
+    if not rows:
+        return None
+    return db.dec(rows[0]["payload"], {}) or None
+
+
 # ---------------------------------------------------------------- the event stream
 
 @app.get("/api/patients/{pid}/stream")
@@ -901,12 +1004,27 @@ def get_message_status(mid: str) -> dict:
         raise HTTPException(404, f"no message {mid}")
     got = texter.confirm(mid)
     fresh = db.one("select * from messages where id=?", (mid,))
+    status = str(got.get("status") or fresh["status"] or "sent")
+    # `failed` is what the transport layer calls it. `not_sent` is what it means on a
+    # screen: nothing left the building. Four states, and none of them is a guess.
+    if status == "failed":
+        status = "not_sent"
+    if status not in ("sent", "delivered", "not_sent", "mock"):
+        status = "sent"
+
+    delivered_at = str(fresh["delivered_at"] or "") or None
+    confirmation = "provider" if status == "delivered" else got.get("confirmation", "unavailable")
     return {
         "ok": True,
         "id": mid,
         "channel": str(fresh["channel"] or ""),
-        "status": got.get("status", str(fresh["status"] or "sent")),
-        "detail": str(fresh["detail"] or ""),
+        "status": status,
+        "provider_id": str(fresh["provider_id"] or "") or None,
+        "error": str(fresh["detail"] or "") or None,
+        "delivered_at": delivered_at,
+        # Only ever "provider" when a provider actually said so. Everything else is
+        # "unavailable", including local iMessage, which cannot read receipts at all.
+        "delivery_confirmation": confirmation,
         "note": got.get("note", ""),
     }
 
@@ -924,7 +1042,7 @@ def get_call_script(token: str, full: int = 0) -> dict:
     from .agent import voices
 
     return callscript.payload(short=bool(row["short"]), full=bool(full),
-                              audio=voices.audio_map())
+                              audio=voices.audio_meta())
 
 
 @app.post("/api/call/{token}/consent")

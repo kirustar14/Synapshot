@@ -12,7 +12,6 @@ import numpy as np
 
 from backend import evidence, timeline
 from backend.data import vessels as vesselmod
-from backend.twin import drugs as drugmod
 from backend.twin import intervention
 
 # A head is about 170 mm front to back and 140 mm across, so nothing in a vessel atlas
@@ -75,155 +74,161 @@ def test_the_midline_vessels_are_actually_on_the_midline(client):
                 assert abs(p[0]) < 1.0, f"{v['name']} is {p[0]} mm off the midline"
 
 
-# ---------------------------------------------------------------- the formulary
+# ---------------------------------------------------------------- the pathway viewer
+#
+# What used to be here: tests that the formulary carried a typical dose, that a drug
+# simulation was cached by gain, and that the /intervention route refused an empty body.
+# All of that was testing the drug simulation, which is gone. These test what replaced
+# it, which only says where a medicine's known targets are.
 
-def test_the_formulary_keeps_the_drugs_it_cannot_model(client):
-    """A drug this model has nothing to say about stays in the list, with the reason.
+
+def test_a_medicine_with_no_brain_target_stays_in_the_list(client):
+    """Acetaminophen and ibuprofen stay, and say they have no mapped brain target.
 
     Dropping them would make the formulary look like a complete picture of what somebody
     is taking, and the most useful thing this screen can say about acetaminophen is that
-    it has nothing to say.
+    it has nothing to show.
     """
     got = client.get("/api/formulary").json()
-    by_name = {d["name"]: d for d in got["drugs"]}
+    names = {d["name"] for d in got["drugs"]}
+    assert {"acetaminophen", "ibuprofen"} <= names
 
-    for name in ("sertraline", "amitriptyline", "methylphenidate", "amantadine",
-                 "propranolol", "levetiracetam", "ondansetron", "gabapentin",
-                 "melatonin", "acetaminophen"):
-        assert name in by_name, name
-
-    assert by_name["acetaminophen"]["modeled"] is False
-    assert by_name["acetaminophen"]["why_not"], "it has to say why not"
-    for drug in got["drugs"]:
-        if drug["modeled"]:
-            assert drug["targets"], f"{drug['name']} is modelled with no targets"
-        else:
-            assert not drug["targets"]
-            assert drug["why_not"], f"{drug['name']} is not modelled and does not say why"
+    for row in got["drugs"]:
+        if row["name"] in ("acetaminophen", "ibuprofen"):
+            assert row["has_map"] is False
+            assert row["no_mapped_target"]
+            assert "no mapped brain target" in row["no_mapped_target"].lower()
 
 
-def test_every_drug_target_has_a_real_map(client):
-    """A drug cannot name a receptor the atlas does not have."""
-    got = client.get("/api/formulary").json()
-    known = set(got["receptors"])
-    for drug in got["drugs"]:
-        for target in drug["targets"]:
-            assert target["receptor"] in known, f"{drug['name']} -> {target['receptor']}"
-            assert 0.0 < target["affinity"] <= 1.0
-            assert target["direction"] in (-1, 1)
-            assert target["why"], "a target has to say why it is a target"
+def test_every_medicine_explains_itself_in_plain_language(client):
+    """what_it_does is the point of the tab, so nothing is allowed to be missing one."""
+    for row in client.get("/api/formulary").json()["drugs"]:
+        assert row.get("what_it_does", "").strip(), row["name"]
+        assert len(row["what_it_does"]) > 60, row["name"]
+        assert row.get("class", "").strip(), row["name"]
 
 
-def test_a_proxy_map_is_labelled_as_one(client):
-    """Propranolol is shown against a noradrenergic map, not a beta-adrenoceptor one."""
-    got = client.get("/api/formulary").json()
-    prop = next(d for d in got["drugs"] if d["name"] == "propranolol")
-    assert prop["proxy_targets"] == ["NET"]
-    target = next(t for t in prop["targets"] if t["receptor"] == "NET")
-    assert target["proxy"] is True
-    assert "proxy" in target["why"].lower() or "nearest" in target["why"].lower()
-    assert "proxy" in prop["note"].lower()
+def test_every_target_carries_a_source_and_an_evidence_tag(client):
+    """A target with no source is a claim nobody can check."""
+    for row in client.get("/api/formulary").json()["drugs"]:
+        if not row.get("targets"):
+            assert row.get("no_mapped_target"), row["name"]
+            continue
+        for t in row["targets"]:
+            assert t.get("source"), f"{row['name']} {t.get('target')}"
+            assert t.get("evidence_tag") in ("verified", "check this"), row["name"]
 
 
-def test_the_formulary_says_which_maps_are_real(client):
-    """Stand-ins are named. A drug simulated against noise cannot look like one that is not."""
-    got = client.get("/api/formulary").json()
-    assert set(got["stand_in"]) <= set(got["receptors"])
-    assert set(got["tracers"]) == set(got["receptors"]) - set(got["stand_in"])
-    assert got["synthetic_template"] == (not got["tracers"])
-    assert "not a treatment recommendation" in got["banner"].lower()
-    assert "dose" in got["banner"].lower()
+def test_a_target_without_an_atlas_map_says_so_rather_than_borrowing_one(client):
+    """The map has to be of the receptor the drug acts on, or there is no map."""
+    from backend.twin import intervention
+
+    atlas = set(intervention.receptors()["maps"])
+    for row in client.get("/api/formulary").json()["drugs"]:
+        for t in row.get("targets", []):
+            key = t.get("atlas_key")
+            if key is None:
+                assert "no map available" in t["plain"].lower(), f"{row['name']} {t['target']}"
+            else:
+                assert key in atlas, f"{row['name']} claims a map for {key}"
 
 
-def test_a_drug_weight_is_the_sum_of_its_targets():
-    """The combined map is affinity times direction times the receptor z, and scaled."""
-    maps = intervention.receptors()["maps"]
-    weight, used, _warn = drugmod.weights([{"name": "amitriptyline"}])
+def test_every_mapped_target_resolves_to_100_clean_values(client):
+    """A map with a hole in it would colour a region from nothing."""
+    import math
 
-    want = np.zeros(len(weight))
-    for target in drugmod.find("amitriptyline")["targets"]:
-        want += target["affinity"] * target["direction"] * np.asarray(maps[target["receptor"]])
-    want = want / np.max(np.abs(want))
-
-    assert np.allclose(weight, want, atol=1e-9)
-    assert used == ["5-HTT", "NET", "5-HT2A"]
-    assert abs(float(np.max(np.abs(weight))) - 1.0) < 1e-9, "the weight is not peak scaled"
-
-
-def test_an_unmodelled_drug_changes_nothing():
-    """Selecting acetaminophen does not quietly perturb anything."""
-    weight, used, _ = drugmod.weights([{"name": "acetaminophen"}])
-    assert used == []
-    assert not weight.any()
+    for row in client.get("/api/formulary").json()["drugs"]:
+        if not row["has_map"]:
+            continue
+        got = client.get(f"/api/drugs/{row['name']}/map").json()
+        assert got["combined"] and len(got["combined"]) == 100, row["name"]
+        assert not any(math.isnan(v) for v in got["combined"]), row["name"]
+        for key, vals in got["targets"].items():
+            assert len(vals) == 100, f"{row['name']} {key}"
+            assert not any(math.isnan(v) for v in vals), f"{row['name']} {key}"
 
 
-def test_the_dose_never_reaches_the_model(client, seeded):
-    """A dose in the request body is ignored, and nothing in the result depends on it.
+def test_no_dose_guidance_anywhere_in_the_formulary(client):
+    """There is no dose in this file on purpose, and nothing should put one back."""
+    import json
 
-    The formulary carries a typical dose for recognition. The route takes a name and a
-    gain. This asserts the two cannot meet.
-    """
+    blob = json.dumps(client.get("/api/formulary").json()).lower()
+    for word in (" mg", "milligram", "twice daily", "dose of", "typical_dose"):
+        assert word not in blob, word
+
+
+def test_the_amantadine_entry_says_the_trial_was_not_mild_tbi(client):
+    """The Giacino trial is the one people cite, and it is about a different population."""
+    got = client.get("/api/drugs/amantadine").json()
+    low = (got["in_tbi"] + " " + " ".join(r["text"] for r in got["refs"])).lower()
+    assert "giacino" in low
+    assert "severe" in low
+    assert "mild" in low, "it has to say what it does not apply to, not just what it does"
+    assert got["in_tbi_evidence_tag"] == "verified"
+
+
+def test_every_pathway_has_a_centreline_inside_the_mesh(client):
+    """A pathway drawn outside the brain is drawn somewhere there is no brain."""
+    import numpy as np
+
+    from backend.data import mesh as meshmod
+
+    got = client.get("/api/pathways").json()
+    assert got["pathways"]
+    assert "not patient-specific" in got["caption"].lower()
+
+    pial = np.asarray(meshmod.mesh()["pial"], dtype=float).reshape(-1, 3)
+    lo, hi = pial.min(axis=0), pial.max(axis=0)
+    for row in got["pathways"]:
+        assert row.get("about", "").strip(), row["key"]
+        pts = np.asarray(row["points"], dtype=float)
+        assert pts.shape[0] >= 2 and pts.shape[1] == 3, row["key"]
+        assert np.isfinite(pts).all(), row["key"]
+        assert (pts >= lo).all() and (pts <= hi).all(), f"{row['key']} leaves the mesh"
+
+
+def test_the_overlap_uses_the_fixed_thresholds(client, seeded):
+    """Both conditions, both fixed, and every row named in full."""
+    from backend.data import drugs as drugmod
+
     pid = seeded[0]["id"]
-    plain = client.post(f"/api/patients/{pid}/intervention",
-                        json={"drugs": [{"name": "levetiracetam"}], "gain": 0.2}).json()
-    dosed = client.post(f"/api/patients/{pid}/intervention",
-                        json={"drugs": [{"name": "levetiracetam", "dose": "1000 mg"}],
-                              "gain": 0.2}).json()
-    assert plain["region_effect"] == dosed["region_effect"]
-
-    from backend import models
-
-    assert "dose" not in models.DrugPick.model_fields, (
-        "the request model must have no way to send a dose"
-    )
+    got = client.get(f"/api/patients/{pid}/drugs/sertraline/overlap").json()
+    assert got["damage_floor"] == drugmod.DAMAGE_FLOOR
+    assert got["target_z"] == drugmod.TARGET_Z
+    for r in got["regions"]:
+        assert r["damage"] > drugmod.DAMAGE_FLOOR
+        assert r["target_z"] > drugmod.TARGET_Z
+        assert r["name"] and r["name"].lower() != "left cortex"
+        assert r["damage_lo"] <= r["damage"] <= r["damage_hi"], r["name"]
 
 
-def test_a_drug_result_carries_its_interval_and_its_limits(client, seeded):
-    """Every region has a band, and the payload says what the band does not cover."""
+def test_the_overlap_is_empty_for_a_medicine_with_no_map(client, seeded):
+    """No map means no regions, and a line saying why rather than an empty list."""
     pid = seeded[0]["id"]
-    got = client.post(f"/api/patients/{pid}/intervention",
-                      json={"drugs": [{"name": "levetiracetam"}], "gain": 0.2}).json()
-
-    assert got["kind"] == "drugs" and got["modeled"] is True
-    n = len(got["region_effect"])
-    assert len(got["lo"]) == len(got["hi"]) == len(got["unclear"]) == n
-    for i in range(n):
-        assert got["lo"][i] <= got["region_effect"][i] <= got["hi"][i], f"region {i}"
-        # The unclear flag is exactly "the interval crosses zero", not a separate opinion.
-        assert got["unclear"][i] == (got["lo"][i] <= 0.0 <= got["hi"][i])
-
-    assert got["interval_covers"] and got["interval_misses"]
-    assert any("group average" in t for t in got["interval_misses"])
-    assert any("model itself may be wrong" in t for t in got["interval_misses"])
-    assert "not a treatment recommendation" in got["note"].lower()
-    # The sentence never claims evidence about the drug.
-    assert "self-consistency" in got["say"] or "cannot tell" in got["say"]
+    got = client.get(f"/api/patients/{pid}/drugs/ibuprofen/overlap").json()
+    assert got["regions"] == []
+    assert got["note"].strip()
 
 
-def test_a_drug_run_is_cached_by_its_inputs(client, seeded):
-    """The same question twice is the same answer, and the second one is free."""
+def test_nothing_the_viewer_shows_says_benefit_or_effect(client, seeded):
+    """It shows where a medicine acts. Saying effect would make it a prediction."""
+    import json
+
     pid = seeded[0]["id"]
-    body = {"drugs": [{"name": "levetiracetam"}], "gain": 0.15}
-    first = client.post(f"/api/patients/{pid}/intervention", json=body).json()
-    second = client.post(f"/api/patients/{pid}/intervention", json=body).json()
-    assert first["region_effect"] == second["region_effect"]
-
-    key = drugmod.key(pid, [{"name": "levetiracetam"}], 0.15)
-    other = drugmod.key(pid, [{"name": "levetiracetam"}], 0.25)
-    assert key != other, "the gain has to be part of the key"
-    assert drugmod.cached(key) is not None
+    blobs = [client.get("/api/formulary").json()]
+    for name in ("sertraline", "amantadine", "ibuprofen"):
+        blobs.append(client.get(f"/api/drugs/{name}").json())
+        blobs.append(client.get(f"/api/patients/{pid}/drugs/{name}/overlap").json())
+    text = json.dumps(blobs).lower()
+    for word in ("benefit", "recommend", "should take", "best for", "will help"):
+        assert word not in text, word
 
 
-def test_the_receptor_slider_still_works(client, seeded):
-    """The single target what-if did not go away when the drug viewer arrived."""
+def test_the_intervention_route_is_gone(client, seeded):
+    """The simulation it drove is gone, so the route should be too."""
     pid = seeded[0]["id"]
-    got = client.post(f"/api/patients/{pid}/intervention",
-                      json={"target": "GABA-A", "gain": 0.3}).json()
-    assert got["kind"] == "receptor"
-    assert len(got["region_effect"]) == 100
-    assert client.post(f"/api/patients/{pid}/intervention",
-                       json={"target": "nonsense"}).status_code == 400
-    assert client.post(f"/api/patients/{pid}/intervention", json={}).status_code == 400
+    got = client.post(f"/api/patients/{pid}/intervention", json={"target": "NMDA", "gain": 0.2})
+    assert got.status_code in (404, 405), got.status_code
 
 
 # ---------------------------------------------------------------- timeline

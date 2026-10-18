@@ -8,11 +8,11 @@
 // slider here and a separate date picker in a tab means two sources of truth about which
 // week you are looking at, and they will disagree.
 
-import { Crosshair, Search, X } from "lucide-react";
+import { ChevronDown, Crosshair, Search, X } from "lucide-react";
 import { Suspense, lazy, useMemo, useState } from "react";
-import { useTwin, useVessels } from "@/api/client";
+import { useBaseline, useLatestUpdate, useTwin, useVessels } from "@/api/client";
 import type { Patient } from "@/api/types";
-import { LAYERS, REGIONS, rampGradient, regionLabel, useViewer, type LayerId } from "@/components/brain";
+import { LAYERS, LAYER_BY_ID, REGIONS, rampGradient, regionLabel, useViewer, type LayerId } from "@/components/brain";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,13 @@ const LOBES = ["Frontal", "Parietal", "Temporal", "Occipital", "Limbic", "Insula
 export function CenterBrain({ patient }: { patient: Patient }) {
   const { week, setWeek, region, setRegion, overlay } = useWorkspace();
   const twin = useTwin(patient.id);
+  // The brain as first built, and what each check-in moved since. The toggle below flips
+  // between them: before this existed there was one copy of the brain, a call overwrote
+  // it, and the state the patient was built from could not be got back.
+  const history = useBaseline(patient.id);
+  const update = useLatestUpdate(patient.id);
+  const [showBaseline, setShowBaseline] = useState(false);
+  const changed = update.data?.changed_regions ?? [];
   const vessels = useVessels();
   const viewer = useViewer();
   const [query, setQuery] = useState("");
@@ -61,50 +68,84 @@ export function CenterBrain({ patient }: { patient: Patient }) {
 
   return (
     <section className="order-1 flex min-w-0 flex-col gap-3 lg:order-2 lg:min-h-0">
-      {/* Layer chips. One row, every layer named, with the ramp beside the name so the
-          colour on the brain and the word in the chip are the same thing. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {LAYERS.map((def) => (
-          <button
-            key={def.id}
-            type="button"
-            aria-pressed={layer === def.id}
-            onClick={() => viewer.setLayer(def.id)}
-            title={def.meaning}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors focus-visible:outline-2 focus-visible:outline-ring",
-              layer === def.id
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-background hover:bg-muted",
-            )}
-          >
+      {/* One row of controls, all of it mono and quiet: what you are looking at, which
+          brain, and the overlays. It used to be ten coloured pills and a vessel toggle
+          wrapped across two lines, which is a lot of decisions to put above the thing
+          they are about. The choices are the same, they are just inside a dropdown now. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label className="flex items-center gap-2">
+          <span className="eyebrow text-muted-foreground">Showing</span>
+          <span className="relative inline-flex items-center">
             <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ background: rampGradient(def.stops) }}
+              className="pointer-events-none absolute left-2.5 h-2.5 w-2.5 rounded-full"
+              style={{ background: rampGradient(LAYER_BY_ID[layer].stops) }}
               aria-hidden
             />
-            {def.label}
-          </button>
-        ))}
+            <select
+              value={layer}
+              onChange={(e) => viewer.setLayer(e.target.value as LayerId)}
+              aria-label="What the brain is showing"
+              title={LAYER_BY_ID[layer].meaning}
+              className="appearance-none rounded-full border border-foreground/25 bg-card py-1 pl-7 pr-7 text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              {LAYERS.map((def) => (
+                <option key={def.id} value={def.id}>
+                  {def.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3 w-3 text-muted-foreground" aria-hidden />
+          </span>
+        </label>
 
         {vessels.data && (
-          <button
-            type="button"
-            aria-pressed={viewer.vessels}
-            onClick={() => viewer.setFlag({ vessels: !viewer.vessels })}
-            title={vessels.data.caption}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold",
-              viewer.vessels
-                ? "border-blue-400 bg-blue-500/15 text-blue-700 dark:text-blue-300"
-                : "border-border bg-background hover:bg-muted",
-            )}
-          >
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-500" aria-hidden />
-            Vessels
-          </button>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={viewer.vessels}
+              onChange={() => viewer.setFlag({ vessels: !viewer.vessels })}
+              className="h-3.5 w-3.5 accent-foreground"
+            />
+            <span className="eyebrow text-muted-foreground" title={vessels.data.caption}>
+              Vessels
+            </span>
+          </label>
         )}
       </div>
+
+      {history.data?.baseline && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-full border border-border bg-card p-0.5" role="group" aria-label="Which brain to show">
+            {[
+              { id: "baseline", label: "Baseline" },
+              { id: "latest", label: "Latest" },
+            ].map((opt) => {
+              const on = (opt.id === "baseline") === showBaseline;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setShowBaseline(opt.id === "baseline")}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-bold",
+                    on ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            {showBaseline
+              ? "The brain as first built from the documents. Never rewritten."
+              : changed.length
+                ? `${changed.length} region${changed.length === 1 ? "" : "s"} moved at the last check-in`
+                : `${history.data.count} check-in${history.data.count === 1 ? "" : "s"} on top of the baseline`}
+          </span>
+        </div>
+      )}
 
       <div className="relative h-[52vh] min-h-[320px] lg:h-auto lg:min-h-0 lg:flex-1">
         <Suspense
@@ -119,6 +160,8 @@ export function CenterBrain({ patient }: { patient: Patient }) {
             fill
             presets={false}
             valuesOverride={null}
+            baselineTwin={showBaseline ? history.data?.baseline ?? null : null}
+            markRegions={showBaseline ? [] : changed.map((r) => r.id)}
             caption={overlay ? overlay.label : undefined}
           />
         </Suspense>
@@ -130,7 +173,7 @@ export function CenterBrain({ patient }: { patient: Patient }) {
           left, its own toggles top right and its own hint bottom left, and anything put
           over the canvas landed on one of them. The canvas is for the brain. */}
       <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-muted/40 px-3 py-2">
-        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+        <span className="shrink-0 eyebrow text-muted-foreground">
           Week {week}
         </span>
         <Slider
@@ -196,39 +239,47 @@ export function CenterBrain({ patient }: { patient: Patient }) {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <div className="flex flex-wrap gap-1">
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => viewer.setPreset(p.id)}
-              className="rounded-full border border-border px-2 py-0.5 font-bold hover:bg-muted"
+      {/* Two dropdowns instead of seventeen chips. Same views, same lobes, one line. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label className="flex items-center gap-2">
+          <span className="eyebrow text-muted-foreground">View</span>
+          <span className="relative inline-flex items-center">
+            <select
+              value=""
+              onChange={(e) => e.target.value && viewer.setPreset(e.target.value as (typeof PRESETS)[number]["id"])}
+              aria-label="Move the camera to a preset view"
+              className="appearance-none rounded-full border border-foreground/25 bg-card py-1 pl-3 pr-7 text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-ring"
             >
-              {p.label}
-            </button>
-          ))}
-          <span className="mx-1 w-px self-stretch bg-border" aria-hidden />
-          {LOBES.map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-pressed={lobe === name}
-              onClick={() => setLobe(lobe === name ? null : name)}
-              className={cn(
-                "rounded-full border px-2 py-0.5 font-bold",
-                lobe === name ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-muted",
-              )}
+              <option value="">Rotate freely</option>
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3 w-3 text-muted-foreground" aria-hidden />
+          </span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <span className="eyebrow text-muted-foreground">Lobe</span>
+          <span className="relative inline-flex items-center">
+            <select
+              value={lobe ?? ""}
+              onChange={(e) => setLobe(e.target.value || null)}
+              aria-label="Show one lobe only"
+              className="appearance-none rounded-full border border-foreground/25 bg-card py-1 pl-3 pr-7 text-[11px] font-bold focus-visible:outline-2 focus-visible:outline-ring"
             >
-              {name}
-            </button>
-          ))}
-        </div>
-        <p>
-          {week <= patient.week
-            ? `Week ${week} is measured. The band around it is the filter's posterior.`
-            : `Week ${week} is a forecast. Nothing has been measured there.`}
-        </p>
+              <option value="">All lobes</option>
+              {LOBES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 h-3 w-3 text-muted-foreground" aria-hidden />
+          </span>
+        </label>
       </div>
 
       {/* The vessel caption is shown, not hidden in a tooltip. A rendered vessel beside

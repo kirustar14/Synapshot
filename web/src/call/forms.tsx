@@ -8,7 +8,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useCall } from "./ctx";
-import { Big, NumberPicker, Stage } from "./ui";
+import { useSpokenLine } from "./voice";
+import { Big, NumberPicker, Replay, Stage } from "./ui";
 import { num, strings } from "./types";
 import type { TaskProps } from "./types";
 
@@ -56,9 +57,15 @@ export function RedflagsTask({ step, onDone }: TaskProps) {
   const [cleared, setCleared] = useState("");
   const [failed, setFailed] = useState("");
 
-  useEffect(() => {
-    if (at < asks.length) void voice.say(asks[at], `redflag_${order[at]}.mp3`);
-  }, [at, asks, order, voice]);
+  // One question at a time, keyed on which one. Moving to the next cuts the last one
+  // off in the player rather than starting a second line over it, which is what made
+  // all seven safety questions read at once.
+  const ask = useSpokenLine(
+    voice,
+    at < asks.length ? `redflag:${order[at]}` : "",
+    at < asks.length ? asks[at] : "",
+    at < asks.length ? `redflag_${order[at]}.mp3` : undefined,
+  );
 
   async function send(all: Record<string, boolean>) {
     setSending(true);
@@ -106,6 +113,7 @@ export function RedflagsTask({ step, onDone }: TaskProps) {
   return (
     <Stage title={`Safety question ${at + 1} of ${asks.length}`} caption={asks[at]}>
       <div className="mt-6 space-y-3">
+        <Replay onClick={ask.replay} speaking={ask.speaking} />
         <Big tone="outline" onClick={() => answer(true)}>
           Yes
         </Big>
@@ -133,11 +141,13 @@ export function SymptomsTask({ step, onDone }: TaskProps) {
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState("");
 
-  useEffect(() => {
-    if (at < items.length) {
-      void voice.say(`${label(items[at])}. Zero to ten.`, `symptom_${items[at]}.mp3`);
-    }
-  }, [at, items, voice]);
+  // Same as the safety questions: one symptom at a time, keyed on which one.
+  const ask = useSpokenLine(
+    voice,
+    at < items.length ? `symptom:${items[at]}` : "",
+    at < items.length ? `${label(items[at])}. Zero to ten.` : "",
+    at < items.length ? `symptom_${items[at]}.mp3` : undefined,
+  );
 
   async function send(all: Record<string, number>) {
     setSending(true);
@@ -172,6 +182,7 @@ export function SymptomsTask({ step, onDone }: TaskProps) {
   return (
     <Stage title={label(key)} caption={`How bad has this been this week? ${at + 1} of ${items.length}`}>
       <div className="mt-4">
+        <Replay onClick={ask.replay} speaking={ask.speaking} />
         <NumberPicker value={scores[key] ?? null} onChange={choose} label={label(key)} />
       </div>
       <div className="mt-3 flex justify-between text-xs text-muted-foreground">
@@ -210,9 +221,23 @@ export function EncodeTask({ step, onDone }: TaskProps) {
       onDone();
       return;
     }
-    void voice.say(words[at], undefined);
-    timer.current = window.setTimeout(() => setAt(at + 1), hold);
-    return () => window.clearTimeout(timer.current);
+    // The next word waits for this one to finish, then for the gap. It used to be a
+    // flat timer, so a word that ran longer than the gap was still being said when the
+    // next one started and the patient heard two words at once, which is the one thing
+    // a memory list cannot survive.
+    let live = true;
+    void voice.say(words[at], undefined).then((finished) => {
+      // A word that was cut off does not advance the list. Otherwise stopping the call
+      // mid word would still march through the remaining fourteen.
+      if (!live || !finished) return;
+      timer.current = window.setTimeout(() => {
+        if (live) setAt(at + 1);
+      }, hold);
+    });
+    return () => {
+      live = false;
+      window.clearTimeout(timer.current);
+    };
   }, [at, hold, onDone, voice, words]);
 
   if (at >= words.length) return <Stage title="Thank you" caption="I will ask for those words again later." />;

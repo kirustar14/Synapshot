@@ -4,8 +4,8 @@
 import { Canvas } from "@react-three/fiber";
 import { Eye, Layers, Maximize2, Minimize2, Sparkles, Waves } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { usePatient, useMesh, useShape, useTwin, useVessels } from "@/api/client";
-import type { Shape } from "@/api/types";
+import { useFormulary, useMesh, usePathways, usePatient, useShape, useTwin, useVessels } from "@/api/client";
+import type { Shape, Twin } from "@/api/types";
 import { ErrorState, Loading } from "@/components/common";
 import { cn } from "@/lib/utils";
 import { Fallback2D } from "./Fallback2D";
@@ -52,6 +52,10 @@ export interface BrainViewerProps {
   fill?: boolean;
   /** Hide the viewer's own preset row when the page supplies its own. */
   presets?: boolean;
+  /** Draw the brain as first built instead of the current one. The Baseline toggle. */
+  baselineTwin?: Twin | null;
+  /** Region ids the last check-in moved, marked so the change is visible on the mesh. */
+  markRegions?: number[];
 }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -106,12 +110,30 @@ export default function BrainViewer(props: BrainViewerProps) {
           fill = false, presets = true } = props;
   const mesh = useMesh();
   const shape = useShape(patientId);
-  const twin = useTwin(patientId);
+  const live = useTwin(patientId);
+  // One swap, here, so every layer, tract, callout and ranked list below reads whichever
+  // brain the toggle is on without any of them needing to know the toggle exists.
+  const twin = props.baselineTwin
+    ? { ...live, data: props.baselineTwin }
+    : live;
   const patient = usePatient(patientId);
   const v = useViewer();
   // Only fetched when the layer is on. It is 11 KB of polylines and most sessions never
   // turn it on, so there is no reason to pull it down on every workspace load.
   const vessels = useVessels(v.vessels);
+  // The transmitter pathways for whichever medicines are lit in the Treatment tab. Only
+  // fetched when something is lit, because with nothing on there is nothing to draw.
+  const pathways = usePathways();
+  const formulary = useFormulary();
+  const pathwayGroups = useMemo(() => {
+    const book = formulary.data?.drugs ?? [];
+    const on = new Set(v.drugs);
+    const out = new Set<string>();
+    for (const d of book) {
+      if (on.has(d.name)) for (const g of d.pathways) out.add(g);
+    }
+    return [...out];
+  }, [formulary.data, v.drugs]);
   const caps = useMemo(() => detectCaps(), []);
   const [big, setBig] = useState(false);
 
@@ -226,21 +248,24 @@ export default function BrainViewer(props: BrainViewerProps) {
   return (
     <div
       className={cn(
-        "workspace-visual relative overflow-hidden bg-[#e4e4e0]",
+        "workspace-visual relative overflow-hidden bg-transparent",
         // `bare` is the landing page, where the canvas is the whole frame. A border and
         // a corner radius there draw a box around what is meant to be the background.
-        !bare && "rounded-xl border border-[#c9c9c4]",
+
         big && "fixed inset-4 z-50",
       )}
       style={big ? undefined : bare || fill ? { height: "100%" } : { height: stageHeight }}
     >
       <Canvas
         dpr={[1, 1.75]}
-        gl={{ antialias: !compact, alpha: false, powerPreference: "high-performance" }}
+        // The hero is transparent so the brain sits on the page rather than in a box.
+        // Everywhere else keeps an opaque buffer, which is cheaper.
+        // Always transparent now. The brain sits on the off-white page rather than in
+        // a grey stage, on the workspace as well as the hero.
+        gl={{ antialias: !compact, alpha: true, powerPreference: "high-performance" }}
         camera={{ fov: 34, near: 1, far: 4000, position: [-240, 90, -160] }}
-        style={{ touchAction: "pan-y" }}
+        style={{ touchAction: "pan-y", background: "transparent" }}
       >
-        <color attach="background" args={["#e4e4e0"]} />
         <Scene
           cortex={cortex}
           mesh={mesh.data}
@@ -257,6 +282,8 @@ export default function BrainViewer(props: BrainViewerProps) {
           syncId={syncId ?? null}
           spin={spin}
           vessels={vessels.data}
+          pathways={pathways.data}
+          pathwayGroups={pathwayGroups}
           foci={foci}
         />
       </Canvas>
@@ -286,13 +313,13 @@ export default function BrainViewer(props: BrainViewerProps) {
       {!bare && (
       <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5">
         {presets && (!compact || syncId) && (
-          <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1" role="group" aria-label="Preset views">
+          <div className="flex gap-1 rounded-full border border-foreground/15 bg-background/85 p-1 backdrop-blur-sm" role="group" aria-label="Preset views">
             {PRESETS.map((p) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => v.setPreset(p.id)}
-                className="rounded-full px-2 py-0.5 text-[10px] font-bold text-cyan-100 hover:bg-cyan-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+                className="eyebrow rounded-full px-2.5 py-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
               >
                 {p.label}
               </button>
@@ -301,7 +328,7 @@ export default function BrainViewer(props: BrainViewerProps) {
         )}
         {!compact && (
           <>
-            <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1" role="group" aria-label="Hemispheres">
+            <div className="flex gap-1 rounded-full border border-foreground/15 bg-background/85 p-1 backdrop-blur-sm" role="group" aria-label="Hemispheres">
               {HEMIS.map((h) => (
                 <button
                   key={h.id}
@@ -309,15 +336,15 @@ export default function BrainViewer(props: BrainViewerProps) {
                   aria-pressed={v.hemi === h.id}
                   onClick={() => v.setHemi(h.id)}
                   className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300",
-                    v.hemi === h.id ? "bg-cyan-300 text-cyan-950" : "text-cyan-100 hover:bg-cyan-400/20",
+                    "eyebrow rounded-full px-2.5 py-1 focus-visible:outline-2 focus-visible:outline-ring",
+                    v.hemi === h.id ? "bg-foreground text-background" : "text-muted-foreground hover:bg-foreground/5",
                   )}
                 >
                   {h.label}
                 </button>
               ))}
             </div>
-            <div className="flex gap-1 rounded-full border border-cyan-300/25 bg-black/60 p-1">
+            <div className="flex gap-1 rounded-full border border-foreground/15 bg-background/85 p-1 backdrop-blur-sm">
               <StageToggle
                 on={v.hologram}
                 label={v.hologram ? "Hologram on" : "Hologram off"}
@@ -355,11 +382,11 @@ export default function BrainViewer(props: BrainViewerProps) {
       )}
 
       {!bare && (
-      <div className="pointer-events-none absolute bottom-3 left-3 max-w-[60%] text-[11px] text-cyan-50">
+      <div className="pointer-events-none absolute bottom-3 left-3 max-w-[60%] text-[11px] text-foreground">
         {readout !== null && readout !== undefined ? (
-          <div className="rounded-lg border border-cyan-300/30 bg-black/70 px-2.5 py-1.5">
+          <div className="rounded-lg border border-foreground/15 bg-background/90 px-2.5 py-1.5 backdrop-blur-sm">
             <p className="font-bold capitalize">{regionLabel(mesh.data, twin.data, readout).plain}</p>
-            <p className="font-mono text-[10px] text-cyan-200">
+            <p className="font-mono text-[10px] text-muted-foreground">
               <span
                 className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
                 style={{ background: rampColor(def.stops, values.pos[readout]) }}
@@ -369,7 +396,7 @@ export default function BrainViewer(props: BrainViewerProps) {
             </p>
           </div>
         ) : (
-          <p className="rounded-lg bg-black/50 px-2 py-1 text-cyan-200/80">Drag to rotate. Click a region to pin it.</p>
+          <p className="eyebrow text-muted-foreground">Drag to rotate, click a region to pin it</p>
         )}
       </div>
       )}
@@ -392,8 +419,8 @@ function StageToggle({ on, label, icon, onClick }: { on: boolean; label: string;
       title={label}
       aria-label={label}
       className={cn(
-        "flex h-6 w-6 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300",
-        on ? "bg-cyan-300 text-cyan-950" : "text-cyan-100/70 hover:bg-cyan-400/20",
+        "flex h-6 w-6 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring",
+        on ? "bg-foreground text-background" : "text-muted-foreground hover:bg-foreground/5",
       )}
     >
       {icon}

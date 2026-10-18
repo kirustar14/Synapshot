@@ -17,9 +17,9 @@ import { useApp } from "@/store/app";
 export function Wordmark({ className }: { className?: string }) {
   return (
     <Link to="/" aria-label="Synapshot home" className={className}>
-      <span className="text-lg font-black tracking-tight">
-        Synapshot<span className="text-primary">.</span>
-      </span>
+      {/* Serif wordmark, then the thing it is, in mono, the way a masthead reads. */}
+      <span className="display text-xl">Synapshot</span>
+      <span className="eyebrow ml-2 text-muted-foreground">Brain twin for TBI</span>
     </Link>
   );
 }
@@ -40,7 +40,7 @@ export function DemoSwitch() {
       <TooltipTrigger asChild>
         <span className="flex items-center gap-2 rounded-full border border-border/70 bg-muted/50 px-3 py-1.5">
           {on ? <Laptop className="h-3.5 w-3.5 text-primary" aria-hidden /> : <Smartphone className="h-3.5 w-3.5" aria-hidden />}
-          <Label htmlFor="demo-mode" className="cursor-pointer text-[11px] font-bold">
+          <Label htmlFor="demo-mode" className="eyebrow cursor-pointer">
             Demo mode
           </Label>
           <Switch id="demo-mode" checked={on} onCheckedChange={set} aria-label="Run the check-in on this laptop" />

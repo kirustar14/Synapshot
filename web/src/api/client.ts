@@ -5,6 +5,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { mock } from "@/mock/db";
+import type { ChangedRegion, DoneEvent } from "./stream";
 import type {
   Alert,
   Attribution,
@@ -201,11 +202,20 @@ export const api = {
   triggerCall: (patientId: string) => call("/demo/trigger-call", { body: { patient_id: patientId } }, () => mock.triggerCall(patientId)),
 
 
+  // What the last check-in changed in the brain, or null when there has not been one.
+  // Same payload the stream pushes on call_done, so the banner reads the same whether
+  // the page was open when the call landed or opened afterwards.
+  latestUpdate: (id: string) =>
+    call<DoneEvent | null>(`/patients/${id}/latest-update`, undefined, () => null),
+  /** The brain as first built, plus every check-in appended since. */
+  baseline: (id: string) =>
+    call<BaselineSet>(`/patients/${id}/baseline`, undefined,
+      () => ({ baseline: null, timepoints: [], count: 0, note: "" })),
+  resetDemoPatient: (id: string) =>
+    call<{ ok: boolean }>(`/dev/reset-demo-patient?pid=${id}`, { method: "POST" }, () => ({ ok: true })),
   mesh: () => call<Mesh>("/mesh", undefined, mock.mesh),
   shape: (id: string) => call<Shape>(`/patients/${id}/shape`, undefined, () => mock.shape(id)),
   receptors: () => call<Receptors>("/receptors", undefined, mock.receptors),
-  intervention: (id: string, b: { target: string; gain: number }) =>
-    call<Intervention>(`/patients/${id}/intervention`, { body: b }, () => mock.intervention(id, b)),
   loadings: () => call<Loadings>("/loadings", undefined, mock.loadings),
 
   messageStatus: (mid: string) =>
@@ -275,9 +285,18 @@ export const api = {
     call<Timeline>(`/patients/${id}/timeline`, undefined, () => mock.timeline(id)),
   percentile: (id: string) =>
     call<Percentile>(`/patients/${id}/percentile`, undefined, () => mock.percentile(id)),
-  drugImpact: (id: string, drugs: { name: string }[], gain: number) =>
-    call<DrugImpact>(`/patients/${id}/intervention`, { body: { drugs, gain } },
-      () => mock.drugImpact(id, drugs, gain)),
+  // The pathway viewer. All reads: it shows where a medicine's known targets are and
+  // changes nothing, which is why none of these invalidate anything.
+  pathways: () => call<PathwaySet>("/pathways", undefined, () => ({ pathways: [], groups: [], caption: "", space: "", note: "" })),
+  drug: (name: string) => call<Drug>(`/drugs/${name}`, undefined, () => null as never),
+  drugMap: (name: string) =>
+    call<DrugMap>(`/drugs/${name}/map`, undefined, () => ({ name, targets: {}, combined: [], pathways: [], no_mapped_target: "" })),
+  drugOverlap: (id: string, name: string, week: number) =>
+    call<DrugOverlap>(`/patients/${id}/drugs/${name}/overlap?week=${week}`, undefined,
+      () => ({ name, week, regions: [], damage_floor: 0, target_z: 0, note: "" })),
+  suggestedDrugs: (id: string) =>
+    call<Suggested>(`/patients/${id}/suggested-drugs`, undefined,
+      () => ({ drugs: [], threshold: 0, symptoms: [], message: "", note: "", sources: {} })),
 };
 
 /* ---------------------------------------------------------------- v2 shapes */
@@ -287,9 +306,17 @@ export interface MessageStatus {
   ok: boolean;
   id: string;
   channel: string;
-  /** sent, delivered, failed or mock. Only the provider can produce delivered. */
-  status: string;
-  detail: string;
+  /** sent, delivered, not_sent or mock. Only the provider can produce delivered. */
+  status: "sent" | "delivered" | "not_sent" | "mock" | string;
+  /** The id the transport gave back, so delivery can be polled later. */
+  provider_id: string | null;
+  /** The real error text when something went wrong, not a tidied version of it. */
+  error: string | null;
+  /** When the provider confirmed delivery. Null on everything only ever accepted. */
+  delivered_at: string | null;
+  /** "provider" only when a provider actually said so. Local iMessage cannot read
+      receipts at all, so it is always "unavailable" there. */
+  delivery_confirmation: "provider" | "unavailable" | string;
   note: string;
 }
 
@@ -330,39 +357,128 @@ export interface DrugEntry {
 }
 
 export interface Formulary {
-  drugs: DrugEntry[];
-  receptors: string[];
-  tracers: Record<string, string>;
-  stand_in: string[];
-  synthetic_template: boolean;
-  banner: string;
+  drugs: Drug[];
+  sources: Record<string, string>;
   note: string;
 }
 
-export interface DrugImpact {
-  kind: "drugs";
-  ok: boolean;
-  modeled: boolean;
-  banner: string;
-  drugs: string[];
-  gain: number;
-  members?: number;
-  receptors?: string[];
-  weight?: number[];
-  region_effect?: number[];
-  lo?: number[];
-  hi?: number[];
-  unclear?: boolean[];
-  unclear_count?: number;
-  top_changed?: number[];
-  baseline_rate?: number[];
-  summary_delta?: { rate: number; fc_strength: number; metastability: number };
-  warnings: string[];
-  interval_covers?: string[];
-  interval_misses?: string[];
-  synthetic_template?: boolean;
+/** One check-in, appended to the patient rather than replacing them. */
+export interface Timepoint {
+  id: string;
+  call_id: string;
+  at: string;
+  week: number;
+  changed_regions: ChangedRegion[];
+  changed_count: number;
+  flags_added: string[];
+  summary: string;
+  k: number | null;
+  p: number | null;
+  drift_z: number;
+}
+
+export interface BaselineSet {
+  /** The brain as first built. Written once and never rewritten. */
+  baseline: Twin | null;
+  timepoints: Timepoint[];
+  count: number;
   note: string;
-  say: string;
+}
+
+export interface PathwayLine {
+  key: string;
+  name: string;
+  group: string;
+  about: string;
+  source: string;
+  radius_mm: number;
+  points: [number, number, number][];
+}
+
+export interface PathwaySet {
+  pathways: PathwayLine[];
+  groups: { key: string; label: string; color: string }[];
+  caption: string;
+  space: string;
+  note: string;
+}
+
+export interface DrugTargetRow {
+  target: string;
+  full_name: string;
+  plain: string;
+  /** null means this atlas has no map of that receptor, never a stand-in from another. */
+  atlas_key: string | null;
+  action: string;
+  source: string;
+  evidence_tag: "verified" | "check this";
+}
+
+export interface Drug {
+  name: string;
+  class: string;
+  what_it_does: string;
+  mechanism: string;
+  targets: DrugTargetRow[];
+  pathways: string[];
+  usual_uses: string[];
+  in_tbi: string;
+  in_tbi_evidence_tag: "verified" | "check this";
+  refs: { text: string; source: string; evidence_tag: "verified" | "check this" }[];
+  mapped_targets: string[];
+  has_map: boolean;
+  no_mapped_target?: string;
+  color?: string;
+}
+
+export interface DrugMap {
+  name: string;
+  /** Per target z scored density over the 100 regions. */
+  targets: Record<string, number[]>;
+  combined: number[];
+  pathways: string[];
+  no_mapped_target: string;
+}
+
+export interface OverlapRegion {
+  id: number;
+  name: string;
+  network: string;
+  damage: number;
+  damage_lo: number;
+  damage_hi: number;
+  target_z: number;
+}
+
+export interface DrugOverlap {
+  name: string;
+  week: number;
+  regions: OverlapRegion[];
+  damage_floor: number;
+  target_z: number;
+  note: string;
+}
+
+export interface SuggestedDrug {
+  name: string;
+  class: string;
+  matched_symptoms: string[];
+  match_count: number;
+  reason: string;
+  why: string;
+  source: string;
+  evidence_tag: "verified" | "check this";
+  current: boolean;
+  has_map: boolean;
+}
+
+export interface Suggested {
+  drugs: SuggestedDrug[];
+  threshold: number;
+  symptoms: string[];
+  message: string;
+  note: string;
+  sources: Record<string, unknown>;
 }
 
 export interface TimelineEvent {
@@ -534,6 +650,10 @@ export const usePatients = () => useQuery({ queryKey: ["patients"], queryFn: api
 export const usePatient = (id: string) => useQuery({ queryKey: ["patient", id], queryFn: () => api.patient(id), enabled: !!id });
 export const useForecast = (id: string) => useQuery({ queryKey: ["forecast", id], queryFn: () => api.forecast(id), enabled: !!id });
 export const useTwin = (id: string) => useQuery({ queryKey: ["twin", id], queryFn: () => api.twin(id), enabled: !!id, staleTime: 30000 });
+export const useBaseline = (id: string) =>
+  useQuery({ queryKey: ["baseline", id], queryFn: () => api.baseline(id), enabled: !!id });
+export const useLatestUpdate = (id: string) =>
+  useQuery({ queryKey: ["latest-update", id], queryFn: () => api.latestUpdate(id), enabled: !!id });
 export const useMesh = () => useQuery({ queryKey: ["mesh"], queryFn: api.mesh, staleTime: Infinity, gcTime: Infinity });
 export const useShape = (id: string) => useQuery({ queryKey: ["shape", id], queryFn: () => api.shape(id), enabled: !!id, staleTime: 30000 });
 export const useReceptors = () => useQuery({ queryKey: ["receptors"], queryFn: api.receptors, staleTime: Infinity });
@@ -606,15 +726,24 @@ export const useAckAlert = () => useWrite((aid: string) => api.ackAlert(aid));
 export const useNote = () => useWrite((a: { id: string; text: string }) => api.note(a.id, a.text));
 export const useScenarios = () => useWrite((a: { id: string; a: Scenario; b: Scenario }) => api.scenarios(a.id, { a: a.a, b: a.b }));
 export const useCounterfactual = () => useWrite((a: { id: string; k_mult: number; p_add: number }) => api.counterfactual(a.id, a));
-export const useIntervention = () => useWrite((a: { id: string; target: string; gain: number }) => api.intervention(a.id, a));
-/** The drug viewer. Not a useWrite: it changes nothing, so it must not invalidate anything. */
-export const useDrugImpact = (id: string, drugs: { name: string }[], gain: number, on: boolean) =>
+/* The pathway viewer. Every one of these is a read, so none of them invalidate anything.
+   What used to be here was useIntervention and useDrugImpact, which posted to
+   /intervention and got back a simulated treatment response. See DECISIONS.md. */
+export const usePathways = () =>
+  useQuery({ queryKey: ["pathways"], queryFn: api.pathways, staleTime: Infinity });
+export const useDrug = (name: string) =>
+  useQuery({ queryKey: ["drug", name], queryFn: () => api.drug(name), enabled: !!name, staleTime: Infinity });
+export const useDrugMap = (name: string, on: boolean) =>
+  useQuery({ queryKey: ["drug-map", name], queryFn: () => api.drugMap(name), enabled: on && !!name, staleTime: Infinity });
+export const useDrugOverlap = (id: string, name: string, week: number, on: boolean) =>
   useQuery({
-    queryKey: ["drug-impact", id, drugs.map((d) => d.name).sort().join(","), gain],
-    queryFn: () => api.drugImpact(id, drugs, gain),
-    enabled: on && !!id && drugs.length > 0,
-    staleTime: Infinity,
+    queryKey: ["drug-overlap", id, name, week],
+    queryFn: () => api.drugOverlap(id, name, week),
+    enabled: on && !!id && !!name,
+    staleTime: 30000,
   });
+export const useSuggestedDrugs = (id: string) =>
+  useQuery({ queryKey: ["suggested-drugs", id], queryFn: () => api.suggestedDrugs(id), enabled: !!id });
 export const useRescore = () => useWrite((a: { cid: string; task: string }) => api.rescore(a.cid, a.task));
 export const useUnusable = () => useWrite((cid: string) => api.unusable(cid));
 export const useCreateCall = () => useWrite((a: { patientId: string; send: boolean }) => api.createCall(a.patientId, a.send));

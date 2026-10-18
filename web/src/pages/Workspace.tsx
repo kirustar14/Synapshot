@@ -16,10 +16,12 @@
 // region the forecast is about without navigating, and clicking a region in the Data tab
 // moves the brain rather than opening a different screen.
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
-import { usePatient } from "@/api/client";
+import { useLatestUpdate, usePatient } from "@/api/client";
 import { usePatientStream } from "@/api/stream";
+import { UpdateBanner } from "@/components/workspace/UpdateBanner";
 import { useViewer } from "@/components/brain";
 import { ErrorState, Loading } from "@/components/common";
 import { CallModal } from "@/components/workspace/CallModal";
@@ -78,6 +80,34 @@ export default function Workspace() {
   // frames while it runs, stages while it processes, then one call_done.
   const stream = usePatientStream(id, true);
 
+  // What the last call changed, for the banner. Read from the endpoint rather than held
+  // from the stream event, so a page opened after the call says the same thing as one
+  // that was already open when it landed. Dismissing records which call was closed, so
+  // the next one shows again rather than the banner being gone for good.
+  const update = useLatestUpdate(id);
+  const [dismissed, setDismissed] = useState("");
+  const seen = useRef("");
+  const client = useQueryClient();
+
+  // The refetch that was described in a comment and never written. Everything the call
+  // touched is refetched here: the patient row, the twin the brain is drawn from, the
+  // shape, the forecast, the alerts and the timeline. Without it the charts and the
+  // brain both sat on whatever they had loaded when the page opened.
+  useEffect(() => {
+    const done = stream.done;
+    if (!done || seen.current === done.call_id) return;
+    seen.current = done.call_id;
+    // Refetched, not replaced. invalidateQueries leaves the cached value in place and
+    // swaps it when the new one lands, so the tab, the scroll position and the selected
+    // region all survive a call arriving. Writing the SSE payload into the patient state
+    // instead would be the thing that made a call look like it replaced the patient.
+    for (const key of ["patient", "twin", "shape", "forecast", "alerts", "timeline",
+                       "checkins", "latest-update", "baseline", "attribution",
+                       "percentile", "suggested-drugs"]) {
+      void client.invalidateQueries({ queryKey: [key] });
+    }
+  }, [client, stream.done]);
+
   if (patient.isLoading) return <Loading label="Loading the patient" />;
   if (patient.error || !patient.data) {
     return (
@@ -114,6 +144,11 @@ export default function Workspace() {
         stream={stream}
       />
 
+      <UpdateBanner
+        update={update.data && update.data.call_id !== dismissed ? update.data : null}
+        onClose={() => setDismissed(update.data?.call_id ?? "")}
+      />
+
       {/* Three columns on a desk, stacked on a phone. The brain is first in the DOM
           after the rail so it is the first thing a screen reader reaches after the
           facts, and `min-h-0` on the grid is what lets the panels scroll inside their
@@ -122,7 +157,7 @@ export default function Workspace() {
           the page scrolls. Above it they become fixed height columns that scroll inside
           themselves, which is what makes the brain stay put while a tab is read. Trying
           to do both at once was what made them overlap on a phone. */}
-      <div className="grid grid-cols-1 gap-4 px-4 pb-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[260px_minmax(0,1fr)_380px] lg:overflow-hidden lg:px-6 xl:grid-cols-[280px_minmax(0,1fr)_420px]">
+      <div className="grid grid-cols-1 gap-7 px-5 pb-6 lg:min-h-0 lg:flex-1 lg:grid-cols-[250px_minmax(0,1fr)_370px] lg:overflow-hidden lg:px-10 xl:grid-cols-[270px_minmax(0,1fr)_400px]">
         <LeftRail patient={patient.data} stream={stream} />
         <CenterBrain patient={patient.data} />
         <RightPanel patient={patient.data} />

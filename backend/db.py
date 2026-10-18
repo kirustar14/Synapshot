@@ -88,6 +88,9 @@ ADDED = [
     ("messages", "provider_id", "text"),
     ("messages", "space_id", "text"),
     ("messages", "detail", "text"),
+    # When the provider confirmed delivery, not when we sent it. Null on everything that
+    # was only ever accepted, which is most of them.
+    ("messages", "delivered_at", "text"),
     # Which pipeline a CREAO run belongs to, so the three roles of one pipeline can be
     # read back together. Added rather than built into the table so a database created
     # before the agents existed picks it up on the next open.

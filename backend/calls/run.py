@@ -51,13 +51,19 @@ def finish(token: str, aborted: bool = False) -> dict:
             "summary": got["patient_note"], "name": name}
 
 
-def mock_call(token: str) -> dict:
+def mock_call(token: str, degrade: float = 0.0) -> dict:
     """Run a generated web call through the real routes' own code paths.
 
     Everything a phone would post is generated, stored as real chunks, and finished
     through `finish`, so the validation, the camera latency estimate, the calibration fit,
     the feature functions, the filter update and the alert rules all run for real. The
     only thing missing is the phone.
+
+    `degrade` moves the week in SEM-scaled steps before anything is generated: positive
+    for a worse week, negative for a better one, zero for a typical one, which is the
+    default. It exists so the update after a call can be shown to be real rather than
+    asserted, and it moves the measurements the call is built from rather than the
+    result, so every number downstream is still produced by the real pipeline.
     """
     from .. import demo
     from ..features import websynth
@@ -79,7 +85,8 @@ def mock_call(token: str) -> dict:
     sessions.patch(token, {"consent": db.enc(
         {"calls": True, "ai": True, "recording": True, "genetic": False})})
 
-    got = websynth.session(truth[week], seed=int(pat["seed"] or 0) * 100 + week, poor=poor)
+    values = demo.shift_values(truth[week], degrade)
+    got = websynth.session(values, seed=int(pat["seed"] or 0) * 100 + week, poor=poor)
     for chunk in got["chunks"]:
         sessions.store_chunk(token, chunk["task"], chunk["kind"], chunk["payload"])
     sessions.patch(token, {
@@ -143,15 +150,82 @@ def measure(token: str, pid: str, week: int) -> dict:
     # One event that says the whole thing landed. The workspace refetches the twin, the
     # forecast and the alerts off this, which is what animates the brain and pops the
     # flags without anybody reloading the page.
-    live.publish(pid, "call_done", {
-        "call_id": cid, "week": week,
-        "alerts": [a["type"] for a in out["alerts"]],
-        "drift_z": round(float(out["diag"]["drift_z"]), 3),
-        "quality_ok": bool(res["quality"]["ok"]),
+    update = call_update(pid, cid, week, res, out)
+    db.put("events", {"id": db.new_id("ev"), "patient_id": pid, "kind": "call_update",
+                      "payload": db.enc(update), "time": db.now()})
+    # Appended to the patient's history, never replacing it. The baseline and every
+    # earlier timepoint are left exactly where they are.
+    from ..twin import build as buildmod
+
+    buildmod.add_timepoint(pid, {
+        "id": db.new_id("tp"),
+        "call_id": cid,
+        "at": update["date"],
+        "week": int(week),
+        "changed_regions": update["changed_regions"],
+        "changed_count": update["changed_count"],
+        "flags_added": update["flags_added"],
+        "summary": update["summary"],
+        "k": update["k"],
+        "p": update["p"],
+        "drift_z": update["drift_z"],
     })
+    live.publish(pid, "call_done", update)
 
     return {"call_id": cid, "alerts": [a["type"] for a in out["alerts"]],
             "patient_note": note, "channel": res["channel"], "drift_z": out["diag"]["drift_z"]}
+
+
+def call_update(pid: str, cid: str, week: int, res: dict, out: dict) -> dict:
+    """What changed in the brain because of this call, in one payload.
+
+    Served again by GET /api/patients/{pid}/latest-update, so a page that was not open
+    when the call landed sees the same thing as one that was.
+    """
+    from ..agent import safety
+
+    moved = out.get("changed_regions") or []
+    post = out.get("post") or {}
+    return {
+        "call_id": cid,
+        "week": int(week),
+        "date": db.now(),
+        "changed_regions": moved[:12],
+        "changed_count": len(moved),
+        "k": round(float(post["k"]), 4) if post.get("k") is not None else None,
+        "p": round(float(post["p"]), 4) if post.get("p") is not None else None,
+        "drift_z": round(float(out["diag"]["drift_z"]), 3),
+        # `alerts` is what the call modal has always read. `flags_added` is the name the
+        # banner uses. Same list, both kept, because renaming it would have broken the
+        # modal silently: the field would simply have been missing at runtime.
+        "alerts": [a["type"] for a in out.get("alerts") or []],
+        "flags_added": [a["type"] for a in out.get("alerts") or []],
+        "quality_ok": bool(res["quality"]["ok"]),
+        "summary": safety.clean(update_line(moved, out)),
+    }
+
+
+def update_line(moved: list[dict], out: dict) -> str:
+    """One plain sentence naming the biggest change.
+
+    Says plainly when the change is small rather than dressing it up, because a banner
+    that always sounds like something happened is a banner nobody reads.
+    """
+    drift = float(out["diag"].get("drift_z") or 0.0)
+    if not moved:
+        return ("Nothing in the brain model moved measurably this week. "
+                f"Drift is {drift:+.1f}.")
+    top = moved[0]
+    size = abs(top["after"] - top["before"])
+    way = "higher" if top["after"] > top["before"] else "lower"
+    where = f"{top['name']}"
+    if top.get("network"):
+        where += f" in the {top['network']} network"
+    if size < 0.02:
+        return (f"Small change: {len(moved)} regions moved a little, most of all {where}. "
+                f"Drift is {drift:+.1f}.")
+    return (f"{len(moved)} regions moved, most of all {where}, "
+            f"{size:.2f} {way}. Drift is {drift:+.1f}.")
 
 
 def words_from(waves: dict) -> list[dict]:

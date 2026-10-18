@@ -1,336 +1,461 @@
-// Treatment: the drug what-if.
+// Treatment: where each medicine's known targets and pathways are in the brain.
 //
-// Pick drugs, press Simulate, and the brain shows where that receptor profile would bite
-// hardest. Three modes: baseline, with drug, and the difference, which is the one worth
-// looking at and uses a diverging map.
+// What this is not, and used to be. It used to pick medicines, press a button to run the
+// model, and show a baseline, a treated version and the gap between them, with an effect
+// size slider and a ranked list of the regions that moved most. All of that came from
+// perturbing the dynamic mean field model with a receptor-weighted gain. It looked like a
+// prediction of what a medicine would do to this patient, and nothing in this system has
+// the standing to make one.
 //
-// The banner is always on. Not a dismissible notice, not a tooltip: a line that is
-// present whenever this tab is, because this is the screen most likely to be screenshotted
-// out of context and the screenshot has to carry its own disclaimer.
+// So the simulation is gone, and what is left is a reference. Toggle a medicine and the
+// brain lights up where its targets actually are, from the PET and SPECT atlas, plus the
+// schematic pathway its transmitter runs along. Everything else about the medicine is in
+// a dropdown, closed by default, so the page stays readable with twelve of them on it.
 //
-// Dose is displayed and never sent. The request body has a drug name and a gain in it and
-// nothing else, which is checked by a test.
+// Nothing here is instant-on by accident: the toggles light the brain immediately because
+// there is nothing to compute, which is the whole point of it against a version that
+// had to run a model first.
 
-import { AlertTriangle, Ban, Loader2, Search } from "lucide-react";
+import { ChevronRight, Info, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useDrugImpact, useFormulary, useMesh, useTwin, type DrugEntry } from "@/api/client";
+import {
+  useDrug,
+  useDrugOverlap,
+  useFormulary,
+  usePathways,
+  useSuggestedDrugs,
+  type Drug,
+  type SuggestedDrug,
+} from "@/api/client";
 import type { Patient } from "@/api/types";
-import { regionLabel, useViewer } from "@/components/brain";
 import { Loading } from "@/components/common";
-import { Button } from "@/components/ui/button";
+import { Fold } from "@/components/fold";
 import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/pages/Workspace";
+import { useViewer } from "@/components/brain";
 
-type Mode = "baseline" | "with" | "difference";
+/** The one sentence this tab is allowed to make about itself. */
+const ABOUT =
+  "Shows where each medicine's known targets and pathways are in the brain. " +
+  "It does not predict whether it will help.";
 
-const MODES: { id: Mode; label: string }[] = [
-  { id: "baseline", label: "Baseline" },
-  { id: "with", label: "With drug" },
-  { id: "difference", label: "Difference" },
-];
+/** Targets with no single tract to draw, which say so rather than drawing one. */
+const NO_TRACT = new Set(["GABA-A", "NMDA", "mGluR5", "SV2A"]);
 
-/** One drug in the list. A drug the model cannot represent still appears, with why not. */
-function DrugRow({
-  drug,
-  picked,
-  onToggle,
-}: {
-  drug: DrugEntry;
-  picked: boolean;
-  onToggle: () => void;
-}) {
-  const body = (
-    <button
-      type="button"
-      onClick={drug.modeled ? onToggle : undefined}
-      aria-pressed={drug.modeled ? picked : undefined}
-      disabled={!drug.modeled}
+function Tag({ tag }: { tag: "verified" | "check this" }) {
+  return (
+    <span
       className={cn(
-        "flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-        picked ? "border-primary bg-primary-soft" : "border-border bg-background",
-        drug.modeled ? "hover:bg-muted" : "cursor-default opacity-60",
+        "ml-1.5 rounded-full border px-1.5 py-px text-[9px] font-bold uppercase tracking-wide",
+        tag === "verified"
+          ? "border-success/40 bg-success-soft text-success"
+          : "border-synthetic/40 bg-synthetic-soft text-synthetic-foreground",
       )}
     >
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="truncate text-xs font-bold capitalize">{drug.name}</span>
-          {!drug.modeled && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-muted px-1 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">
-              <Ban className="h-2.5 w-2.5" aria-hidden /> not modelled
+      {tag}
+    </span>
+  );
+}
+
+/** One closed sub-section inside a medicine's row. */
+function Part({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return (
+    <Fold id={id} title={title} summary="">
+      <div className="text-xs leading-relaxed">{children}</div>
+    </Fold>
+  );
+}
+
+/** Where a medicine's targets land in this patient's damaged regions. */
+function Overlap({ patientId, name, week }: { patientId: string; name: string; week: number }) {
+  const got = useDrugOverlap(patientId, name, week, true);
+  if (got.isLoading) return <Loading label="Reading the overlap" />;
+  const rows = got.data?.regions ?? [];
+  if (!rows.length) {
+    return <p className="text-muted-foreground">{got.data?.note || "No regions meet both conditions."}</p>;
+  }
+  return (
+    <>
+      <p className="mb-2 text-muted-foreground">
+        Damage above {got.data?.damage_floor} and target density above {got.data?.target_z} standard
+        deviations. An overlap of two maps, not a prediction.
+      </p>
+      <ul className="space-y-1.5">
+        {rows.map((r) => (
+          <li key={r.id} className="flex items-baseline justify-between gap-2">
+            <span className="min-w-0">
+              <span className="font-bold">{r.name}</span>
+              <span className="ml-1.5 text-muted-foreground">{r.network}</span>
             </span>
-          )}
-          {drug.proxy_targets.length > 0 && (
-            <span className="shrink-0 rounded bg-synthetic-soft px-1 py-0.5 text-[9px] font-bold uppercase text-synthetic-foreground">
-              proxy map
+            <span className="shrink-0 font-mono text-[11px]">
+              {r.damage.toFixed(2)}
+              <span className="text-muted-foreground">
+                {" "}
+                [{r.damage_lo.toFixed(2)}, {r.damage_hi.toFixed(2)}]
+              </span>
+              <span className="ml-2 text-muted-foreground">z {r.target_z.toFixed(1)}</span>
             </span>
-          )}
-        </span>
-        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-          {drug.class}
-          {drug.typical_dose ? ` · ${drug.typical_dose}` : ""}
-        </span>
-        {drug.targets.length > 0 && (
-          <span className="mt-1 flex flex-wrap gap-1">
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/** Everything about one medicine, in closed sub-sections. */
+function Detail({ name, patientId, week }: { name: string; patientId: string; week: number }) {
+  const got = useDrug(name);
+  const paths = usePathways();
+  const flash = useViewer((s) => s.flashPathway);
+  if (got.isLoading || !got.data) return <Loading label="Reading the record" />;
+  const d: Drug = got.data;
+  const mine = (paths.data?.pathways ?? []).filter((p) => d.pathways.includes(p.group));
+
+  return (
+    <div className="mt-2 space-y-1 border-l-2 border-border pl-3">
+      <Part id={`drug.${name}.what`} title="What it does">
+        <p>{d.what_it_does}</p>
+        <p className="mt-1.5 text-muted-foreground">{d.mechanism}</p>
+      </Part>
+
+      <Part id={`drug.${name}.where`} title="Where it acts in the brain">
+        {d.targets.length === 0 ? (
+          <p className="text-muted-foreground">{d.no_mapped_target}</p>
+        ) : (
+          <ul className="space-y-2">
+            {d.targets.map((t) => (
+              <li key={t.target}>
+                <span className="font-bold">{t.target}</span>
+                <span className="ml-1 text-muted-foreground">{t.full_name}</span>
+                <Tag tag={t.evidence_tag} />
+                <p className="mt-0.5 text-muted-foreground">{t.plain}</p>
+                {t.atlas_key && NO_TRACT.has(t.atlas_key) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="mt-0.5 inline-block cursor-help text-[11px] underline decoration-dotted">
+                        no single tract
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      This target is spread across the cortex rather than carried along one
+                      pathway, so the density map is shown and no tube is drawn.
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Part>
+
+      <Part id={`drug.${name}.paths`} title="Pathways it touches">
+        {mine.length === 0 ? (
+          <p className="text-muted-foreground">No single tract for this medicine's targets.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {mine.map((p) => (
+              <li key={p.key}>
+                <button
+                  type="button"
+                  onClick={() => flash(p.key)}
+                  className="text-left font-bold underline decoration-dotted underline-offset-2"
+                >
+                  {p.name}
+                </button>
+                <p className="text-muted-foreground">{p.about}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {paths.data?.caption && (
+          <p className="mt-2 text-[11px] text-muted-foreground">{paths.data.caption}</p>
+        )}
+      </Part>
+
+      <Part id={`drug.${name}.uses`} title="Usually used for">
+        <p>{d.usual_uses.join(", ") || "Not listed."}</p>
+      </Part>
+
+      <Part id={`drug.${name}.tbi`} title="In brain injury">
+        <p>
+          {d.in_tbi}
+          <Tag tag={d.in_tbi_evidence_tag} />
+        </p>
+      </Part>
+
+      <Part id={`drug.${name}.overlap`} title="Regions that carry this target within the injured area">
+        {d.has_map ? (
+          <Overlap patientId={patientId} name={name} week={week} />
+        ) : (
+          <p className="text-muted-foreground">{d.no_mapped_target}</p>
+        )}
+      </Part>
+
+      <Part id={`drug.${name}.refs`} title="Sources">
+        <ul className="space-y-1">
+          {d.refs.map((r) => (
+            <li key={r.text}>
+              {r.text}
+              <Tag tag={r.evidence_tag} />
+            </li>
+          ))}
+        </ul>
+      </Part>
+    </div>
+  );
+}
+
+/** One medicine: the toggle, the name, the class, the target chips, and the dropdown. */
+function Row({
+  drug,
+  on,
+  onToggle,
+  patientId,
+  week,
+  open,
+  setOpen,
+}: {
+  drug: Drug;
+  on: boolean;
+  onToggle: () => void;
+  patientId: string;
+  week: number;
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
+  return (
+    <li id={`drug-row-${drug.name}`} className="border-b border-border py-2 last:border-0">
+      <div className="flex items-start gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={on}
+              aria-label={`Light up ${drug.name} on the brain`}
+              disabled={!drug.has_map}
+              onClick={onToggle}
+              className={cn(
+                "mt-0.5 h-4 w-7 shrink-0 rounded-full border transition-colors disabled:opacity-40",
+                on ? "border-transparent" : "border-border bg-muted",
+              )}
+              style={on ? { background: drug.color } : undefined}
+            >
+              <span
+                className={cn(
+                  "block h-3 w-3 rounded-full bg-card transition-transform",
+                  on ? "translate-x-3.5" : "translate-x-0.5",
+                )}
+              />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {drug.has_map ? "Light up its target density on the brain" : "No mapped brain target"}
+          </TooltipContent>
+        </Tooltip>
+
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="min-w-0 flex-1 text-left"
+          aria-expanded={open}
+        >
+          <span className="flex items-center gap-1.5">
+            <ChevronRight
+              className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-90")}
+              aria-hidden
+            />
+            <span className="text-sm font-bold capitalize">{drug.name}</span>
+            {on && (
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: drug.color }}
+                aria-hidden
+              />
+            )}
+          </span>
+          <span className="ml-4.5 block text-[11px] text-muted-foreground">{drug.class}</span>
+          <span className="ml-4.5 mt-1 flex flex-wrap gap-1">
             {drug.targets.map((t) => (
               <span
-                key={t.receptor}
-                className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px]"
-                title={t.why}
+                key={t.target}
+                className={cn(
+                  "rounded-full border px-1.5 py-px text-[10px]",
+                  t.atlas_key ? "border-border bg-card" : "border-dashed border-border text-muted-foreground",
+                )}
+                title={t.atlas_key ? t.full_name : `${t.full_name}, no map available`}
               >
-                {t.direction > 0 ? "↑" : "↓"} {t.receptor}
+                {t.target}
               </span>
             ))}
+            {!drug.targets.length && (
+              <span className="text-[10px] text-muted-foreground">No mapped brain target</span>
+            )}
           </span>
-        )}
-      </span>
-    </button>
-  );
+        </button>
+      </div>
 
-  const reason = drug.modeled ? drug.note : drug.why_not;
-  if (!reason) return body;
+      {open && <Detail name={drug.name} patientId={patientId} week={week} />}
+    </li>
+  );
+}
+
+/** The medicines commonly used for the symptoms this patient reported. */
+function Suggested({
+  patientId,
+  onPick,
+}: {
+  patientId: string;
+  onPick: (name: string) => void;
+}) {
+  const got = useSuggestedDrugs(patientId);
+  if (got.isLoading) return <Loading label="Matching the symptoms" />;
+  const rows: SuggestedDrug[] = got.data?.drugs ?? [];
+
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>{body}</TooltipTrigger>
-      <TooltipContent className="max-w-sm">{reason}</TooltipContent>
-    </Tooltip>
+    <section className="mb-4">
+      <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+        Commonly considered for the symptoms this patient reports
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="h-3 w-3 cursor-help" aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">{got.data?.note}</TooltipContent>
+        </Tooltip>
+      </h3>
+
+      {rows.length === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">{got.data?.message}</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {rows.map((r) => (
+            <li key={r.name}>
+              <button
+                type="button"
+                onClick={() => onPick(r.name)}
+                className="flex w-full items-baseline justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-left"
+              >
+                <span className="min-w-0">
+                  <span className="text-sm font-bold capitalize">{r.name}</span>
+                  {r.current && (
+                    <span className="ml-1.5 rounded-full border border-primary/40 bg-primary-soft px-1.5 py-px text-[9px] font-bold uppercase text-primary">
+                      current
+                    </span>
+                  )}
+                  <span className="block text-[11px] text-muted-foreground">{r.reason}</span>
+                </span>
+                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
 export function TreatmentTab({ patient }: { patient: Patient }) {
+  const { week } = useWorkspace();
   const formulary = useFormulary();
-  const viewer = useViewer();
-  const { setRegion } = useWorkspace();
+  const lit = useViewer((s) => s.drugs);
+  const toggleDrug = useViewer((s) => s.toggleDrug);
+  const [find, setFind] = useState("");
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [about, setAbout] = useState(false);
 
-  const [picked, setPicked] = useState<string[]>([]);
-  const [gain, setGain] = useState(0.2);
-  const [mode, setMode] = useState<Mode>("difference");
-  const [run, setRun] = useState(false);
-  const [query, setQuery] = useState("");
-
-  const drugs = formulary.data?.drugs ?? [];
-  const chartMeds = (patient.chart?.medications ?? []).map((m) => m.name);
-
+  const all: Drug[] = useMemo(() => formulary.data?.drugs ?? [], [formulary.data]);
   const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const base = q ? drugs.filter((d) => d.name.includes(q) || d.class.toLowerCase().includes(q)) : drugs;
-    // The patient's own medication first. It is the list a clinician is actually asking
-    // about, and making them search for it would be a strange thing to do.
-    return [...base].sort((a, b) => {
-      const am = chartMeds.includes(a.name) ? 0 : 1;
-      const bm = chartMeds.includes(b.name) ? 0 : 1;
-      return am - bm || Number(b.modeled) - Number(a.modeled);
+    const want = find.trim().toLowerCase();
+    if (!want) return all;
+    return all.filter(
+      (d) =>
+        d.name.includes(want) ||
+        d.class.toLowerCase().includes(want) ||
+        d.targets.some((t) => t.target.toLowerCase().includes(want)),
+    );
+  }, [all, find]);
+
+  function reveal(name: string) {
+    setOpen((prev) => ({ ...prev, [name]: true }));
+    // Scrolled rather than jumped, so it is clear the list moved under you.
+    window.requestAnimationFrame(() => {
+      document.getElementById(`drug-row-${name}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
-  }, [drugs, query, chartMeds]);
+  }
 
-  const selection = picked.map((name) => ({ name }));
-  const impact = useDrugImpact(patient.id, selection, gain, run && picked.length > 0);
-  const got = impact.data;
+  if (formulary.isLoading) return <Loading label="Reading the formulary" />;
 
-  // Without the mesh, regionLabel has no lobe and no centroid and every region comes back
-  // "left cortex". Both queries are already in the cache: the viewer on this same screen
-  // fetched them, and the mesh one is parameterless and never goes stale.
-  const mesh = useMesh();
-  const twin = useTwin(patient.id);
-
-  const top = useMemo(() => {
-    if (!got?.modeled || !got.region_effect) return [];
-    return (got.top_changed ?? []).map((i) => ({
-      index: i,
-      effect: got.region_effect![i],
-      lo: got.lo?.[i] ?? 0,
-      hi: got.hi?.[i] ?? 0,
-      label: regionLabel(mesh.data, twin.data, i).plain,
-    }));
-  }, [got, mesh.data, twin.data]);
+  const onNow = all.filter((d) => lit.includes(d.name));
 
   return (
-    <div className="text-sm">
-      {/* Always on. Not dismissible. */}
-      <p className="sticky top-0 z-10 -mx-3 mb-2 flex items-start gap-1.5 border-b border-synthetic/40 bg-synthetic-soft px-3 py-2 text-[11px] font-bold leading-snug text-synthetic-foreground">
-        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-        {formulary.data?.banner ??
-          "Hypothetical what-if on a network model. Not a treatment recommendation, not a prediction, and no dose is modelled."}
-      </p>
+    <div className="pt-3">
+      <h2 className="flex items-center gap-1.5 text-sm font-bold">
+        Treatment
+        <button
+          type="button"
+          onClick={() => setAbout(!about)}
+          aria-label="What this tab shows"
+          aria-expanded={about}
+          className="text-muted-foreground"
+        >
+          <Info className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </h2>
+      {about && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{ABOUT}</p>}
 
-      {formulary.isLoading && <Loading label="Loading the formulary" />}
+      <div className="mt-3">
+        <Suggested patientId={patient.id} onPick={reveal} />
+      </div>
 
-      <div className="relative mb-2">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
           placeholder="Search the formulary"
           aria-label="Search the formulary"
-          className="h-8 pl-8 text-xs"
+          className="h-9 pl-8 text-sm"
         />
       </div>
 
-      <ul className="space-y-1.5">
+      <ul className="mt-1">
         {shown.map((d) => (
-          <li key={d.name}>
-            <DrugRow
-              drug={d}
-              picked={picked.includes(d.name)}
-              onToggle={() =>
-                setPicked((have) =>
-                  have.includes(d.name) ? have.filter((n) => n !== d.name) : [...have, d.name],
-                )
-              }
-            />
-            {chartMeds.includes(d.name) && (
-              <p className="mt-0.5 px-1 text-[10px] text-muted-foreground">On this patient's chart.</p>
-            )}
-          </li>
+          <Row
+            key={d.name}
+            drug={d}
+            on={lit.includes(d.name)}
+            onToggle={() => toggleDrug(d.name)}
+            patientId={patient.id}
+            week={week}
+            open={!!open[d.name]}
+            setOpen={(v) => setOpen((prev) => ({ ...prev, [d.name]: v }))}
+          />
         ))}
+        {shown.length === 0 && (
+          <li className="py-3 text-xs text-muted-foreground">Nothing in the formulary matches that.</li>
+        )}
       </ul>
 
-      <div className="sticky bottom-0 mt-3 space-y-2 border-t border-border/60 bg-card pt-3">
-        <div className="flex items-center gap-2">
-          <span className="shrink-0 text-[10px] font-bold uppercase text-muted-foreground">Effect size</span>
-          <Slider
-            value={[gain]}
-            min={0.05}
-            max={0.5}
-            step={0.05}
-            onValueChange={([v]) => setGain(v)}
-            aria-label="How strongly to perturb the local gain"
-            className="flex-1"
-          />
-          <span className="w-8 shrink-0 text-right font-mono text-[11px]">{gain.toFixed(2)}</span>
-        </div>
-        <p className="text-[10px] leading-snug text-muted-foreground">
-          At {gain.toFixed(2)} the most affected region's local gain moves by{" "}
-          {Math.round(gain * 100)}%. This is a modelling knob, not a dose.
-        </p>
-
-        <div className="flex gap-2">
-          <Button
-            className="flex-1"
-            disabled={picked.length === 0}
-            onClick={() => setRun(true)}
-          >
-            {impact.isFetching ? <Loader2 className="animate-spin" aria-hidden /> : null}
-            Simulate
-          </Button>
-          {picked.length > 0 && (
-            <Button variant="outline" onClick={() => { setPicked([]); setRun(false); }}>
-              Clear
-            </Button>
-          )}
-        </div>
-
-        {got?.modeled && (
-          <div className="flex gap-1" role="group" aria-label="What the brain shows">
-            {MODES.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                aria-pressed={mode === m.id}
-                onClick={() => {
-                  setMode(m.id);
-                  viewer.setLayer(m.id === "difference" ? "difference" : "activity");
-                }}
-                className={cn(
-                  "flex-1 rounded-lg border px-2 py-1 text-[11px] font-bold",
-                  mode === m.id ? "border-primary bg-primary text-primary-foreground" : "border-border",
-                )}
-              >
-                {m.label}
-              </button>
+      {onNow.length > 0 && (
+        <div className="mt-3 rounded-lg border border-border bg-card px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+            On the brain now
+          </p>
+          <ul className="mt-1.5 flex flex-wrap gap-2">
+            {onNow.map((d) => (
+              <li key={d.name} className="flex items-center gap-1.5 text-xs">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: d.color }} aria-hidden />
+                <span className="capitalize">{d.name}</span>
+                <span className="text-muted-foreground">{d.mapped_targets.join(", ")}</span>
+              </li>
             ))}
-          </div>
-        )}
-      </div>
-
-      {impact.isFetching && <Loading label="Simulating both sides" />}
-
-      {got && !got.modeled && (
-        <p className="mt-3 rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground">{got.say}</p>
-      )}
-
-      {got?.modeled && (
-        <div className="mt-3 space-y-3">
-          <p className="rounded-lg bg-muted/60 px-2.5 py-2 text-[11px] leading-snug">{got.say}</p>
-
-          {got.warnings.length > 0 && (
-            <ul className="space-y-1">
-              {got.warnings.map((w) => (
-                <li
-                  key={w}
-                  className="rounded-lg bg-synthetic-soft px-2.5 py-1.5 text-[10px] leading-snug text-synthetic-foreground"
-                >
-                  {w}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div>
-            <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-muted-foreground">
-              Most changed regions
-            </p>
-            {top.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No region's effect holds its sign. Everything is shaded unclear.
-              </p>
-            ) : (
-              <ul className="space-y-0.5">
-                {top.map((r) => (
-                  <li key={r.index}>
-                    <button
-                      type="button"
-                      onClick={() => setRegion(r.index)}
-                      className="flex w-full items-baseline justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-muted"
-                    >
-                      <span className="truncate text-[11px] capitalize">{r.label}</span>
-                      <span className="shrink-0 font-mono text-[10px]">
-                        {r.effect > 0 ? "+" : ""}
-                        {r.effect.toFixed(4)}
-                        <span className="ml-1 text-muted-foreground">
-                          [{r.lo.toFixed(4)}, {r.hi.toFixed(4)}]
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {(got.unclear_count ?? 0) > 0 && (
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {got.unclear_count} of {got.region_effect?.length ?? 0} regions are shaded unclear:
-                their 80% interval crosses zero, so the model does not agree on the sign.
-              </p>
-            )}
-          </div>
-
-          <details className="rounded-lg border border-border/60 px-2.5 py-2">
-            <summary className="cursor-pointer text-[11px] font-bold">
-              What this interval does and does not cover
-            </summary>
-            <div className="mt-2 space-y-2">
-              <div>
-                <p className="text-[10px] font-bold uppercase text-muted-foreground">Covers</p>
-                <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
-                  {(got.interval_covers ?? []).map((t) => (
-                    <li key={t} className="text-[10px] leading-snug">{t}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase text-destructive">Does not cover</p>
-                <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
-                  {(got.interval_misses ?? []).map((t) => (
-                    <li key={t} className="text-[10px] leading-snug">{t}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </details>
+          </ul>
         </div>
       )}
     </div>
   );
 }
+
+export default TreatmentTab;

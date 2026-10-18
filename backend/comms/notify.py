@@ -158,11 +158,15 @@ def confirm(mid: str) -> dict:
                           str(row["provider_id"] or ""))
     if got.get("status") == "delivered":
         db.message_status(mid, "delivered")
-        return {"ok": True, "status": "delivered"}
+        db.patch("messages", mid, {"delivered_at": db.now()})
+        return {"ok": True, "status": "delivered", "confirmation": "provider"}
     if got.get("status") == "unknown":
-        return {"ok": True, "status": status,
+        # Accepted and unconfirmed. The distinction matters: a transport that cannot read
+        # receipts is not the same as one that read a receipt saying it failed, and a
+        # screen that showed both as "sent" would be hiding which of the two it was.
+        return {"ok": True, "status": status, "confirmation": "unavailable",
                 "note": "the provider could not say whether it arrived"}
-    return {"ok": True, "status": status}
+    return {"ok": True, "status": status, "confirmation": "unavailable"}
 
 
 def status() -> dict:

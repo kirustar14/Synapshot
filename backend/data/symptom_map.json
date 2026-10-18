@@ -1,0 +1,99 @@
+{
+  "_note": "Which medicines in this formulary are commonly considered for which symptom after concussion. This is not a ranking and it is not advice. It is the ordinary clinical association between a symptom and a class of medicine, so a clinician looking at a symptom score has somewhere to start reading rather than scrolling the whole formulary.",
+  "_never": "No doses anywhere. The words recommend and best are not used, because the model has no standing to say either and a list that used them would read as prescribing.",
+  "_evidence_tags": "verified means the source was fetched and read. check this means the association is written from general clinical knowledge and the named source still has to be read end to end before anybody leans on it. The VA/DoD and AAN documents below are real and current, and their URLs are here, but their PDFs could not be text extracted when this file was written, so the per symptom claims drawn from them are tagged check this rather than verified.",
+  "_sources": {
+    "vadod2021": {
+      "text": "VA/DoD Clinical Practice Guideline for the Management and Rehabilitation of Post-Acute Mild Traumatic Brain Injury, 2021, version 3.0",
+      "url": "https://www.healthquality.va.gov/guidelines/Rehab/mtbi/",
+      "evidence_tag": "check this"
+    },
+    "cdc_heads_up": {
+      "text": "CDC, Heads Up, concussion symptom management",
+      "url": "https://www.cdc.gov/heads-up/",
+      "evidence_tag": "check this"
+    },
+    "aan2013": {
+      "text": "American Academy of Neurology, Summary of evidence-based guideline update: evaluation and management of concussion in sports, Neurology 2013;80(24):2250-2257",
+      "url": "https://www.aan.com/Guidelines/home/GuidelineDetail/581",
+      "evidence_tag": "check this"
+    }
+  },
+  "threshold": 4,
+  "_threshold_note": "A symptom is counted as reported when its score is 4 or more out of 10. Fixed rather than relative, so the same score means the same thing for every patient and two weeks can be compared.",
+  "symptoms": {
+    "headache": {
+      "label": "Headache",
+      "drugs": [
+        {"name": "acetaminophen", "why": "a first line simple analgesic for headache", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "ibuprofen", "why": "a first line anti-inflammatory for headache", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "amitriptyline", "why": "used at low dose for frequent post-traumatic headache", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "nortriptyline", "why": "an alternative where amitriptyline is too sedating", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "propranolol", "why": "used to prevent migraine-type headache", "source": "aan2013", "evidence_tag": "check this"},
+        {"name": "gabapentin", "why": "sometimes used for persistent headache", "source": "vadod2021", "evidence_tag": "check this"}
+      ]
+    },
+    "nausea": {
+      "label": "Nausea",
+      "drugs": [
+        {"name": "ondansetron", "why": "a standard antiemetic, used for nausea from any cause", "source": "cdc_heads_up", "evidence_tag": "check this"}
+      ]
+    },
+    "sleep_disturbance": {
+      "label": "Sleep disturbance",
+      "drugs": [
+        {"name": "melatonin", "why": "used for sleep timing after concussion and generally well tolerated", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "amitriptyline", "why": "sedating, so sometimes used where headache and poor sleep occur together", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "gabapentin", "why": "sometimes used where pain is keeping sleep broken", "source": "vadod2021", "evidence_tag": "check this"}
+      ]
+    },
+    "low_mood": {
+      "label": "Low mood or anxiety",
+      "drugs": [
+        {"name": "sertraline", "why": "a first line SSRI for mood and anxiety symptoms", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "propranolol", "why": "used for the physical symptoms of anxiety", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "amitriptyline", "why": "an older antidepressant, more often used here for headache and sleep", "source": "vadod2021", "evidence_tag": "check this"}
+      ]
+    },
+    "attention": {
+      "label": "Attention or concentration trouble",
+      "drugs": [
+        {"name": "methylphenidate", "why": "studied for attention and processing speed after TBI, mostly in moderate to severe injury", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "amantadine", "why": "studied after TBI, though the main trial was in severe injury with disorders of consciousness, not concussion", "source": "vadod2021", "evidence_tag": "check this"}
+      ]
+    },
+    "fatigue": {
+      "label": "Fatigue",
+      "drugs": [
+        {"name": "methylphenidate", "why": "sometimes used for fatigue and low arousal after TBI", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "amantadine", "why": "sometimes used for fatigue after TBI", "source": "vadod2021", "evidence_tag": "check this"},
+        {"name": "melatonin", "why": "used where fatigue is being driven by broken sleep", "source": "vadod2021", "evidence_tag": "check this"}
+      ]
+    },
+    "dizziness": {
+      "label": "Dizziness",
+      "drugs": [
+        {"name": "ondansetron", "why": "used where dizziness comes with nausea", "source": "cdc_heads_up", "evidence_tag": "check this"}
+      ],
+      "note": "The guidelines put vestibular rehabilitation ahead of medicine for dizziness after concussion."
+    },
+    "light_sensitivity": {
+      "label": "Light or noise sensitivity",
+      "drugs": [
+        {"name": "amitriptyline", "why": "used where light sensitivity travels with frequent headache", "source": "vadod2021", "evidence_tag": "check this"}
+      ],
+      "note": "Usually managed by pacing and gradual exposure rather than by medicine."
+    }
+  },
+  "_aliases": {
+    "pressure": "headache",
+    "neck_pain": "headache",
+    "blurred_vision": "light_sensitivity",
+    "light_sens": "light_sensitivity",
+    "sleep": "sleep_disturbance",
+    "mood": "low_mood",
+    "anxiety": "low_mood",
+    "concentration": "attention",
+    "memory": "attention"
+  }
+}

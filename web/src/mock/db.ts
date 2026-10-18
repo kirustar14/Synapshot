@@ -39,7 +39,6 @@ import type {
 import type {
   AlertRule,
   DrugEntry,
-  DrugImpact,
   Evidence,
   Formulary,
   Percentile,
@@ -815,7 +814,6 @@ export const mock = {
   shape: (id: string) => makeShape(get(id)),
   receptors: () => makeReceptors(),
   loadings: () => makeLoadings(),
-  intervention: (id: string, b: { target: string; gain: number }) => makeIntervention(get(id), b.target, b.gain),
 
   scenarios: (id: string, b: { a: Scenario; b: Scenario }): ScenarioResult => {
     const s = get(id);
@@ -1203,8 +1201,11 @@ export const mock = {
     ok: true,
     id: mid,
     channel: "mock",
-    status: "mock",
-    detail: "",
+    status: "mock" as const,
+    provider_id: null,
+    error: null,
+    delivered_at: null,
+    delivery_confirmation: "unavailable" as const,
     note: "No backend, so nothing was sent and nothing can be confirmed.",
   }),
 
@@ -1257,61 +1258,49 @@ export const mock = {
     note: "Polylines through anatomical landmarks, at atlas scale. No angiogram went into this.",
   }),
 
+  // The mock formulary. Two entries is enough: it exists so the tab renders with no
+  // backend, not to be a second copy of the real file. One medicine with a mapped target
+  // and one without, which are the two shapes the tab has to handle.
   formulary: (): Formulary => ({
     drugs: [
-      { name: "sertraline", class: "SSRI", typical_dose: "25 to 200 mg daily", modeled: true,
-        targets: [{ receptor: "5-HTT", affinity: 1, direction: 1, why: "blocks the serotonin transporter" },
-                  { receptor: "DAT", affinity: 0.15, direction: 1, why: "weak at higher doses" }],
-        note: "Onset over weeks, which this model does not represent.", why_not: "",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "amitriptyline", class: "tricyclic antidepressant", typical_dose: "10 to 50 mg at night", modeled: true,
-        targets: [{ receptor: "5-HTT", affinity: 0.8, direction: 1, why: "serotonin reuptake inhibition" },
-                  { receptor: "NET", affinity: 0.7, direction: 1, why: "noradrenaline reuptake inhibition" },
-                  { receptor: "5-HT2A", affinity: 0.6, direction: -1, why: "5-HT2A antagonist" }],
-        note: "Its antihistamine and antimuscarinic actions have no map here.", why_not: "",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "methylphenidate", class: "stimulant", typical_dose: "5 to 20 mg twice daily", modeled: true,
-        targets: [{ receptor: "DAT", affinity: 1, direction: 1, why: "blocks the dopamine transporter" },
-                  { receptor: "NET", affinity: 0.6, direction: 1, why: "blocks the noradrenaline transporter" }],
-        note: "The striatum is outside this cortical parcellation.", why_not: "",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "amantadine", class: "NMDA antagonist and dopaminergic", typical_dose: "100 mg twice daily", modeled: true,
-        targets: [{ receptor: "NMDA", affinity: 0.8, direction: -1, why: "weak NMDA antagonist" },
-                  { receptor: "DAT", affinity: 0.4, direction: 1, why: "increases dopamine release" }],
-        note: "Best studied after severe TBI. Thinner evidence in mild TBI.", why_not: "",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "propranolol", class: "beta blocker", typical_dose: "20 to 80 mg twice daily", modeled: true,
-        targets: [{ receptor: "NET", affinity: 0.5, direction: -1, proxy: true,
-                    why: "no beta-adrenoceptor map exists. NET shows where noradrenergic terminals are." }],
-        note: "Shown against a proxy map: treat the location as indicative, the size as uninformative.",
-        why_not: "", proxy_targets: ["NET"], stand_in_targets: [] },
-      { name: "levetiracetam", class: "antiseizure", typical_dose: "250 to 1000 mg twice daily", modeled: true,
-        targets: [{ receptor: "SV2A", affinity: 1, direction: -1, why: "binds SV2A, reducing vesicular release" }],
-        note: "SV2A is close to a synaptic density marker.", why_not: "",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "ondansetron", class: "antiemetic", typical_dose: "4 to 8 mg as needed", modeled: false, targets: [],
-        note: "", why_not: "5-HT3 is its target and there is no 5-HT3 map in this atlas set.",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "gabapentin", class: "alpha-2-delta ligand", typical_dose: "300 to 900 mg three times daily", modeled: false, targets: [],
-        note: "", why_not: "Its target is a calcium channel subunit. There is no PET map of it.",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "melatonin", class: "hormone", typical_dose: "2 to 5 mg at night", modeled: false, targets: [],
-        note: "", why_not: "MT1 and MT2 have no map, and the effect that matters is on sleep timing.",
-        proxy_targets: [], stand_in_targets: [] },
-      { name: "acetaminophen", class: "analgesic", typical_dose: "500 to 1000 mg every 6 hours", modeled: false, targets: [],
-        note: "", why_not: "Its mechanism is still argued over and none of the candidates has a receptor map.",
-        proxy_targets: [], stand_in_targets: [] },
+      {
+        name: "sertraline",
+        class: "SSRI antidepressant",
+        what_it_does: "Blocks the serotonin transporter, so serotonin stays active for longer between neurons. Usually used for depression and anxiety.",
+        mechanism: "Selective serotonin reuptake inhibition at SERT.",
+        targets: [{
+          target: "5-HTT", full_name: "serotonin transporter",
+          plain: "The pump that clears serotonin out of the synapse.",
+          atlas_key: "5-HTT", action: "blocks", source: "gtopdb", evidence_tag: "check this" as const,
+        }],
+        pathways: ["serotonin"],
+        usual_uses: ["low mood or anxiety"],
+        in_tbi: "Used after concussion for mood symptoms rather than for the injury itself.",
+        in_tbi_evidence_tag: "check this" as const,
+        refs: [{ text: "IUPHAR/BPS Guide to Pharmacology, sertraline", source: "gtopdb", evidence_tag: "check this" as const }],
+        mapped_targets: ["5-HTT"],
+        has_map: true,
+        color: "#0072b2",
+      },
+      {
+        name: "ibuprofen",
+        class: "non-steroidal anti-inflammatory",
+        what_it_does: "Blocks the COX enzymes, so less of the prostaglandins that drive pain are made. It works on the tissue rather than on a brain transmitter system.",
+        mechanism: "Non-selective cyclooxygenase inhibition.",
+        targets: [],
+        pathways: [],
+        usual_uses: ["headache"],
+        in_tbi: "A first line option for headache after concussion.",
+        in_tbi_evidence_tag: "check this" as const,
+        refs: [{ text: "DrugBank, ibuprofen", source: "drugbank", evidence_tag: "check this" as const }],
+        mapped_targets: [],
+        has_map: false,
+        no_mapped_target: "No mapped brain target.",
+        color: "#d55e00",
+      },
     ],
-    receptors: ["GABA-A", "NMDA", "D1", "D2", "DAT", "NET", "5-HT1A", "5-HT2A", "5-HTT", "SV2A", "mGluR5", "mu-opioid"],
-    tracers: {
-      "GABA-A": "[11C]flumazenil", NMDA: "[18F]GE-179", D1: "[11C]SCH23390", D2: "[11C]FLB457",
-      DAT: "[123I]FP-CIT", NET: "[18F]MeNER", "5-HT1A": "[11C]CUMI-101", "5-HT2A": "[11C]Cimbi-36",
-      "5-HTT": "[11C]DASB", SV2A: "[11C]UCB-J", mGluR5: "[11C]ABP688", "mu-opioid": "[11C]carfentanil",
-    },
-    stand_in: [],
-    synthetic_template: false,
-    banner: "Hypothetical what-if on a network model. Not a treatment recommendation, not a prediction, and no dose is modelled.",
-    note: "Group average PET and SPECT maps from healthy volunteers, parcellated onto Schaefer-100 and z scored.",
+    sources: { gtopdb: "IUPHAR/BPS Guide to Pharmacology", drugbank: "DrugBank" },
+    note: "Where each medicine's known targets and pathways are in the brain.",
   }),
 
   evidence: (): Evidence => ({
@@ -1476,67 +1465,10 @@ export const mock = {
     };
   },
 
-  drugImpact: (id: string, drugs: { name: string }[], gain: number): DrugImpact => {
-    const s = get(id);
-    const book = mock.formulary().drugs;
-    const picked: DrugEntry[] = drugs
-      .map((d) => book.find((b) => b.name === d.name))
-      .filter((d): d is DrugEntry => d !== undefined && d.modeled);
-    const receptors = [...new Set(picked.flatMap((d) => d.targets.map((t) => t.receptor)))];
-    if (!picked.length) {
-      return { kind: "drugs" as const, ok: true, modeled: false, banner: mock.formulary().banner,
-               drugs: [], gain, warnings: [], note: "Hypothetical what-if.",
-               say: "Nothing selected that this model can represent." };
-    }
-    // Per region: the drug's combined receptor weight, scaled, times the gain. Same shape
-    // as the backend so the map and the legend read the same either way.
-    const r = rng(hashStr(`${id}:${picked.map((d) => d.name).join(",")}:${gain}`));
-    const weight = Array.from({ length: REGION_NAMES.length }, (_, i) => {
-      let w = 0;
-      for (const d of picked) for (const t of d.targets) {
-        w += t.affinity * t.direction * Math.sin(i * 0.37 + hashStr(t.receptor) * 0.0013);
-      }
-      return w;
-    });
-    const peak = Math.max(...weight.map(Math.abs)) || 1;
-    const effect = weight.map((w) => round((w / peak) * gain * 0.4 * (1 - 0.3 * s.severity), 6));
-    const half = effect.map(() => round(Math.abs(r.normal()) * 0.004 + 0.0006, 6));
-    const lo = effect.map((e, i) => round(e - half[i], 6));
-    const hi = effect.map((e, i) => round(e + half[i], 6));
-    const unclear = lo.map((v, i) => v <= 0 && hi[i] >= 0);
-    const clear = unclear.filter((u) => !u).length;
-    const order = effect.map((e, i) => i).filter((i) => !unclear[i])
-      .sort((a, b) => Math.abs(effect[b]) - Math.abs(effect[a]));
-    return {
-      kind: "drugs" as const, ok: true, modeled: true,
-      banner: mock.formulary().banner,
-      drugs: picked.map((d) => d.name), gain, members: 8, receptors,
-      weight: weight.map((w) => round(w / peak, 5)),
-      region_effect: effect, lo, hi, unclear, unclear_count: unclear.filter(Boolean).length,
-      top_changed: order.slice(0, 8),
-      baseline_rate: effect.map(() => round(1.2 + r.normal() * 0.05, 5)),
-      summary_delta: { rate: round(effect.reduce((a, b) => a + b, 0) / effect.length, 6), fc_strength: 0.0004, metastability: 0.0004 },
-      warnings: picked.flatMap((d) => d.proxy_targets.map((t) => `${d.name}: ${t} is a proxy map, not its own target`)),
-      interval_covers: [
-        "uncertainty in this patient's current damage, from the filter's own posterior",
-        "uncertainty in the affinity weights, which are a judgement call",
-        "simulation noise",
-      ],
-      interval_misses: [
-        "the receptor maps are group averages from tens of healthy volunteers, not this patient's receptors",
-        "a regional gain perturbation is one way of representing a drug's effect among several",
-        "the network model itself may be wrong, which no interval computed inside it can say",
-      ],
-      synthetic_template: false,
-      note: "Hypothetical what-if, not a treatment recommendation. No dose is modelled and no timing is modelled.",
-      say: `Inside this model, ${clear} of ${effect.length} regions hold their sign across this patient's posterior, weighted by the ${receptors.join(", ")} ${receptors.length === 1 ? "map" : "maps"}. That is self-consistency, not evidence about the drug.`,
-    };
-  },
-
-  /* ---- the event stream and the ingest ---- */
+  // drugImpact is gone with the /intervention route it stood in for. See DECISIONS.md.
 
   /**
-   * One generated measurement tick, shaped exactly like the backend's frame event.
+   * One live measurement tick, for the strip in the call modal.
    *
    * The gaze follows the target with a lag and a little noise, which is what smooth
    * pursuit looks like. It is generated, the strip says so, and nothing here is ever

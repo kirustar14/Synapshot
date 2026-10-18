@@ -85,9 +85,9 @@ describe("mock layer", () => {
     const total = loads.weights[loads.signals[0]].reduce((a, b) => a + b, 0);
     expect(total).toBeCloseTo(1, 2);
 
-    const whatIf = mock.intervention("p1", { target: "D2", gain: 0.5 });
-    expect(whatIf.region_effect).toHaveLength(100);
-    expect(whatIf.note.toLowerCase()).toContain("not a treatment plan");
+    // The intervention what-if used to be checked here. It is gone: it simulated a
+    // treatment response, which is the one thing this model must not claim to do. The
+    // receptor maps above are what the pathway viewer that replaced it reads.
   });
 
   it("gives a cohort of 50 with coverage rising to the target", () => {

@@ -111,6 +111,11 @@ def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
     db.put("parameters", {"id": db.new_id("par"), "patient_id": pid, "week": int(week),
                           "payload": db.enc({"params": params, "post": post, "diag": out}), "time": db.now()})
     build.rebuild_forecast(pid)
+    # The regions as well as the forecast. Without this the charts move after a call and
+    # the brain does not, because the twin is what the 3D view draws and it was written
+    # once at build time. See build.refresh_twin.
+    was = (db.dec(db.twin_inputs(pid)["payload"], {}) or {}).get("twin") if db.twin_inputs(pid) else None
+    moved = build.region_diff(was, build.refresh_twin(pid), int(week))
     fired = alerts.check(pid, int(week), channel, state)
     if cfg.auto_agents:
         # Opt in only (AUTO_AGENT_PIPELINE=1): every pipeline spends CREAO credits.
@@ -120,7 +125,7 @@ def assimilate(pid: str, week: int, values: dict, channel: dict) -> dict:
             creao.start(pid, int(week))
         except Exception as exc:  # a failed agent run must never break scoring a check-in
             db.event(pid, "creao_error", {"error": str(exc)[:200]})
-    return {"diag": out, "post": post, "alerts": fired}
+    return {"diag": out, "post": post, "alerts": fired, "changed_regions": moved}
 
 
 def run_week(pid: str, week: int, poor: bool = False, upto: int | None = None) -> dict:
@@ -189,6 +194,27 @@ def inject_drift(pid: str, size: float = 1.0) -> dict:
     set_truth(pid, truth)
     db.event(pid, "drift_injected", {"week": week, "size": size})
     return {"week": week, "values": bumped}
+
+
+def shift_values(values: dict, size: float) -> dict:
+    """One week's truth, moved by size SEM-scaled steps in the worsening direction.
+
+    The same arithmetic as `inject_drift`, applied to a week's values in memory rather
+    than written back to the patient. `mock_call` uses it so a generated call can be made
+    deliberately worse or better without the truth table changing underneath the demo.
+
+    Positive is worse, negative is better, zero changes nothing and is the default. A
+    call that produces no measurable change is a real outcome and stays available.
+    """
+    if not size:
+        return dict(values)
+    out = dict(values)
+    for o in fcast.OBS:
+        key = o["key"]
+        if key in out:
+            step = 3.0 * semmod.sem(key) * float(size) * (1.0 if o["load"] > 0 else -1.0)
+            out[key] = float(out[key] + step)
+    return out
 
 
 def profile_of(pid: str) -> str:

@@ -4,7 +4,7 @@
 // Every tappable thing here is at least 48 px tall. Nothing animates when reduce motion is
 // on. Nothing shifts when a caption grows, because the caption area has a fixed minimum.
 
-import { Check, Eye, Minus, Pause, Play, Settings2, X } from "lucide-react";
+import { Check, Eye, Minus, Pause, Play, Settings2, Volume2, X } from "lucide-react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -290,10 +290,10 @@ export function Big({
 }) {
   const skin =
     tone === "primary"
-      ? "bg-primary text-primary-foreground border-transparent"
+      ? "bg-foreground text-background border-transparent"
       : tone === "danger"
         ? "bg-destructive-soft text-destructive border-destructive/40"
-        : "bg-card text-foreground border-border";
+        : "bg-card text-foreground border-foreground/25";
   return (
     <button
       type="button"
@@ -305,6 +305,24 @@ export function Big({
       )}
     >
       {children}
+    </button>
+  );
+}
+
+/** Says the current line again. Styled like the consent page's Read this to me.
+ *
+ * Disabled while the line is still playing, which is the whole point: pressing it twice
+ * used to start a second line over the first.
+ */
+export function Replay({ onClick, speaking }: { onClick: () => void; speaking: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={speaking}
+      className="mb-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-border bg-card px-4 text-sm font-bold disabled:opacity-50"
+    >
+      <Volume2 className="h-4 w-4" aria-hidden /> {speaking ? "Playing" : "Say that again"}
     </button>
   );
 }

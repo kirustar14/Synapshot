@@ -34,8 +34,11 @@ describe("app routing", () => {
 
   it("opens on the landing page, not on a list", async () => {
     renderAt("/");
-    expect(await screen.findByRole("heading", { name: /Synapshot/ })).toBeInTheDocument();
-    expect(screen.getByText("A snapshot of your brain, every week.")).toBeInTheDocument();
+    // The wordmark moved into the mono status strip; the headline is the proposition
+    // now. Both still say the landing page is what loaded.
+    expect(await screen.findByRole("heading", { name: /snapshot of your brain/i })).toBeInTheDocument();
+    expect(screen.getByText(/SYNAPSHOT/)).toBeInTheDocument();
+    expect(screen.getByText(/A personal brain twin for traumatic brain injury/)).toBeInTheDocument();
     // The landing page is a wordmark, a line and two buttons. The disclaimer footer that
     // used to sit under them is gone; that framing lives in the Evidence drawer now.
     expect(screen.queryByText(/Not a medical device/)).toBeNull();
@@ -43,7 +46,9 @@ describe("app routing", () => {
 
   it("renders the clinic list against the mock layer", async () => {
     renderAt("/clinic");
-    expect(await screen.findByRole("heading", { name: "Clinic" })).toBeInTheDocument();
+    // "Clinic" is the mono eyebrow above the headline now; the heading is the sentence.
+    expect(await screen.findByRole("heading", { name: /Everyone you are following/i })).toBeInTheDocument();
+    expect(screen.getByText("Clinic")).toBeInTheDocument();
     expect(await screen.findByText(/patients,.*open flag/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Add patient/ })).toBeInTheDocument();
     // The per-row Synthetic badge and the Data column it sat in are gone. A label on

@@ -46,7 +46,7 @@ import { useApp } from "@/store/app";
 const POLL_MS = 2000;
 const POLL_FOR_MS = 30000;
 
-type Status = "sent" | "delivered" | "failed" | "mock" | "none";
+type Status = "sent" | "delivered" | "not_sent" | "mock" | "none";
 
 /** The one line the chip shows. Never claims more than is known. */
 function chipFor(status: Status, channel: string) {
@@ -56,7 +56,7 @@ function chipFor(status: Status, channel: string) {
   if (status === "sent") {
     return { text: "Sent via iMessage, delivery not confirmed", tone: "wait" as const };
   }
-  if (status === "failed") {
+  if (status === "not_sent") {
     return { text: "Not sent", tone: "bad" as const };
   }
   if (status === "mock") {
@@ -92,68 +92,9 @@ function QR({ text, size = 160 }: { text: string; size?: number }) {
 }
 
 /** The gaze dot following its target, plus the quality lights. */
-function LiveStrip({ stream }: { stream: StreamState }) {
-  const frame = stream.frame;
-  const quality = frame?.quality;
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 text-[10px]">
-        <span className="font-bold uppercase tracking-wide text-muted-foreground">
-          {frame ? frame.step.replace(/_/g, " ") : "waiting for the phone"}
-        </span>
-        <span className="ml-auto font-mono text-muted-foreground">
-          {stream.rate > 0 ? `${stream.rate}/s` : "no frames"}
-        </span>
-      </div>
-
-      <div className="relative mt-1.5 h-20 overflow-hidden rounded-md bg-[#070e12]">
-        {frame ? (
-          <>
-            <span
-              className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/70"
-              style={{ left: `${frame.target.x * 100}%`, top: `${frame.target.y * 100}%` }}
-              aria-label="target"
-            />
-            <span
-              className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-300 transition-[left,top] duration-150"
-              style={{ left: `${frame.gaze.x * 100}%`, top: `${frame.gaze.y * 100}%` }}
-              aria-label="gaze"
-            />
-          </>
-        ) : (
-          <p className="flex h-full items-center justify-center px-3 text-center text-[11px] text-cyan-200/50">
-            This fills when the patient opens the link.
-          </p>
-        )}
-      </div>
-
-      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
-        {([["face", quality?.face], ["distance", quality?.dist], ["light", quality?.light]] as const).map(
-          ([label, on]) => (
-            <span key={label} className="flex items-center gap-1">
-              <span
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  on === undefined ? "bg-muted-foreground/40" : on ? "bg-emerald-500" : "bg-red-500",
-                )}
-                aria-hidden
-              />
-              {label}
-            </span>
-          ),
-        )}
-        <span className="ml-auto font-mono text-muted-foreground">
-          {quality ? `${quality.fps.toFixed(0)} fps` : ""}
-          {frame?.pursuit_gain != null ? ` gain ${frame.pursuit_gain.toFixed(2)}` : ""}
-        </span>
-      </div>
-      <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
-        Numbers only. The video never leaves the phone, and nothing here is stored or scored.
-      </p>
-    </div>
-  );
-}
+// LiveStrip is gone. It drew a gaze dot, three status lights and a frame rate on the
+// clinician's laptop, none of which was actionable: the measurements are posted in
+// whole chunks and read back once the call lands. One status line replaced it.
 
 export function CallModal({
   patient,
@@ -172,15 +113,8 @@ export function CallModal({
   const [status, setStatus] = useState<Status>("none");
   const [detail, setDetail] = useState("");
   const [copied, setCopied] = useState(false);
-  const [showLive, setShowLive] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const pollUntil = useRef(0);
-
-  // The strip opens itself the moment the patient arrives, because that is the one
-  // moment somebody actually wants to watch it.
-  useEffect(() => {
-    if (stream.rate > 0 || stream.frame) setShowLive(true);
-  }, [stream.rate, stream.frame]);
 
   // When the pipeline lands, everything behind this card is stale.
   useEffect(() => {
@@ -198,7 +132,7 @@ export function CallModal({
       try {
         const got = await api.messageStatus(mid);
         setStatus(got.status as Status);
-        if (got.detail) setDetail(got.detail);
+        if (got.error) setDetail(got.error);
         // Only sent is still in flight. The other three are final.
         if (got.status === "sent") setTimeout(tick, POLL_MS);
       } catch {
@@ -218,13 +152,15 @@ export function CallModal({
         setStatus("none");
         return;
       }
-      const next = (got.status ?? "mock") as Status;
+      // createCall still reports the transport's own word for it.
+      const raw = got.status ?? "mock";
+      const next = (raw === "failed" ? "not_sent" : raw) as Status;
       setStatus(next);
       setDetail(got.why || got.error || "");
       if (next === "sent" && got.message_id) poll(got.message_id);
-      if (next === "failed") setShowDetails(true);
+      if (next === "not_sent") setShowDetails(true);
     } catch (err) {
-      setStatus("failed");
+      setStatus("not_sent");
       setDetail(err instanceof Error ? err.message : String(err));
       setShowDetails(true);
     } finally {
@@ -235,6 +171,16 @@ export function CallModal({
   const chip = chipFor(status, call?.channel ?? "");
   const link = call?.url ?? "";
   const done = stream.done;
+  // Four states, in the order they happen. One line instead of the panel that showed a
+  // gaze dot, three status lights and a frame rate, none of which a clinician on a
+  // laptop could act on.
+  const stage = done
+    ? "Done"
+    : stream.stage
+      ? `Processing: ${stream.stage.say}`
+      : stream.frame
+        ? `Check-in in progress: ${stream.frame.step.replace(/_/g, " ")}`
+        : "Waiting for the patient";
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -283,7 +229,7 @@ export function CallModal({
                 {chip.tone === "bad" && <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />}
                 <span className="min-w-0">
                   {chip.text}
-                  {status === "failed" && ". Open on phone with the QR code."}
+                  {status === "not_sent" && ". Open on phone with the QR code."}
                 </span>
               </p>
             )}
@@ -293,7 +239,7 @@ export function CallModal({
             <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row">
               <QR text={link} />
               <div className="w-full min-w-0 flex-1 space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                <p className="eyebrow text-muted-foreground">
                   Open on phone
                 </p>
                 <p className="text-[11px] leading-snug text-muted-foreground">
@@ -335,15 +281,20 @@ export function CallModal({
               </Fold>
             )}
 
-            <Fold boxed id="call.live" title="Live call" open={showLive} onToggle={() => setShowLive(!showLive)}>
-              <LiveStrip stream={stream} />
-            </Fold>
-
-            {stream.stage && !done && (
-              <p className="flex items-center gap-2 rounded-lg bg-muted px-2.5 py-2 text-xs">
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-                {stream.stage.say}
-              </p>
+            {/* One line, not a panel. The gaze dot, the status lights and the frame rate
+                told a clinician on a laptop nothing they could act on: the measurements
+                are posted in whole chunks and read back once the call lands. What is
+                worth knowing is which of the four things is happening. */}
+            {!done && (
+              <div>
+                <span className="bubble-name">Check-in</span>
+                <p className="bubble flex items-center gap-2">
+                  {stage !== "Waiting for the patient" && (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+                  )}
+                  {stage}
+                </p>
+              </div>
             )}
 
             {done && (

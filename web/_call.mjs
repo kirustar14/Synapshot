@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--autoplay-policy=no-user-gesture-required','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
+const ctx = await b.newContext({viewport:{width:430,height:860}, deviceScaleFactor:2, permissions:['camera','microphone']});
+const p = await ctx.newPage();
+const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+await p.goto(process.argv[3],{waitUntil:'networkidle',timeout:90000});
+await p.waitForTimeout(3500);
+await p.screenshot({path: process.argv[2]});
+console.log('errors:', errs.slice(0,4));
+await b.close();

@@ -35,7 +35,13 @@ export function Tracts({ tracts, points, uniforms, particles, onPick }: Props) {
         depthWrite: false,
         // Tracts run under the cortex, so they draw on top of it at low alpha rather than
         // being depth tested away by a surface they are meant to be seen through.
-        depthTest: false,
+        // Depth tested, so the cortex in front of a tract hides it. With this off the
+        // two hundred tubes painted over the surface unconditionally, and once the
+        // cortex became slightly translucent they read as a khaki veil draped across
+        // the brain with pale streaks through it. They are still shown through where
+        // the cortex is genuinely transparent; they are no longer drawn through solid
+        // tissue.
+        depthTest: true,
         blending: THREE.AdditiveBlending,
         side: THREE.DoubleSide,
       }),
@@ -52,7 +58,13 @@ export function Tracts({ tracts, points, uniforms, particles, onPick }: Props) {
         depthWrite: false,
         // Tracts run under the cortex, so they draw on top of it at low alpha rather than
         // being depth tested away by a surface they are meant to be seen through.
-        depthTest: false,
+        // Depth tested, so the cortex in front of a tract hides it. With this off the
+        // two hundred tubes painted over the surface unconditionally, and once the
+        // cortex became slightly translucent they read as a khaki veil draped across
+        // the brain with pale streaks through it. They are still shown through where
+        // the cortex is genuinely transparent; they are no longer drawn through solid
+        // tissue.
+        depthTest: true,
         blending: THREE.AdditiveBlending,
       }),
     [uniforms],

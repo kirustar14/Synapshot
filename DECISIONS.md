@@ -1276,3 +1276,307 @@ straight copy would have deleted something this branch added afterwards.
   would have reported a real fsaverage6 mesh as a procedural stand-in. `templates.py` keeps
   its `fsa5` strings on purpose: those are enigmatoolbox's own identifiers for a parcel to
   parcel conversion that never touches the viewer mesh.
+
+## Step 1: one spoken line at a time
+
+The call page played several lines at once. On a safety screen the patient heard the step
+introduction, the first safety question and sometimes the one after it, all together.
+
+There were three separate causes and the first fix only covered one of them.
+
+- **Every line made its own audio element.** `Voice.mp3` ran `new Audio(url)` per line and
+  assigned it over the previous one, which was still playing and now had nothing holding
+  a reference to stop it. There is one element now, owned at module scope in
+  `web/src/call/player.ts`. Module scope rather than a component, because React mounts
+  twice under StrictMode and a route change can briefly have two call pages alive, and an
+  element owned by a component becomes two elements playing at once.
+- **An mp3 never cancelled the browser voice.** `speak` called `synth.cancel` but `mp3`
+  did not, so a recorded line could start over a spoken one. `stop` now does both, plus
+  pause, rewind to zero, and clearing the pending timer, and every play begins with it.
+- **Nothing knew a line was stale.** A play that resolved after the step had moved on
+  still reported success. Every play is stamped with the generation it started in,
+  starting anything bumps the generation, and a play that finishes in an old one returns
+  false. `useSpokenLine` keys on the step id, so the line is tied to the step that owns it.
+
+Two further bugs came out of writing the tests, which is the argument for having written
+them:
+
+- **Stopping a line hung whatever was waiting on it.** `stop` detached the element's
+  handlers and cleared the timeout, so the promise behind the current line never settled.
+  The word list awaits each word before starting the next, so one interruption would have
+  stopped it for the rest of the call. `stop` now settles the pending play first.
+- **Read this to me ran a loop per press.** It reads every consent paragraph in sequence
+  in a detached async loop. Pressing it twice started a second loop while the first was
+  still going, and the player stopping the current line did not stop either loop from
+  immediately starting its next one. `say` returns whether the line was still current
+  when it ended, and the loop stops when it was not. The Playwright test found this one
+  by pressing the button three times quickly, and it failed on it before this fix.
+
+Also in this step:
+
+- **One file per step, and the length with it.** `ScriptStep` carries one `say` and one
+  `audio`, never a list, plus `duration_ms` from the voice manifest. The length is the
+  timeout for a line whose ended event never arrives, so one bad mp3 cannot stall a call.
+  A step with no file carries `audio: null` and `fallback: "speech"`.
+- **`make voices` stopped destroying good audio.** On a failed generation, usually a spent
+  quota, it wrote `file: None` into the manifest even when a perfectly good mp3 was on
+  disk. The file survived and `audio_map` stopped offering it, so the call quietly
+  dropped to the browser voice for a line that had been generated and paid for. A failure
+  now keeps the existing file and records the error beside it. It also reports how many
+  lines of the total have audio, and names the steps that do not.
+- **A Replay button on every spoken screen**, disabled while the line is playing, because
+  pressing it twice is how a patient used to start a second line over the first.
+
+What the tests cover: `src/call/__tests__/player.test.ts` fakes the element and the
+speech queue and counts how many are sounding at once, which lets it step the whole
+script in milliseconds. `e2e/call-audio.spec.ts` counts the same thing in a real browser
+with real effects and a real camera stream. It reaches consent, the setup step and the
+face gate and stops there, because Chrome's fake camera is a test pattern and MediaPipe
+finds no face in it. That limit is written in the test rather than hidden by it.
+
+## Step 2: the brain did not update after a call, and now it does
+
+The question was whether the 3D view changes when a check-in lands. It did not, and the
+reason was one missing line.
+
+`demo.assimilate` ran the filter, stored the new ensemble and called `rebuild_forecast`.
+Every chart moved, because every chart reads the forecast. The brain reads the twin, and
+the twin was written once by `build_twin` when the patient was created and never touched
+again. A hundred regions, none of them capable of moving, for the life of the patient.
+`scripts/call_update_report.py` printed `0 of 100 regions moved` the first time it ran,
+which is what turned a suspicion into a fact.
+
+- **`build.refresh_twin` recomputes the regions from the current ensemble.** Deliberately
+  not `build_twin`, which refits G, the expensive part, and resets drift_z, coverage and
+  the ensemble to their starting values. Calling that after a call would have undone the
+  update that had just happened. Everything structural is recomputed from the patient's
+  own record because it is cheap; the only thing that actually changed is the ensemble,
+  and that is what moves the per region damage curves.
+- **The workspace never refetched.** There was a comment in `Workspace.tsx` saying the
+  stream was what let a call land without a reload, and nothing underneath it doing so.
+  `call_done` now invalidates the patient, twin, shape, forecast, alerts, timeline,
+  check-ins and attribution queries.
+- **`GET /api/patients/{id}/latest-update`**, served from the stored `call_update` event
+  rather than recomputed, so a page opened after the call shows the same banner as one
+  that was open when it landed.
+- **The banner says small when it is small.** `update_line` names the biggest mover and
+  its network, and switches to "Small change" under 0.02 rather than making an ordinary
+  week sound like an event. A banner that always sounds urgent stops being read.
+
+How much it actually moves, measured rather than claimed, on a damage scale that sits
+around 0.25 at week 0:
+
+| call | regions moved | largest single region | drift z |
+|---|---|---|---|
+| typical | 100 of 100 | 0.022 | +0.26 |
+| worse (`--degrade 1.0`) | 100 of 100 | 0.041 | +0.68 |
+| better (`--degrade -0.8`) | 100 of 100 | 0.048 | -0.31 |
+
+That is 8 to 20 percent of a region's own value, which is visible on the 3D layer, and
+visible partly because the damage ramp was rewritten earlier to window the top end at the
+98th percentile and spread the colours across the patient's own range.
+
+- **`degrade` moves the measurements, not the result.** It shifts the week's truth in
+  SEM-scaled steps before any frames are generated, reusing the arithmetic `inject_drift`
+  already used, so the pipeline still has to measure it back out of frames and audio. A
+  knob that wrote the answer down would make the report worthless. Zero is the default
+  and a call that moves nothing stays a real outcome.
+- **The zero face rate was not the generator.** `websynth.session` uses `face_p = 1.0`
+  unless the patient is the low quality profile, where it is 0.55, and the seeded
+  check-ins hold those values. A face share of 0 comes from `app.py` defaulting a missing
+  channel to zero, which is a call with no frames at all being displayed as a call where
+  the camera saw nothing. There are now tests on both ends: a default call keeps a face
+  share above 0.5, and the poor channel stays poor without ever reaching zero.
+
+Not done: the changed regions do not pulse on the brain yet. The banner names them and
+the colours move, but the one-off pulse is still to come.
+
+## Steps 3 and 4: the Treatment tab stops simulating and starts explaining
+
+The tab used to let you pick medicines, run the model, and read off a baseline, a treated
+version and the gap between them, with an effect size slider and a ranked list of the
+regions that moved most. Underneath, `twin/drugs.py` combined a drug's receptor affinities
+into one weight per region and `twin/intervention.run` scaled each region's local
+recurrent weight by `1 + gain * weight`, ran the dynamic mean field model twice, and
+called the difference the effect.
+
+Every part of that is defensible as a method and none of it is defensible as a screen. It
+is a treatment response prediction. Nothing in this system has any standing to make one:
+there is no outcome model, nothing was fitted to anybody's response to a medicine, and the
+number it printed to four decimal places came from a gain parameter somebody chose with a
+slider. Removed: `twin/drugs.py`, `intervention.run`, `intervention.scaled`, the
+`/intervention` route, the `DrugImpact` payload, the mock that stood in for it, and the
+three tests that drove it.
+
+Kept: the receptor and transporter atlas in `intervention.py`. The atlas was never the
+problem, and the viewer that replaced the simulation reads it directly.
+
+What the tab is now: a reference for what each medicine does and where its known targets
+are. Toggle one and the brain lights up its target density from the PET and SPECT atlas,
+plus the schematic pathway its transmitter runs along. Instant, because there is nothing
+to compute. Everything else is in a dropdown, closed by default, so twelve medicines fit
+on a page.
+
+- **`no map available` is a real answer and appears five times.** The Hansen atlas covers
+  twelve targets. Propranolol acts at beta adrenoceptors, ondansetron at 5-HT3, gabapentin
+  at the alpha-2-delta calcium channel subunit, melatonin at MT1 and MT2, and the atlas
+  covers none of them. Those say so. Drawing a nearby receptor instead would be inventing
+  a picture, and it is exactly the kind of invention that is impossible to spot later.
+  Acetaminophen and ibuprofen have no mapped brain target at all, cannot be toggled, and
+  keep their dropdown, because the most useful thing the screen can say about
+  acetaminophen is that it has nothing to show.
+- **The overlap is an intersection, not a claim.** Regions above a fixed damage floor of
+  0.15 and above a target density of z = 1. Fixed rather than percentile so the same
+  number means the same thing on every patient. It does not say the medicine reaches those
+  regions and it does not say anything would improve if it did. Empty is common and is
+  printed as empty.
+- **Citations are tagged, and most of them say check this.** Giacino 2012 was fetched and
+  read, so the amantadine entry is tagged verified and says what it actually studied: 184
+  patients in a vegetative or minimally conscious state after SEVERE TBI, in inpatient
+  rehabilitation, which is a different population from concussion. The amantadine NMDA
+  mechanism is verified the same way. Everything else is tagged check this. The GtoPdb
+  ligand pages need a login and the VA/DoD and AAN guideline PDFs would not extract to
+  text, so those claims are written from general pharmacological knowledge and are
+  labelled as needing a source read end to end. Nothing is cited that was not fetched.
+- **No dose anywhere, and a test that keeps it that way.** The old formulary carried a
+  `typical_dose` field for recognition. It is gone, and a test greps the whole payload for
+  " mg" and its relatives.
+- **Ordered by match count, never by better.** The symptom section counts how many of this
+  patient's elevated symptoms each medicine is ordinarily used for. That is a count, not a
+  judgement, and the words recommend and best appear nowhere, which a test enforces over
+  the whole payload. The threshold is a fixed 4 out of 10 so two weeks can be compared.
+  Pressure and neck pain fold into headache and blurred vision folds into light
+  sensitivity, because they are one complaint as far as what gets prescribed is concerned
+  and listing amitriptyline three times for it would be noise.
+
+Two bugs came out of building this:
+
+- **The damage interval never contained its own estimate.** `twin_json` built `damage`
+  from `dreg * decay`, where decay came from the point estimates of k and p and left out
+  the damage scale, while `damage_lo` and `damage_hi` came from the ensemble, which
+  includes it. With a scale above 1 the whole 10th to 90th band sat above the line it was
+  supposed to be a band around, on every region of every patient. Both now come from the
+  ensemble. Found by printing an overlap row and noticing 0.344 sitting outside
+  [0.386, 0.557].
+- **`suggested-drugs` would 500 on a fresh database.** The call tables are created the
+  first time somebody makes a call, so on a new install the query was against a table that
+  did not exist. An empty list is the right answer there.
+
+## Step 5: a message says only what is known about it
+
+`GET /api/messages/{id}/status` now returns the channel, the status, the provider id, the
+real error text and the delivery time, with the status one of sent, delivered, not_sent or
+mock.
+
+- **`failed` became `not_sent`.** `failed` is the transport's word for it. On a screen the
+  thing a clinician needs to know is that nothing left the building.
+- **`delivery_confirmation` is only ever `provider`.** Everything else is `unavailable`,
+  including local iMessage, which cannot read receipts at all. A message sent that way
+  stays `sent` forever, and the modal says "Sent via iMessage, delivery not confirmed",
+  which is the whole truth about it. `delivered_at` is null unless a provider confirmed,
+  so there is no delivery time without a delivery.
+
+## Step 6: two things `make check` was hiding
+
+It crashed outright on a `KeyError: 'sms'` and had been doing so since SMS was taken out
+of the fallback chain: `notify.status` stopped reporting an `sms` key and the row still
+read one. So the command whose whole job is to say what is real and what fell back could
+not run at all, which is why the Treatment tab's missing route was not noticed sooner.
+Both are fixed: the SMS row now says there is no fallback chain, which is the truth, and
+the contract route list names the pathway viewer's routes instead of `/intervention`.
+
+`make check` now prints 42 passed, 0 failed, 7 running on a fallback.
+
+## 6a: the face model was never shipped
+
+`web/.gitignore` ignores `public/models`, so the 3.8 MB landmarker does not come with a
+checkout. `make models` fetches it, but `make dev` did not depend on that and `make check`
+never looked, so any machine that skipped the step served a call page where the eye
+measurement silently never ran. The loader itself was fine: wasm already bundled locally,
+GPU with a CPU fallback already there.
+
+`make dev` depends on `models` now, the download goes to a `.part` file first so a
+truncated one cannot masquerade as a model, and `make check` fails if the file is missing
+or under 1 MB. The patient never sees the loader's words: "The camera check could not
+start" with Try again and Tell my clinic, and the real error goes to the console.
+
+## 6b: the live call panel is gone
+
+The gaze dot, the face, distance and light lights, the 4/s and 30 fps readouts and the
+"Live, 4/s" chip all showed a clinician on a laptop things they could not act on: the
+measurements are posted in whole chunks and read back once the call lands. One grey line
+replaced the lot, moving through Waiting for the patient, Check-in in progress: step,
+Processing, Done. The call page no longer posts /live; the route stays for a future
+console. The privacy sentence stays on the patient consent screen, which is where it is
+actually read.
+
+## 2: the thing floating on the brain was the tracts
+
+Isolated by rendering with each suspect off in turn. Not the vessels, which are already
+gated behind their overlay and off by default. Not the back pass, not the hologram, not
+the alpha. Turning the tracts off made it vanish.
+
+Both tract materials had `depthTest: false` at `renderOrder 12`, so the two hundred tubes
+painted over the cortex unconditionally. That was survivable while the cortex was opaque.
+Once the merged shader made it slightly translucent they read as a khaki veil draped
+across the brain with pale streaks through it. Depth testing is on now: the cortex in
+front of a tract hides it, the layer still toggles, and nothing else changed.
+
+## 1: the restyle
+
+Editorial pass applied at the token layer so every screen moved at once rather than
+screen by screen. Off-white #FBFBFB page, near-black ink, Instrument Serif headings with
+one italic word, Space Grotesk body, JetBrains Mono for anything that is a label rather
+than a sentence. Fonts are local fontsource packages: the call page has to work on a
+phone over a tunnel with no outside network.
+
+Primary buttons are the ink colour, not the accent. The accent is kept for state and for
+the brain, where it carries meaning; a page of teal buttons spends it on navigation.
+
+The Home hero canvas is transparent now (`alpha: bare`). It was an opaque buffer, so the
+brain sat in a grey box on the off-white page.
+
+## 1b: matched to the reference screenshots
+
+I had not opened them. Doing so changed the pass: the reference is a centred narrow column
+on a very large off-white field, mono uppercase for every label and button, serif display
+with one italic word, exactly one bordered card with a hard offset shadow, and soft grey
+chat bubbles with a tiny mono name above them. Not a dense dashboard.
+
+- Buttons are mono uppercase and letterspaced, which is the most recognisable part of it.
+- The masthead is serif wordmark plus a mono descriptor, the way a masthead reads.
+- The ten layer pills above the brain are one `SHOWING [ Damage ]` dropdown, and the
+  vessel toggle is a quiet mono checkbox beside it. Same choices, one decision instead of
+  eleven sitting above the thing they describe.
+- The build log is a stepper: mono uppercase step name, ink while live and grey otherwise,
+  with the detail underneath as a chat bubble.
+
+## 1c: the clinic list and the patient profile
+
+Both now read the way the reference does.
+
+The clinic list is a mono eyebrow, a serif headline with one italic word, one line of grey
+subcopy, a pill search and a black pill button, then flat rows with mono column heads and
+mono numbers. The highest drift row carries the one hard offset card on the screen, so
+the eye lands on the patient who needs looking at. It was a bordered table in a panel.
+
+The patient profile sets the name in serif, because on that screen the patient is the
+headline. Every label around it is mono uppercase: the fact row, the rail sections, the
+fold titles in all four tabs. Gutters went from 4 to 7 and the page padding from 5 to 10,
+which is most of what makes the reference feel calm.
+
+Nothing moved or was removed. Same rows, same numbers, same flags, same links.
+
+## 1d: the patient page, properly this time
+
+The clinic list matched the reference and the patient page did not. What was still wrong
+was structural rather than typographic: both rails were bordered cards, the brain sat in
+a grey stage box with its own border, the overlay controls were a dark cyan hologram
+console, and there were seventeen chips under the brain.
+
+Flat columns with a hairline on the inner edge. The canvas is transparent everywhere now,
+not just on the hero, so the brain sits on the page. The overlay is ink and mono. The
+seven preset views and six lobes are two dropdowns, View and Lobe.
+
+The brain is gone from the home page. The headline is the thing to read there and a
+rendered cortex behind it was competing with it.

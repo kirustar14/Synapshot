@@ -35,7 +35,12 @@ OPTIONAL = {
 ROUTES = [
     # spec file 1: the mesh, the shape, the receptors and the what-if
     ("GET", "/api/mesh"), ("GET", "/api/patients/{pid}/shape"), ("GET", "/api/receptors"),
-    ("POST", "/api/patients/{pid}/intervention"),
+    # /intervention is gone with the drug simulation it drove. These are the pathway
+    # viewer that replaced it, which only reads.
+    ("GET", "/api/pathways"), ("GET", "/api/drugs/{name}"), ("GET", "/api/drugs/{name}/map"),
+    ("GET", "/api/patients/{pid}/drugs/{name}/overlap"),
+    ("GET", "/api/patients/{pid}/suggested-drugs"),
+    ("GET", "/api/patients/{pid}/latest-update"),
     # spec file 2: the web call
     ("POST", "/api/calls"), ("GET", "/api/call/{token}/script"),
     ("POST", "/api/call/{token}/consent"), ("POST", "/api/call/{token}/redflags"),
@@ -158,6 +163,24 @@ def llm_line() -> dict:
     return line(GREEN if got["ok"] and not config.MODEL_NOTE else MOCK, "LLM", detail + note)
 
 
+def face_model_line() -> dict:
+    """The face landmarker the phone runs. Checked on disk, not assumed.
+
+    It is 3.8 MB and gitignored, so it does not ship with a checkout. `make models`
+    fetches it and `make dev` now depends on that, but a machine that skipped both shows
+    the patient a call with no eye measurement and no obvious reason why.
+    """
+    path = ROOT / "web" / "public" / "models" / "face_landmarker.task"
+    if not path.exists():
+        return line(RED, "Face landmarker", "missing. Run make models")
+    size = path.stat().st_size
+    if size < 1_000_000:
+        return line(RED, "Face landmarker",
+                    f"only {size} bytes, which is a truncated download. Delete it and run make models")
+    return line(GREEN, f"Face landmarker: {size / 1e6:.1f} MB",
+                "served from web/public/models, same origin as the call page")
+
+
 def creao_line() -> dict:
     """The CREAO row: which of the three roles have a real agent behind them.
 
@@ -185,6 +208,7 @@ def mock_check() -> list[dict]:
              else "off, every call has to come from a real phone"),
         llm_line(),
         creao_line(),
+        face_model_line(),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"
@@ -367,8 +391,13 @@ def comms_check() -> list[dict]:
              "live through the sidecar" if got["imessage"]
              else "mock. Needs PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET plus "
                   "make imessage"),
-        line(GREEN if got["sms"] else MOCK, "SMS fallback",
-             "live" if got["sms"] else "mock"),
+        # SMS is deliberately not in the fallback chain any more, so `notify.status` stopped
+        # reporting it and this row crashed `make check` outright on a KeyError. A failed
+        # iMessage stays a failed iMessage so the screen can say so, and the QR code is the
+        # way round it. The row says that rather than pretending there is a fallback.
+        line(MOCK, "SMS fallback",
+             "not in the fallback chain. A failed iMessage stays failed so the screen can "
+             "say so, and the QR code is the way round it"),
     ]
     sdk = got["sidecar"]
     out.append(line(GREEN if sdk.get("installed") else MOCK, "iMessage sidecar packages",

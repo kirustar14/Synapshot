@@ -311,6 +311,34 @@ class Twin(BaseModel):
     top_tracts: list[TopTract]
 
 
+class ChangedRegion(BaseModel):
+    """One region the last check-in moved, with the full name and its network."""
+
+    id: int
+    name: str
+    network: str
+    before: float
+    after: float
+
+
+class CallUpdate(BaseModel):
+    """What one check-in changed. Pushed on the stream and served by latest-update."""
+
+    call_id: str | None = None
+    week: int
+    date: str
+    changed_regions: list[ChangedRegion] = Field(default_factory=list)
+    changed_count: int = 0
+    k: float | None = None
+    p: float | None = None
+    drift_z: float = 0.0
+    alerts: list[str] = Field(default_factory=list)
+    flags_added: list[str] = Field(default_factory=list)
+    quality_ok: bool = True
+    # One plain sentence, through the same banned phrase filter as every spoken line.
+    summary: str = ""
+
+
 class Mesh(BaseModel):
     """The cortical surface the viewer renders. Flat arrays, millimetres, origin centred."""
 
@@ -666,7 +694,13 @@ class ScriptStep(BaseModel):
 
     id: str
     say: str
+    # Exactly one spoken line per step: one `say`, one `audio`. Never a list. The page
+    # plays one at a time and a step that offered several would be the overlap bug again.
     audio: str | None = None
+    # How long that mp3 runs, from the voice manifest. None when there is no file or no
+    # measured length, in which case the page falls back to the browser voice.
+    duration_ms: int | None = None
+    fallback: Literal["speech"] | None = None
     task: str
     minutes: float
     tier: Literal["A", "B", "safety", "gate", "none"]
