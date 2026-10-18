@@ -1,3 +1,8 @@
+> This is a record of the app as it was **before** the v2 rework, written so the
+> changes could be made against something written down. Routes, websockets and
+> page lists in here describe what used to exist. For what exists now, run
+> `make what`, or read the v2 section of DECISIONS.md.
+
 # NOTES: the app as I found it
 
 Written at the start of the web call and frontend session, before any change. Read with

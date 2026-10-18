@@ -286,12 +286,6 @@ export interface Message {
   channel: "imessage" | "sms" | "mock";
 }
 
-export interface Check {
-  name: string;
-  ok: boolean;
-  detail: string;
-}
-
 export interface Cohort {
   weeks: number[];
   coverage: { week: number; cov: number }[];
@@ -307,17 +301,6 @@ export interface Attribution {
   tracts: { name: string; score: number; a?: number; b?: number }[];
   note: string;   // always says hypothesis
 }
-
-export type RigEvent = {
-  type: "frame";
-  gaze: { x: number; y: number };
-  target: { x: number; y: number };
-  quality: { face: boolean; dist: boolean; light: boolean; fps: number };
-  pursuit_gain: number | null;
-  step: string;
-  line: { who: "agent" | "patient"; text: string } | null;
-  frame?: string;   // base64 jpeg
-};
 
 // ---------------------------------------------------------------- the web call
 
@@ -441,14 +424,10 @@ export interface Voices {
 // POST /api/alerts/{id}/ack
 // POST /api/alerts/{id}/call
 // GET  /api/cohort                               -> Cohort
-// GET  /api/rig/preflight                        -> Check[]
 // POST /api/demo/reset
 // POST /api/demo/advance-week {patient_id}
 // POST /api/demo/inject-drift {patient_id, size}
 // POST /api/demo/trigger-call {patient_id}
-// GET  /api/consent/{token}                      -> {patient_name, text}
-// POST /api/consent/{token} {calls, ai, recording, genetic}
-// POST /api/stretch/{token} {gait?, hearing?}
 //
 // spec file 1:
 // GET  /api/mesh                                 -> Mesh
@@ -471,5 +450,3 @@ export interface Voices {
 // GET  /api/voices                               -> Voices
 // POST /api/voices/{step_id}/regenerate          -> VoiceLine
 //
-// WS /ws/rig       RigEvent out
-// WS /ws/stimulus  backend only, the frontend never opens it

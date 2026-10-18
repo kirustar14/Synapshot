@@ -77,7 +77,7 @@ web/
     api/
       types.ts          the frozen contract, copied verbatim
       client.ts         one function per route, query and mutation hooks, mock fallback
-      ws.ts             /ws/rig, with a seeded 30 fps generator in mock mode
+      stream.ts         the per patient event stream, with a generator in mock mode
     mock/
       rng.ts            mulberry32, FNV-1a, rounding helpers
       atlas.ts          100 regions with networks, area tags and centroids

@@ -486,14 +486,6 @@ class Message(BaseModel):
     kind: str | None = None
 
 
-class Check(BaseModel):
-    """One preflight check."""
-
-    name: str
-    ok: bool
-    detail: str
-
-
 class Effect(BaseModel):
     """One population level effect, truth against estimate."""
 
@@ -559,19 +551,6 @@ class Point(BaseModel):
     y: float
 
 
-class RigEvent(BaseModel):
-    """One frame of the live rig stream."""
-
-    type: Literal["frame"] = "frame"
-    gaze: Point
-    target: Point
-    quality: Quality
-    pursuit_gain: float | None
-    step: str
-    line: RigLine | None
-    frame: str | None = None
-
-
 class NewPatient(BaseModel):
     """Body of POST /api/patients."""
 
@@ -621,27 +600,6 @@ class ConsentText(BaseModel):
 
     patient_name: str
     text: list[str]
-
-
-class Gait(BaseModel):
-    """Gait numbers from the texted web page."""
-
-    cadence: float
-    variability: float
-    steps: int
-
-
-class Hearing(BaseModel):
-    """Hearing thresholds from the texted web page."""
-
-    thresholds: dict[str, float]
-
-
-class StretchBody(BaseModel):
-    """Body of POST /api/stretch/{token}."""
-
-    gait: Gait | None = None
-    hearing: Hearing | None = None
 
 
 class DemoBody(BaseModel):

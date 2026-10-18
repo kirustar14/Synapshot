@@ -180,18 +180,16 @@ full mock mode. Set `MOCK_X=0` to force a real path. See `.env.example` for all 
 | `PUBLIC_URL` | empty | The https URL the texted link points at. Required for a real phone. |
 | `DEMO_PHONES` | empty | The only numbers that can ever be texted. Nothing goes outside it. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | empty | The spoken lines. Without them the browser speaks. |
-| `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` | empty | The clinic call through the conversational agent. |
 | `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET` | empty | iMessage. Also needs `make imessage`. |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `CLINIC_NUMBER` | empty | The SMS fallback and the clinic call. |
-| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | empty / `claude-sonnet-5` | Natural phrasing and the summaries. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | empty | The SMS fallback for when iMessage cannot deliver. |
+| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | empty / `claude-sonnet-5` | Reading the documents, the phrasing and the summaries. |
 | `KEEP_AUDIO` | `0` | Keep the uploaded recordings after measuring them. For debugging only. |
-| `ASR` | `whisper` | `elevenlabs` sends the audio to the API instead of transcribing locally. |
-| `LIVE_AGENT` | `0` | An optional question and answer agent after the script. Never on the safety path. |
 | `REGIONAL_LOADINGS` | `0` | Give each signal its own damage level from the regions that drive it. |
 | `OFFLINE` | `0` | `1` skips every loader that could touch the network and runs on the modelled template. |
 | `REACH` | `1` | Reach features on. |
 
-A Twilio trial account can only call or text numbers it has verified first.
+A Twilio trial account can only text numbers it has verified first. Nothing in this
+app places a phone call: there is one outbound path and it is a text with a link in it.
 
 ## Demo script
 
@@ -305,9 +303,13 @@ Read this before showing anyone a number.
 
 ```
 backend/
-  app.py          every contract route, both websockets, serves web/dist at /
+  app.py          every contract route, serves web/dist at /
+  live.py         server-sent events, one stream per patient
   calls/          the web call: sessions, script, audio, the finish pipeline
-  rig_hub.py      the legacy FaceTime path, behind CALL_MODE=facetime
+  ingest/         reading a patient out of their documents: read, extract, apply, run
+  synth/          the flagship patient's document pack, from one facts file
+  timeline.py     the calendar and the population percentile
+  evidence.py     docs/RESEARCH.md parsed, with the live validation numbers
   db.py           sqlite, plain SQL          models.py   the contract as pydantic
   demo.py         reset, advance week, inject drift      alerts.py   the alert rules
   seed.py         cohort, population fit, demo patients
@@ -317,12 +319,15 @@ backend/
   features/       quality, face, gaze, pursuit, flash, saccade, antisaccade, fixation,
                   blink, speech, memory, fluency, sem, pipeline, synth,
                   webframes, websynth
-  agent/          script, dialog, safety, llm, summary, voices
-  comms/          notify, photon, sms, clinic_call, node/ (the iMessage sidecar)
-web/              the clinician app and the patient call page
+  agent/          safety, llm, summary, voices
+  comms/          notify, photon, sms, node/ (the iMessage sidecar)
+  data/           ... plus vessels.py and formulary.json
+web/              the app and the patient call page
+  src/pages/      Home, Clinic, PatientNew, Workspace, PatientCall
+  src/components/workspace/  the three zones and the four tabs
   src/call/       the call state machine, the tasks, the on-device measurement
   src/components/brain/   the holographic viewer
-rig/              the legacy rig: preflight, call, audio, capture, SETUP.md
+  e2e/            the browser checks: picking, vessels, layout at 390 and 1440
 prompts/          the four specs this was built from, and the frozen contract
 tests/            135 tests
 DECISIONS.md      every assumption, and the measurement that forced it
