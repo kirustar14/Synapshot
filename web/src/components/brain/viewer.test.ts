@@ -92,19 +92,50 @@ describe("week reads", () => {
 });
 
 describe("layer values", () => {
-  it("scales damage to this patient's own peak and reports it", () => {
+  it("spans this patient's own range and reports both ends", () => {
+    // The fixture puts region 7 at the peak and everything else at a tenth of it, so the
+    // ramp runs from 0.02 to 0.2 and the two ends are reported rather than implied.
     const twin = twinFixture(0.2);
     const v = layerValues("damage", { twin, week: 0 });
     expect(v.scaleTop).toBeCloseTo(0.2, 5);
+    expect(v.scaleLo).toBeCloseTo(0.02, 5);
     expect(v.pos[7]).toBeCloseTo(1, 5);
+    expect(v.pos[0]).toBeCloseTo(0, 5);
     expect(v.raw[7]).toBeCloseTo(0.2, 5);
     expect(v.glow[0]).toBeLessThan(v.glow[7]);
   });
 
-  it("never amplifies a nearly healthy brain past the floor", () => {
-    const v = layerValues("damage", { twin: twinFixture(0.01), week: 0 });
-    expect(v.scaleTop).toBe(0.12);
-    expect(v.pos[7]).toBeLessThan(0.15);
+  it("keeps the glow under the bloom threshold", () => {
+    // The worst region used to glow at 1.0, which the bloom pass then blew out to white
+    // and took every parcel boundary with it.
+    const v = layerValues("damage", { twin: twinFixture(0.2), week: 0 });
+    expect(Math.max(...v.glow)).toBeLessThanOrEqual(0.56);
+  });
+
+  it("does not amplify an even field into structure that is not there", () => {
+    // Every region the same. The spread floor means this renders flat rather than
+    // turning rounding noise into a map.
+    const flat = twinFixture(0.01);
+    for (const r of flat.regions) r.damage = r.damage.map(() => 0.01);
+    const v = layerValues("damage", { twin: flat, week: 0 });
+    expect(v.scaleLo).toBeCloseTo(0.01, 5);
+    expect(v.scaleTop).toBeCloseTo(0.01, 5);
+    expect(Math.max(...v.pos)).toBeCloseTo(0, 5);
+  });
+
+  it("shows structure in a narrow field instead of a wall of red", () => {
+    // A real week 0 is about 0.12 to 0.17, a spread of 1.5x well above zero. Dividing by
+    // the maximum put the least damaged region at 68 percent of the ramp and lit the
+    // whole cortex. The range mapping puts it at zero, where it belongs.
+    const narrow = twinFixture(0.17);
+    narrow.regions.forEach((r, i) => {
+      const v = i === 7 ? 0.17 : 0.12 + (i % 5) * 0.004;
+      r.damage = r.damage.map(() => v);
+    });
+    const v = layerValues("damage", { twin: narrow, week: 0 });
+    expect(v.pos[7]).toBeCloseTo(1, 5);
+    expect(Math.min(...v.pos)).toBeCloseTo(0, 5);
+    expect(v.raw[7]).toBeCloseTo(0.17, 5);
   });
 
   it("fades damage as the weeks run", () => {

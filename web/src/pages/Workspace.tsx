@@ -97,7 +97,7 @@ export default function Workspace() {
           past the viewport, the page scrolls, and the brain ends up half below the fold,
           which is the one thing this layout exists to prevent. 4rem is the shell header;
           dvh rather than vh so a phone's collapsing address bar does not cut it off. */}
-      <div className="flex h-[calc(100dvh-4rem)] min-h-0 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-col lg:h-[calc(100dvh-4rem)] lg:overflow-hidden">
       <TopBar
         patient={patient.data}
         onCall={() => setCalling(true)}
@@ -109,7 +109,11 @@ export default function Workspace() {
           after the rail so it is the first thing a screen reader reaches after the
           facts, and `min-h-0` on the grid is what lets the panels scroll inside their
           own column instead of the page growing. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto px-4 pb-4 lg:grid-cols-[260px_minmax(0,1fr)_380px] lg:overflow-hidden lg:px-6 xl:grid-cols-[280px_minmax(0,1fr)_420px]">
+      {/* Below lg the three zones are plain stacked blocks at their natural height and
+          the page scrolls. Above it they become fixed height columns that scroll inside
+          themselves, which is what makes the brain stay put while a tab is read. Trying
+          to do both at once was what made them overlap on a phone. */}
+      <div className="grid grid-cols-1 gap-4 px-4 pb-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[260px_minmax(0,1fr)_380px] lg:overflow-hidden lg:px-6 xl:grid-cols-[280px_minmax(0,1fr)_420px]">
         <LeftRail patient={patient.data} stream={stream} />
         <CenterBrain patient={patient.data} />
         <RightPanel patient={patient.data} />

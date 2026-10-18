@@ -28,7 +28,7 @@ export function RightPanel({ patient }: { patient: Patient }) {
   const { tab, setTab } = useWorkspace();
 
   return (
-    <aside className="order-3 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card">
+    <aside className="order-3 flex flex-col rounded-2xl border border-border/70 bg-card lg:min-h-0 lg:overflow-hidden">
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="m-2 grid shrink-0 grid-cols-4">
           {TABS.map((t) => (
@@ -40,16 +40,16 @@ export function RightPanel({ patient }: { patient: Patient }) {
 
         {/* Each tab owns its own scroll, so switching tabs does not move the page and
             the brain beside it never shifts. */}
-        <TabsContent value="data" className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <TabsContent value="data" className="px-3 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <DataTab patient={patient} />
         </TabsContent>
-        <TabsContent value="analysis" className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <TabsContent value="analysis" className="px-3 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <AnalysisTab patient={patient} />
         </TabsContent>
-        <TabsContent value="treatment" className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <TabsContent value="treatment" className="px-3 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <TreatmentTab patient={patient} />
         </TabsContent>
-        <TabsContent value="timeline" className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <TabsContent value="timeline" className="px-3 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <TimelineTab patient={patient} />
         </TabsContent>
       </Tabs>

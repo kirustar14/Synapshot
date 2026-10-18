@@ -160,6 +160,9 @@ export default function PatientNew() {
             ...have,
             [event.step]: {
               state: event.state,
+              // A running step carries what it is about to do; the done event replaces
+              // it with what it did. Keeping the old one on `undefined` means a step
+              // that reports nothing does not blank out the line above it.
               detail: event.detail ?? have[event.step]?.detail,
               items: event.items ?? have[event.step]?.items,
             },

@@ -44,15 +44,15 @@ export default function Clinic() {
             {data ? `${data.length} patients, ${flagged} with an open flag.` : "Loading the list."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name"
               aria-label="Search patients by name"
-              className="w-56 pl-8"
+              className="w-full pl-8 sm:w-56"
             />
           </div>
           <Button asChild>
@@ -70,16 +70,19 @@ export default function Clinic() {
       {data && data.length > 0 && rows.length === 0 && <Empty>Nobody matches {`"${query}"`}.</Empty>}
 
       {rows.length > 0 && (
-        <div className="panel overflow-hidden p-0 sm:p-2">
+        // The table scrolls inside the panel rather than taking the page sideways with
+        // it. A page that scrolls horizontally on a phone is a layout bug; a table that
+        // does is a table.
+        <div className="panel overflow-x-auto p-0 sm:p-2">
           <Table className="patient-table">
             <TableHeader>
               <TableRow>
                 <TableHead>Patient</TableHead>
                 <TableHead>Week</TableHead>
                 <TableHead>Drift z, highest first</TableHead>
-                <TableHead>Last check-in</TableHead>
+                <TableHead className="hidden md:table-cell">Last check-in</TableHead>
                 <TableHead>Flags</TableHead>
-                <TableHead>Data</TableHead>
+                <TableHead className="hidden sm:table-cell">Data</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -94,7 +97,9 @@ export default function Clinic() {
                   <TableCell>
                     <DriftBar z={p.drift_z} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{fmtDate(p.last_call)}</TableCell>
+                  <TableCell className="hidden text-muted-foreground md:table-cell">
+                    {fmtDate(p.last_call)}
+                  </TableCell>
                   <TableCell>
                     {p.flags.length === 0 ? (
                       <span className="text-xs text-muted-foreground">none</span>
@@ -106,7 +111,9 @@ export default function Clinic() {
                       </span>
                     )}
                   </TableCell>
-                  <TableCell>{p.synthetic && <SyntheticBadge />}</TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    {p.synthetic && <SyntheticBadge />}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

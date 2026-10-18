@@ -60,7 +60,7 @@ export function CenterBrain({ patient }: { patient: Patient }) {
   const layer: LayerId = viewer.layer;
 
   return (
-    <section className="order-1 flex min-h-0 min-w-0 flex-col gap-3 lg:order-2">
+    <section className="order-1 flex min-w-0 flex-col gap-3 lg:order-2 lg:min-h-0">
       {/* Layer chips. One row, every layer named, with the ramp beside the name so the
           colour on the brain and the word in the chip are the same thing. */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -106,7 +106,7 @@ export function CenterBrain({ patient }: { patient: Patient }) {
         )}
       </div>
 
-      <div className="relative min-h-[340px] flex-1 lg:min-h-0">
+      <div className="relative h-[52vh] min-h-[320px] lg:h-auto lg:min-h-0 lg:flex-1">
         <Suspense
           fallback={
             <div className="h-full min-h-[320px] rounded-xl border border-[#1e3a44] bg-[#070e12]" />

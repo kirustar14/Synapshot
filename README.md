@@ -1,14 +1,31 @@
 # Synapshot
 
+**A snapshot of your brain, every week.**
+
 A personal brain twin for traumatic brain injury.
 
-Every week a patient gets a text with a link. They open it on their own phone, and the page
-runs a fourteen minute check-in: it draws the stimuli, records, and measures eye movements,
-speech, memory and facial movement on the device. A whole-brain model forecasts twelve
-weeks of recovery with uncertainty bands, an ensemble Kalman filter updates that model
-after every call, and a drift alert goes to a clinician when reality leaves the band.
+Every week a patient gets a text with a link. They open it on their own phone, and the
+page runs a check-in: it draws the stimuli, records, and measures eye movements, speech,
+memory and facial movement on the device. The video never leaves the phone; only the
+numbers are sent. A whole-brain model forecasts twelve weeks of recovery with uncertainty
+bands, an ensemble Kalman filter updates that model after every call, and a flag lands in
+the clinician's workspace when reality leaves the band.
 
-Every patient in this repository is synthetic.
+The demo is five screens and one story:
+
+```
+  /                 a brain turning, and two buttons
+  /clinic           one table of everybody
+  /patients/new     drop their documents, watch five steps build the record
+  /patients/:id     the workspace: the brain, the flags, and four tabs beside it
+  /call/:token      what the patient opens on their phone
+```
+
+Nothing in this app places a phone call. There is exactly one outbound path: a text with
+a link in it.
+
+Every patient in this repository is synthetic, including the flagship one with ten
+documents. No real person's records are anywhere in it.
 
 ---
 
@@ -22,21 +39,24 @@ python3.11 -m venv .venv
 cp .env.example .env            # optional, an empty file behaves the same
 
 make mesh                       # the cortical surface, fetched once        (~30 s)
-make seed                       # cohort, population fit, six demo patients (~50 s)
+make sample                     # the flagship patient's ten documents      (~2 s)
+make seed                       # cohort, population fit, six demo patients (~15 s)
 make models                     # the face landmarker the phone runs        (3.8 MB)
-make web                        # build the clinician app and the call page
+make web                        # build the app and the call page
 make dev                        # everything on :8000
-make test                       # 135 tests                                (~40 s)
+make test                       # 191 tests                                (~55 s)
 ```
 
-`make all` runs mesh, seed, voices, models and web in the right order.
+`make all` runs mesh, sample, seed, voices, models and web in the right order.
 
 Then:
 
-- <http://localhost:8000/> is the clinician app
+- <http://localhost:8000/> is the landing page
+- <http://localhost:8000/clinic> is the patient list
 - <http://localhost:8000/api/health> should say `{"ok": true, "mode": "mock"}`
 - <http://localhost:8000/docs> is the generated API reference
-- `make check` prints what is real and what fell back
+- `make check` prints whether everything works
+- `make what` prints what is real, what is standing in, and what v2 removed
 
 To see a whole call with no phone at all:
 
@@ -48,6 +68,22 @@ curl -s -XPOST localhost:8000/api/demo/trigger-call \
 In mock mode that generates everything a phone would post and runs it through the real
 validation, the real nine point calibration fit, the real feature pipeline and the real
 filter update. The only thing it skips is the phone.
+
+Or open **Add patient** and press **Use sample patient files**. That reads the ten
+document pack `make sample` wrote, extracts the record from it with Claude (or with the
+built-in extractor when there is no key), builds the twin and fits the first forecast,
+and shows you each step as it happens, including the file it could not read.
+
+## What it rests on
+
+`docs/RESEARCH.md` lists every claim the model makes, its source, and whether anybody
+checked it. The Evidence drawer in the workspace shows the same thing with the live
+numbers beside it, weak results first. Two errors in this project's own numbers were
+found by writing that file: the ALERT-TBI GFAP cutoff is 22 pg/mL, not the 100 that had
+been written from memory, and the receptor atlas keys named a neuromaps source that does
+not exist, so every map had been silently falling back to noise.
+
+`DECISIONS.md` is every call made without asking, newest at the bottom.
 
 ## Run this first
 

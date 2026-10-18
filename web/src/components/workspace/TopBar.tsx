@@ -11,10 +11,25 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useApp } from "@/store/app";
 
-/** One fact, label above value, so a row of them reads as a header not a table. */
-function Fact({ label, value, title }: { label: string; value: string; title?: string }) {
+/** One fact, label above value, so a row of them reads as a header not a table.
+ *
+ * `wide` is for the mechanism, which is a sentence rather than a value: a real one runs
+ * to eighty characters and without a ceiling it pushes the actions onto a second row.
+ * The full text is in the title and in the Data tab.
+ */
+function Fact({
+  label,
+  value,
+  title,
+  wide = false,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+  wide?: boolean;
+}) {
   return (
-    <div className="min-w-0" title={title}>
+    <div className={wide ? "min-w-0 max-w-[22ch] xl:max-w-[34ch]" : "min-w-0"} title={title ?? value}>
       <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="truncate text-sm font-bold">{value}</p>
     </div>
@@ -68,8 +83,8 @@ export function TopBar({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <Fact label="Injury" value={mechanism} title={mechanism} />
+      <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2">
+        <Fact label="Injury" value={mechanism} title={mechanism} wide />
         <Fact label="When" value={sinceInjury(patient)} title={injury.date ?? ""} />
         <Fact label="Week" value={`${patient.week} of 12`} />
         {injury.contusion && <Fact label="Contusion" value={injury.contusion} />}

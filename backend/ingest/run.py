@@ -142,7 +142,8 @@ def stream(files: list[tuple[str, bytes]]):
     state: dict = {}
     for key, title in STEPS:
         began = time.monotonic()
-        yield {"kind": "step", "step": key, "state": "running", "say": title}
+        yield {"kind": "step", "step": key, "state": "running", "say": title,
+               "detail": waiting_on(key, state, files)}
         try:
             detail = _do(key, files, state)
         except Exception as exc:
@@ -168,6 +169,31 @@ def stream(files: list[tuple[str, bytes]]):
     }
 
 
+def waiting_on(key: str, state: dict, files: list[tuple[str, bytes]]) -> str:
+    """What a step is about to do, shown while it runs.
+
+    The extraction step is the slow one: reading ten documents with a model takes the
+    better part of a minute, and a spinner with no explanation for that long reads as a
+    hang. It says which extractor it is about to use and roughly how long that takes.
+    """
+    if key == "read":
+        return f"{len(files)} file{'s' if len(files) != 1 else ''}"
+    if key == "extract":
+        from ..agent import llm
+
+        docs = state.get("docs") or []
+        pages = len([d for d in docs if d.kind != "none"]) or len(files)
+        if llm.live():
+            return (f"asking Claude to read {pages} documents. This is the slow step and "
+                    "can take up to a minute.")
+        return "using the built-in extractor. No API key is set, so nothing is sent anywhere."
+    if key == "twin":
+        return "fitting the connectivity and the strain model"
+    if key == "forecast":
+        return "running the filter over twelve weeks"
+    return ""
+
+
 def _do(key: str, files: list[tuple[str, bytes]], state: dict) -> dict:
     """One step. Returns what the build log shows next to it."""
     if key == "read":
@@ -183,7 +209,10 @@ def _do(key: str, files: list[tuple[str, bytes]], state: dict) -> dict:
     if key == "extract":
         got, info = extract.run(state["docs"])
         state["extraction"], state["info"] = got, info
-        how = {"model": f"Claude {info.get('model', '')}".strip(),
+        # The model id is already "claude-sonnet-5", so "Claude claude-sonnet-5" reads
+        # as a stutter. Show the family and the version, which is the part that matters.
+        name = str(info.get("model") or "").removeprefix("claude-").replace("-", " ")
+        how = {"model": f"Claude {name}".strip(),
                "template": "the built-in extractor",
                "none": "the built-in extractor"}.get(str(info.get("how")), "the extractor")
         why = f". {info['why']}" if info.get("why") else ""

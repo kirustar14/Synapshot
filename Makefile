@@ -1,6 +1,6 @@
 PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: dev seed sample test check phone install clean mesh voices web models tunnel imessage all
+.PHONY: dev seed sample test check what phone install clean mesh voices web models tunnel imessage all
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -21,6 +21,11 @@ sample:
 
 check:
 	$(PY) -m backend.checklist
+
+# What is real, what is standing in, what v2 removed and what it merged. `make check`
+# answers "does this work"; this answers "what am I looking at".
+what:
+	$(PY) -m backend.finalcheck
 
 # Just the phone chain: can a text reach you and can your phone open the call page.
 # Every unfinished line says what to do about it.

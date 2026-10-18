@@ -137,7 +137,7 @@ export function LeftRail({ patient, stream }: { patient: Patient; stream: Stream
   ].filter(Boolean);
 
   return (
-    <aside className="order-2 min-h-0 overflow-y-auto rounded-2xl border border-border/70 bg-card lg:order-1">
+    <aside className="order-2 rounded-2xl border border-border/70 bg-card lg:order-1 lg:min-h-0 lg:overflow-y-auto">
       <Section title="Key facts">
         <Row label="Week" value={`${patient.week} of 12`} />
         {patient.injury.mri_finding && (

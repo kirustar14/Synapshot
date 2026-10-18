@@ -877,3 +877,63 @@ medication list, the symptoms the notes name. It is deliberately not inside `inj
 migration list in `db.py`.
 
 `CallScript` lost `clinic_number` and gained `full`, `minutes` and `skipped`.
+
+## The workspace, and four bugs a browser found
+
+Five screens became one. The overview, the twin viewer, the scenario compare, the call log
+and the alerts list were all about the same patient and all made you leave the brain
+behind to read them, so each moved into a tab beside the thing it is about. The rule that
+keeps it to four tabs: a tab is a kind of question, not a feature. Where did this number
+come from is Data. What does the model think is Analysis.
+
+These four were found by driving a real browser and looking, not by reading the code. All
+four render correctly at a glance and are wrong.
+
+- **The damage layer lit the whole cortex red.** Damage from a rotational impact is
+  diffuse by construction: the strain model damages edges by how they are oriented
+  against the blow, and 3957 of 4950 edges end up above half the maximum. A real week 0
+  field is about 0.12 to 0.17. Dividing by the maximum, which is what the ramp did,
+  mapped that whole narrow field onto the top third of the colour scale and the brain
+  looked catastrophically injured when the model was saying something mild and even. The
+  ramp spans the patient's own range now, reports both ends, and the glow is capped at
+  0.55 so the bloom pass cannot blow the surface to white and take the parcel boundaries
+  with it.
+- **The camera framed the brain at a fixed multiple of the mesh radius.** That only works
+  at one aspect ratio. A perspective camera's horizontal field of view is the vertical
+  one scaled by the aspect, so in the workspace's tall narrow column the brain ran off
+  both edges. It fits against whichever axis is tighter now, which also fixes it at 390
+  pixels wide.
+- **Moving the camera without telling the orbit controls** left the two disagreeing, and
+  the next damping tick dragged the view off centre a second after any resize.
+- **The workspace grew past the viewport.** A one-screen layout whose grid can grow is
+  not a one-screen layout, and the brain sat half below the fold.
+
+Two more worth recording:
+
+- Two flags of the same kind from different weeks rendered identically, because the week
+  was being stripped out of the reason line as redundant with the rail. It is not
+  redundant. Two identical rows read as a duplicate; the same flag in two consecutive
+  weeks is the pattern the rule exists to find.
+- The clinic table took the whole page sideways at 390 pixels. A page that scrolls
+  horizontally on a phone is a layout bug; a table that does is a table. It scrolls
+  inside its panel now and drops its two least important columns on a narrow screen.
+
+### The vessel layer
+
+35 vessels as merged tubes, four draw calls, one per group. Drawn opaque with depth
+testing on, unlike the tracts: a vessel is a surface structure and occluding it correctly
+is the point, where the tracts run underneath and are deliberately shown through.
+Arteries are off by default, because in a head injury the venous side is what usually
+matters and both at once is a thicket.
+
+The SWI foci are the only patient-specific thing in that layer, and they are placed
+rather than measured: a report gives a count and a lobe, not coordinates, so the nodes
+are spread deterministically around the impact point. The caption covers them. A node
+there says "the report counted this many foci in this region", not "a focus is here".
+
+### make what
+
+`make check` answers whether the system works. `make what` answers what you are looking
+at, which is the question somebody watching the demo actually has: what is real, what is
+standing in, what v2 removed and what it merged. It reads the live system rather than a
+list somebody typed, so a line claiming a thing is real has gone and looked.
