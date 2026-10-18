@@ -1521,3 +1521,17 @@ painted over the cortex unconditionally. That was survivable while the cortex wa
 Once the merged shader made it slightly translucent they read as a khaki veil draped
 across the brain with pale streaks through it. Depth testing is on now: the cortex in
 front of a tract hides it, the layer still toggles, and nothing else changed.
+
+## 1: the restyle
+
+Editorial pass applied at the token layer so every screen moved at once rather than
+screen by screen. Off-white #FBFBFB page, near-black ink, Instrument Serif headings with
+one italic word, Space Grotesk body, JetBrains Mono for anything that is a label rather
+than a sentence. Fonts are local fontsource packages: the call page has to work on a
+phone over a tunnel with no outside network.
+
+Primary buttons are the ink colour, not the accent. The accent is kept for state and for
+the brain, where it carries meaning; a page of teal buttons spends it on navigation.
+
+The Home hero canvas is transparent now (`alpha: bare`). It was an opaque buffer, so the
+brain sat in a grey box on the off-white page.

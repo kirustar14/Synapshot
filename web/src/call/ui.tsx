@@ -290,10 +290,10 @@ export function Big({
 }) {
   const skin =
     tone === "primary"
-      ? "bg-primary text-primary-foreground border-transparent"
+      ? "bg-foreground text-background border-transparent"
       : tone === "danger"
         ? "bg-destructive-soft text-destructive border-destructive/40"
-        : "bg-card text-foreground border-border";
+        : "bg-card text-foreground border-foreground/25";
   return (
     <button
       type="button"

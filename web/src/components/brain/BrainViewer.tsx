@@ -248,7 +248,8 @@ export default function BrainViewer(props: BrainViewerProps) {
   return (
     <div
       className={cn(
-        "workspace-visual relative overflow-hidden bg-[#e4e4e0]",
+        "workspace-visual relative overflow-hidden",
+        bare ? "bg-transparent" : "bg-[#e4e4e0]",
         // `bare` is the landing page, where the canvas is the whole frame. A border and
         // a corner radius there draw a box around what is meant to be the background.
         !bare && "rounded-xl border border-[#c9c9c4]",
@@ -258,11 +259,13 @@ export default function BrainViewer(props: BrainViewerProps) {
     >
       <Canvas
         dpr={[1, 1.75]}
-        gl={{ antialias: !compact, alpha: false, powerPreference: "high-performance" }}
+        // The hero is transparent so the brain sits on the page rather than in a box.
+        // Everywhere else keeps an opaque buffer, which is cheaper.
+        gl={{ antialias: !compact, alpha: bare, powerPreference: "high-performance" }}
         camera={{ fov: 34, near: 1, far: 4000, position: [-240, 90, -160] }}
-        style={{ touchAction: "pan-y" }}
+        style={{ touchAction: "pan-y", background: "transparent" }}
       >
-        <color attach="background" args={["#e4e4e0"]} />
+        {!bare && <color attach="background" args={["#e4e4e0"]} />}
         <Scene
           cortex={cortex}
           mesh={mesh.data}
