@@ -22,6 +22,7 @@ import {
 import { ChartKey, SignalChart } from "@/components/charts/SignalChart";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { AlertCard } from "@/components/panels/AlertCard";
+import { PipelinePanel } from "@/components/panels/PipelinePanel";
 import { CompactTwin } from "@/components/panels/CompactTwin";
 import { Gauge } from "@/components/panels/Gauge";
 import { Transcript } from "@/components/panels/Transcript";
@@ -143,6 +144,10 @@ export default function PatientOverview() {
         <Button variant="outline" onClick={() => window.print()}>
           <FileDown aria-hidden /> Export report
         </Button>
+      </div>
+
+      <div className="no-print">
+        <PipelinePanel patientId={patient.id} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">

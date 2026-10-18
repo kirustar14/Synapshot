@@ -1,6 +1,6 @@
 # web/
 
-The UNNAMED frontend. Vite, React 19, TypeScript, Tailwind v4, React Router v7, TanStack Query,
+The Synapshot frontend. Vite, React 19, TypeScript, Tailwind v4, React Router v7, TanStack Query,
 Zustand, Recharts, three with react-three-fiber.
 
 This directory currently holds the foundation: the theme, the app shell and routing, the full API

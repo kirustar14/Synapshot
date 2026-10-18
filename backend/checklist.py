@@ -10,7 +10,7 @@ import json
 
 from . import config, db, models
 from .config import ROOT, cfg
-from .agent import llm
+from .agent import creao, llm
 from .twin import population
 
 GREEN = "PASS"
@@ -149,6 +149,10 @@ def mock_check() -> list[dict]:
         line(MOCK if cfg.mock_llm else GREEN, "LLM",
              "template lines, set GEMINI_API_KEY for natural phrasing"
              if cfg.mock_llm else f"live on Gemini {llm.model_name()}"),
+        line(MOCK if not creao.live("briefing") else GREEN, "CREAO agents",
+             "templates only, set CREAO_API_KEY and CREAO_AGENT_ID to run the real briefing agent"
+             if not creao.live("briefing") else
+             "live: " + ", ".join(f"{r} {'agent' if creao.live(r) else 'template'}" for r in creao.ROLES)),
         line(MOCK if cfg.mock_photon else GREEN, "iMessage",
              "written to the messages table, set PHOTON_PROJECT_ID and "
              "PHOTON_PROJECT_SECRET to send"
@@ -370,7 +374,7 @@ def main() -> int:
     db.conn()
     got = run()
     print("")
-    print("  UNNAMED final checklist")
+    print("  Synapshot final checklist")
     print("  " + "=" * 74)
     for title, rows in got["sections"].items():
         print(f"\n  {title}")

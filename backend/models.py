@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Flag = Literal["red_flag", "missed_call", "low_quality", "drift"]
+Flag = Literal["red_flag", "missed_call", "low_quality", "drift", "agent_review"]
 Kind = Literal["t1", "dwi", "fmri", "vcf", "labs", "injury"]
 Group = Literal["eyes", "speech", "memory", "symptoms"]
 Tier = Literal["A", "B"]
@@ -721,3 +721,33 @@ class Voices(BaseModel):
     model: str
     lines: list[VoiceLine]
     note: str
+
+
+class AgentStage(BaseModel):
+    """One agent in the pipeline."""
+
+    role: Literal["triage", "briefing", "outreach"]
+    label: str
+    status: str                       # pending, running, completed, failed, cancelled, skipped
+    mock: bool                        # True when no CREAO agent was called for this stage
+    agent_id: str | None = None
+    creao_run_id: str | None = None
+    error: str | None = None
+
+
+class AgentPipeline(BaseModel):
+    """Triage, then briefing and outreach, run on CREAO agents. Text here is a draft."""
+
+    id: str
+    week: int
+    status: str                       # running, completed, failed
+    level: str | None = None          # routine, watch or escalate, from the triage agent
+    reasons: list[str] = []
+    escalated: bool = False           # True when the app raised an alert from the triage result
+    stages: list[AgentStage]
+    briefing: str | None = None
+    follow_ups: list[str] = []
+    patient_message: str | None = None  # a draft, never sent automatically
+    next_steps: list[str] = []
+    created: str
+    updated: str

@@ -9,9 +9,9 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_clinic/rig/")({
   head: () => ({
     meta: [
-      { title: "Rig console | UNNAMED" },
+      { title: "Rig console | Synapshot" },
       { name: "description", content: "Live presenter view of the FaceTime rig: gaze, quality and transcript." },
-      { property: "og:title", content: "Rig console | UNNAMED" },
+      { property: "og:title", content: "Rig console | Synapshot" },
       { property: "og:description", content: "Live presenter view of the call rig." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

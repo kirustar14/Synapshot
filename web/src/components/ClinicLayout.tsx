@@ -22,12 +22,12 @@ interface NavItem {
 
 function Brand() {
   return (
-    <Link to="/" aria-label="UNNAMED home" className="flex h-[100px] items-center gap-3 px-7">
+    <Link to="/" aria-label="Synapshot home" className="flex h-[100px] items-center gap-3 px-7">
       <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary/15 bg-primary-soft text-primary">
         <Brain className="h-6 w-6" strokeWidth={1.5} aria-hidden />
       </span>
       <span>
-        <span className="block text-2xl font-black">unnamed.</span>
+        <span className="block text-2xl font-black">synapshot.</span>
         <span className="block text-[10px] font-semibold text-muted-foreground">The brain twin lab</span>
       </span>
     </Link>
@@ -146,7 +146,7 @@ export function ClinicLayout() {
             <ChevronRight className="h-3 w-3 text-muted-foreground" aria-hidden />
             <span className="font-bold">{section}</span>
           </div>
-          <span className="text-sm font-extrabold sm:hidden">unnamed.</span>
+          <span className="text-sm font-extrabold sm:hidden">synapshot.</span>
           <div className="ml-auto flex items-center gap-2">
             {syntheticData && (
               <span className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1.5 text-[11px] font-bold text-accent-foreground">

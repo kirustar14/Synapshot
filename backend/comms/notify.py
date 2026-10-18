@@ -52,7 +52,7 @@ def body_for(pid: str, kind: str, link: str = "", body: str = "") -> str:
     """
     who = first_name(pid)
     if kind == "consent":
-        return (f"Hi {who}, this is the UNNAMED study assistant. Before anything else, "
+        return (f"Hi {who}, this is the Synapshot study assistant. Before anything else, "
                 f"please read and answer the consent questions here: {link}")
     if kind == "heads_up":
         return (f"Hi {who}, your weekly check-in is due tomorrow. It takes about fourteen "

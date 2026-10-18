@@ -1,4 +1,4 @@
-# UNNAMED
+# Synapshot
 
 A personal brain twin for traumatic brain injury.
 

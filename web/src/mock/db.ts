@@ -420,7 +420,7 @@ function makePatient(id: string, seed: Seed, now: number): PState {
   const first = seed.name.split(" ")[0];
   const t0 = base - DAY / 2;
   s.messages = [
-    { dir: "out", body: `Hello ${first}, this is the UNNAMED care line. Your clinic set up weekly video check-ins. Reply YES to open the consent page.`, time: new Date(t0).toISOString(), channel: "mock" },
+    { dir: "out", body: `Hello ${first}, this is the Synapshot care line. Your clinic set up weekly video check-ins. Reply YES to open the consent page.`, time: new Date(t0).toISOString(), channel: "mock" },
     { dir: "in", body: "YES", time: new Date(t0 + 120000).toISOString(), channel: "mock" },
     { dir: "out", body: "Thank you. Your first call link arrives tomorrow at 10:00. It takes about ten minutes.", time: new Date(t0 + 180000).toISOString(), channel: "mock" },
   ];
@@ -452,6 +452,7 @@ const TRIGGERS: Record<Flag, string> = {
   missed_call: "No answer to the scheduled call, two retries",
   low_quality: "Frame rate under 20 fps, calibration error above 1.5 deg, flash test failed",
   drift: "Observed values outside the 80% band on three signals",
+  agent_review: "The triage agent escalated this week for review",
 };
 
 /* ---------------------------------------------------------------- the store */

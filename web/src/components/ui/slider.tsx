@@ -7,7 +7,7 @@ const Slider = React.forwardRef<
   React.ElementRef<typeof SliderPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root>
   // Radix puts role="slider" on the Thumb, not the Root, so a label passed to this
-  // component has to be forwarded down or a screen reader reads the control unnamed.
+  // component has to be forwarded down or a screen reader reads the control synapshot.
 >(({ className, "aria-label": label, "aria-labelledby": labelledBy, ...props }, ref) => (
   <SliderPrimitive.Root
     ref={ref}

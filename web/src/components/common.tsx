@@ -40,6 +40,7 @@ const FLAG: Record<Flag, { label: string; cls: string }> = {
   missed_call: { label: "Missed call", cls: "border-border bg-muted text-muted-foreground" },
   low_quality: { label: "Low quality", cls: "border-synthetic/40 bg-synthetic-soft text-synthetic-foreground" },
   drift: { label: "Drift", cls: "border-chart-2/40 bg-accent text-accent-foreground" },
+  agent_review: { label: "Agent review", cls: "border-primary/40 bg-accent text-accent-foreground" },
 };
 
 export const flagLabel = (f: Flag) => FLAG[f].label;
